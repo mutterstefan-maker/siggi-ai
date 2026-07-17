@@ -1145,7 +1145,6 @@ let jarvisRecognition = null;
 let jarvisListening = false;
 let jarvisSpeaking = false;
 let jarvisConversation = [];
-let siggiGreetedDate = localStorage.getItem('siggiGreetedDate'); // Datum der letzten Begrüßung (einmal pro Tag)
 let jarvisOrb = null;
 let jarvisVoice = null;
 
@@ -1301,43 +1300,7 @@ async function renderJarvis() {
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
   }
 
-  // Begrüßung nur einmal pro Tag
-  const today = new Date().toDateString();
-  if (siggiGreetedDate === today) return; // Bereits heute begrüßt
-  siggiGreetedDate = today;
-  localStorage.setItem('siggiGreetedDate', today);
-
-  setTimeout(async () => {
-    const hour = new Date().getHours();
-    const greeting = hour < 5 ? 'Noch so spät wach, Mutti' : hour < 12 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend';
-
-    let proactiveMsg = '';
-    try {
-      const [counts, inbox, igQueue] = await Promise.all([
-        apiFetch('/api/counts'),
-        apiFetch('/api/mails/inbox'),
-        apiFetch('/api/instagram/queue'),
-      ]);
-      const newCustomers = (inbox||[]).filter(m => m.is_new_customer).length;
-      const unread = counts?.inbox || 0;
-      const queueSize = (igQueue||[]).length;
-
-      const parts = [];
-      if (newCustomers > 0) parts.push(`${newCustomers} neue${newCustomers === 1 ? 'r Kunde hat' : ' Kunden haben'} sich gemeldet`);
-      if (unread > 0) parts.push(`${unread} ungelesene E-Mail${unread === 1 ? '' : 's'} im Posteingang`);
-      if (queueSize === 0) parts.push('die Instagram-Warteschlange ist übrigens leer');
-      if (queueSize > 0) parts.push(`${queueSize} Bild${queueSize === 1 ? '' : 'er'} bereit für Instagram`);
-      if (parts.length > 0) proactiveMsg = ` Kurzes Update: ${parts.join(', ')}. `;
-    } catch(e) {}
-
-    const wittyEndings = [
-      'Ich kümmere mich um dein Imperium.',
-      'Was steht heute an, Mutti?',
-      'Alle Systeme operativ. Du kannst dich entspannen.',
-    ];
-    const ending = wittyEndings[Math.floor(Math.random() * wittyEndings.length)];
-    jarvisSay(`${greeting}, Mutti. SIGGI ist online.${proactiveMsg}${ending}`);
-  }, 500);
+  // Automatische Begrüßung deaktiviert (Mutti wollte das nicht mehr)
 }
 
 function initJarvisVoice() {
