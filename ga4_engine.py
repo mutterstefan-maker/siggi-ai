@@ -4,6 +4,7 @@ Google Analytics 4 Engine für SIGGI
 Liest Traffic, Sessions, Nutzer und Conversions für chefblick.de
 """
 import os
+import time
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +13,9 @@ SERVICE_ACCOUNT_PATH = os.path.join(BASE_DIR, 'google_service_account.json')
 # GA4 Property ID — im Format '123456789' (ohne 'properties/')
 # Zu finden in GA4: Admin → Property → Property-Details
 GA4_PROPERTY_ID = ''  # wird aus settings.json geladen falls vorhanden
+
+_context_cache = {'text': None, 'expires': 0}
+_CONTEXT_TTL = 900  # 15 Minuten - Tages-Statistiken müssen nicht pro Chat frisch sein
 
 
 def _get_property_id():
@@ -109,12 +113,14 @@ def get_top_pages(days=28, limit=5):
 
 
 def get_ga4_context():
-    """Für SIGGIs System-Prompt: kompakte GA4-Zusammenfassung."""
+    """Für SIGGIs System-Prompt: kompakte GA4-Zusammenfassung (gecacht, 15 Min TTL)."""
     if not os.path.exists(SERVICE_ACCOUNT_PATH):
         return ''
     property_id = _get_property_id()
     if not property_id:
         return 'GOOGLE ANALYTICS: Property-ID fehlt (ga4_property_id in settings.json eintragen).'
+    if _context_cache['text'] is not None and time.time() < _context_cache['expires']:
+        return _context_cache['text']
     try:
         overview = get_overview(28)
         pages = get_top_pages(28, 3)
@@ -130,6 +136,9 @@ def get_ga4_context():
         if pages:
             pg_str = ', '.join(f'{p["page"]} ({p["views"]}x)' for p in pages)
             lines.append(f'  Top-Seiten: {pg_str}')
-        return '\n'.join(lines)
+        text = '\n'.join(lines)
+        _context_cache['text'] = text
+        _context_cache['expires'] = time.time() + _CONTEXT_TTL
+        return text
     except Exception as e:
         return f'GOOGLE ANALYTICS: Fehler ({e})'
