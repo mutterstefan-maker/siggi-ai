@@ -409,8 +409,6 @@ input:checked + .slider:before { transform: translateX(16px); }
 .gap-response { font-size: 12px; color: var(--text2); }
 
 
-.stat-grid { display: grid; min-width: 0; }
-
 .ig-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -507,10 +505,9 @@ input:checked + .slider:before { transform: translateX(16px); }
   .sidebar-overlay.open { display: block; }
   .hamburger { display: flex; }
   .main { width: 100vw; }
-  .topbar { padding: 8px 12px; gap: 8px; height: auto; min-height: 56px; flex-wrap: wrap; }
+  .topbar { padding: 0 12px; gap: 8px; }
   .topbar h2 { font-size: 13px; }
-  #search-input { flex: 1 1 100% !important; max-width: 100% !important; font-size: 12px !important; order: 3; }
-  .topbar .btn { font-size: 11px; padding: 6px 10px; }
+  #search-input { max-width: 140px !important; font-size: 11px !important; }
   .mail-list { width: 100% !important; }
   .mail-detail { display: none !important; }
   .mail-list.hide { display: none !important; }
@@ -518,13 +515,6 @@ input:checked + .slider:before { transform: translateX(16px); }
   .content { flex-direction: column; }
   .settings-panel { padding: 16px; }
   .settings-section { padding: 14px; }
-  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
-  [style*="grid-template-columns:1fr 1fr"],
-  [style*="grid-template-columns: 1fr 1fr"],
-  [style*="grid-template-columns:1fr 2fr"],
-  [style*="grid-template-columns: 1fr 2fr"] {
-    grid-template-columns: 1fr !important;
-  }
 }
 
 /* ── Loading ── */
@@ -1005,7 +995,7 @@ async function renderMailView(view) {
 }
 
 function mailItemHTML(m, view) {
-  const from = view === 'sent' ? `An: ${cleanFrom(m.to_addr || m.from_addr || '')}` : cleanFrom(m.from_addr || '');
+  const from = view === 'sent' ? `An: ${m.to_addr}` : cleanFrom(m.from_addr || '');
   const subject = m.subject || '(Kein Betreff)';
   const preview = (m.body || m.ai_reply || '').replace(/\n/g, ' ').substring(0, 80);
   const date = formatDate(m.date || m.sent_at || m.created_at);
@@ -1098,7 +1088,7 @@ function renderMailDetail(m, container, view) {
           <button class="btn btn-ghost" onclick="moveMail(${m.id}, 'inbox')">📥 → Posteingang</button>
           <button class="btn btn-ghost" onclick="moveMail(${m.id}, 'callbacks')">📞 → Rückrufe</button>
           <button class="btn btn-ghost" onclick="moveMail(${m.id}, 'invoices')">🧾 → Rechnungen</button>
-          <button class="btn btn-ghost" onclick="markSpam(${m.id}, '${m.from_addr?.replace(/'/g, '')}')">🚫 Spam</button>
+          <button class="btn btn-ghost" data-from="${escHtml(m.from_addr || '')}" onclick="markSpam(${m.id}, this.dataset.from)">🚫 Spam</button>
           <button class="btn btn-danger" onclick="deleteMail(${m.id})">🗑️ Löschen</button>
         </div>
       </div>` : ''}
@@ -1121,7 +1111,7 @@ function renderSentDetail(m, container) {
     <div class="detail-header">
       <div class="detail-subject">${escHtml(m.subject || '')}</div>
       <div class="detail-meta">
-        <span>📤 An: ${escHtml(m.to_addr || m.from_addr || '')}</span>
+        <span>📤 An: ${escHtml(m.to_addr || '')}</span>
         <span>📅 ${formatDate(m.sent_at)}</span>
         <span>📧 Von: ${escHtml(m.account || '')}</span>
       </div>
@@ -1145,19 +1135,19 @@ let jarvisRecognition = null;
 let jarvisListening = false;
 let jarvisSpeaking = false;
 let jarvisConversation = [];
+let siggiGreetedDate = null; // Datum der letzten Begrüßung (einmal pro Tag)
 let jarvisOrb = null;
 let jarvisVoice = null;
 
 const JARVIS_PERSONA = `Du bist SIGGI (Just A Rather Very Intelligent System), der persönliche KI-Assistent von Stefan Mutter, Inhaber der Webdesign-Agentur ChefBlick in Haag an der Amper, Bayern.
 
 WICHTIGE REGELN:
-- Nenne Stefan IMMER "Mutti" - niemals Stefan oder Herr Mutter
-- Sprich auf Deutsch, aber mit einem leicht britisch-förmlichen Unterton
-- Gelegentlich erlaubter Sarkasmus - aber respektvoll
+- Sprich Stefan meistens normal an. Nur hin und wieder (nicht in jeder Antwort, nicht am Satzanfang) darfst du ihn locker "Mutti" nennen - als seltenen Spitznamen, nicht als Floskel
+- Sprich auf Deutsch, mit einem leicht britisch-förmlichen Unterton
 - Kurze, präzise Antworten - keine langen Romane
 - Iron Man / SIGGI Stil: professionell, intelligent, leicht trocken
+- Gelegentlich erlaubter Sarkasmus - aber respektvoll
 - Wenn du keine Lösung hast: sag es direkt und schlage Alternativen vor
-- Beginne Antworten manchmal mit: "Natürlich, Mutti.", "Selbstverständlich.", "Interessante Frage, Mutti.", "Wie Sie wünschen." oder "Darf ich anmerken..."
 - Du hast Zugriff auf das MailDesk Dashboard und kennst alle Daten
 
 CHEFBLICK KONTEXT:
@@ -1300,7 +1290,7 @@ async function renderJarvis() {
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
   }
 
-  // Automatische Begrüßung deaktiviert (Mutti wollte das nicht mehr)
+
 }
 
 function initJarvisVoice() {
@@ -1485,41 +1475,6 @@ function addJarvisMessage(text, type) {
   t.scrollTop = t.scrollHeight;
 }
 
-// ── Desktop-Agent Bestätigungskarte ──────────────────────────────────────
-
-function addDesktopConfirmCard(actionId, description) {
-  const t = document.getElementById('jarvis-transcript');
-  if (!t) return;
-  const card = document.createElement('div');
-  card.className = 'jarvis-msg-system';
-  card.id = `desktop-confirm-${actionId}`;
-  card.style.cssText = 'margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)';
-  card.innerHTML = `
-    <div style="margin-bottom:8px">🖥️ <strong>Desktop-Aktion bestätigen:</strong><br>${escHtml(description)}</div>
-    <button class="btn btn-primary" style="margin-right:8px" onclick="confirmDesktopAction('${actionId}')">✅ Ausführen</button>
-    <button class="btn btn-ghost" onclick="cancelDesktopAction('${actionId}')">✕ Abbrechen</button>
-  `;
-  t.appendChild(card);
-  t.scrollTop = t.scrollHeight;
-}
-
-async function confirmDesktopAction(actionId) {
-  const card = document.getElementById(`desktop-confirm-${actionId}`);
-  if (card) card.innerHTML = '⏳ Wird ausgeführt...';
-  const result = await apiFetch(`/api/desktop/confirm/${actionId}`, 'POST');
-  if (card) {
-    card.innerHTML = result?.ok
-      ? `✅ Erledigt: ${escHtml(JSON.stringify(result.data ?? 'OK'))}`
-      : `❌ Fehler: ${escHtml(result?.error || 'unbekannt')}`;
-  }
-}
-
-async function cancelDesktopAction(actionId) {
-  const card = document.getElementById(`desktop-confirm-${actionId}`);
-  await apiFetch(`/api/desktop/cancel/${actionId}`, 'POST');
-  if (card) card.innerHTML = '✕ Abgebrochen.';
-}
-
 // ── Spracheingabe (Web Speech API) ───────────────────────────────────────
 
 function toggleMic() {
@@ -1531,7 +1486,6 @@ function toggleMic() {
 
   if (jarvisListening) {
     // Zweiter Klick: aufnehmen stoppen und Text senden
-    _jarvisManualStop = true;
     if (jarvisRecognition) jarvisRecognition.stop();
     setTimeout(() => {
       const inp = document.getElementById('jarvis-input');
@@ -1548,32 +1502,23 @@ function toggleMic() {
   }
 }
 
-let _jarvisAccumulatedFinal = '';
-let _jarvisManualStop = false;
-
 function startMic() {
   if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    jarvisSay('Leider unterstützt dieser Browser keine Spracheingabe, Mutti. Bitte Chrome oder Edge nutzen.');
+    jarvisSay('Leider unterstützt dieser Browser keine Spracheingabe. Bitte Chrome oder Edge nutzen.');
     return;
   }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  _jarvisAccumulatedFinal = '';
-  window._finalTranscriptGlobal = '';
-  _jarvisManualStop = false;
-  _startJarvisRecognitionSession(SR);
-}
-
-function _startJarvisRecognitionSession(SR) {
   jarvisRecognition = new SR();
   jarvisRecognition.lang = 'de-DE';
-  // continuous:true verursacht auf Android Chrome interne Neustarts, die bereits
-  // erkannten Text erneut liefern (Grund für sich wiederholende Sätze).
-  // Stattdessen: kurze Sessions, die bei onend automatisch neu gestartet werden.
-  jarvisRecognition.continuous = false;
+  jarvisRecognition.continuous = true;
   jarvisRecognition.interimResults = true;
+
+  let _finalTranscript = '';
 
   jarvisRecognition.onstart = () => {
     jarvisListening = true;
+    _finalTranscript = '';
+    window._finalTranscriptGlobal = '';
     document.getElementById('jarvis-mic')?.classList.add('active');
     if (jarvisOrb) jarvisOrb.classList.add('listening');
     setJarvisStatus('HÖRE ZU...');
@@ -1583,40 +1528,18 @@ function _startJarvisRecognitionSession(SR) {
   };
 
   jarvisRecognition.onresult = (e) => {
+    _finalTranscript = '';
     let interim = '';
-    let newFinal = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) newFinal += e.results[i][0].transcript + ' ';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) _finalTranscript += e.results[i][0].transcript + ' ';
       else interim += e.results[i][0].transcript;
     }
-    newFinal = newFinal.trim();
-    if (newFinal) {
-      const acc = _jarvisAccumulatedFinal.trim();
-      if (!acc || newFinal === acc) {
-        _jarvisAccumulatedFinal = newFinal + ' ';
-      } else if (newFinal.startsWith(acc)) {
-        // Android liefert nach einem Neustart oft den gesamten bisherigen Satz erneut
-        // plus ein paar neue Wörter -> ersetzen statt anhängen, sonst dopplet/verdreifacht sich der Text.
-        _jarvisAccumulatedFinal = newFinal + ' ';
-      } else if (acc.startsWith(newFinal)) {
-        // schon enthalten -> ignorieren
-      } else {
-        _jarvisAccumulatedFinal += newFinal + ' ';
-      }
-    }
-    window._finalTranscriptGlobal = _jarvisAccumulatedFinal.trim();
+    window._finalTranscriptGlobal = _finalTranscript.trim();
     const inp = document.getElementById('jarvis-input');
-    if (inp) inp.value = (_jarvisAccumulatedFinal + interim).trim();
+    if (inp) inp.value = (_finalTranscript + interim).trim();
   };
 
   jarvisRecognition.onend = () => {
-    if (!_jarvisManualStop) {
-      // Session ist von selbst ausgelaufen (z.B. kurze Sprechpause) – nahtlos weiterhören.
-      // Kleine Verzögerung, damit sich alte und neue Session nicht überlappen
-      // (Android liefert sonst dieselbe Audio-Passage doppelt).
-      setTimeout(() => _startJarvisRecognitionSession(SR), 250);
-      return;
-    }
     jarvisListening = false;
     document.getElementById('jarvis-mic')?.classList.remove('active');
     if (jarvisOrb) jarvisOrb.classList.remove('listening');
@@ -1626,23 +1549,18 @@ function _startJarvisRecognitionSession(SR) {
   };
 
   jarvisRecognition.onerror = (e) => {
-    console.log('[Mic] Fehler:', e.error);
-    if (e.error === 'no-speech' || e.error === 'aborted') {
-      // Kein Grund zum Abbrechen – onend kümmert sich um den nahtlosen Neustart.
-      return;
-    }
-    _jarvisManualStop = true;
     jarvisListening = false;
     document.getElementById('jarvis-mic')?.classList.remove('active');
     if (jarvisOrb) { jarvisOrb.classList.remove('listening'); jarvisOrb.classList.remove('speaking'); }
     const hint = document.getElementById('jarvis-mic-hint');
     if (hint) hint.textContent = 'TIPPEN ZUM SPRECHEN';
+    console.log('[Mic] Fehler:', e.error);
     if (e.error === 'not-allowed') {
       setJarvisStatus('MIKROFON BLOCKIERT');
-      jarvisSay('Mutti, das Mikrofon ist blockiert. Oben links auf das Schloss-Symbol klicken.');
+      jarvisSay('Das Mikrofon ist blockiert. Oben links auf das Schloss-Symbol klicken.');
     } else if (e.error === 'audio-capture') {
       setJarvisStatus('KEIN MIKROFON');
-      jarvisSay('Kein Mikrofon gefunden, Mutti.');
+      jarvisSay('Kein Mikrofon gefunden.');
     } else {
       setJarvisStatus('BEREIT');
     }
@@ -1652,7 +1570,6 @@ function _startJarvisRecognitionSession(SR) {
 }
 
 function stopMic() {
-  _jarvisManualStop = true;
   if (jarvisRecognition) jarvisRecognition.stop();
 }
 
@@ -1663,7 +1580,7 @@ function switchJarvisVoice() {
   jarvisVoice = next;
   addJarvisMessage(`Stimme gewechselt zu: ${next.name} (${next.lang})`, 'system');
   // Test
-  const utt = new SpeechSynthesisUtterance('Test. Guten Tag Mutti, ich bin jetzt mit dieser Stimme online.');
+  const utt = new SpeechSynthesisUtterance('Test. Guten Tag, ich bin jetzt mit dieser Stimme online.');
   utt.voice = next;
   utt.rate = 0.85;
   utt.pitch = 0.7;
@@ -1718,17 +1635,9 @@ async function sendJarvisMessageDirect(text) {
       body: JSON.stringify({ message: text, conversation: jarvisConversation, dashboard_data: dashData })
     });
     const data = await response.json();
-    const reply = data.reply || 'Entschuldigung, Mutti. Kurzer Aussetzer.';
+    const reply = data.reply || 'Entschuldigung, kurzer Aussetzer.';
     jarvisConversation.push({ role: 'assistant', content: reply });
-
-    const desktopMatch = reply.match(/BESTAETIGUNG_ERFORDERLICH id=([a-f0-9-]+):\s*(.+)/i);
-    if (desktopMatch) {
-      const [, actionId, desc] = desktopMatch;
-      jarvisSay(`Soll ich das wirklich tun? ${desc}`);
-      addDesktopConfirmCard(actionId, desc);
-    } else {
-      jarvisSay(reply);
-    }
+    jarvisSay(reply);
 
     // UI-Aktionen ausführen
     if (data.actions && data.actions.length > 0) {
@@ -1756,13 +1665,24 @@ async function sendJarvisMessageDirect(text) {
               if (startBtn) startBtn.click();
             }
           }, 1500);
+        } else if (action.type === 'open_url') {
+          const win = window.open(action.url, '_blank');
+          if (!win) {
+            // Popup-Blocker hat zugeschlagen - klickbaren Link im Toast anbieten
+            const t = document.getElementById('toasts');
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = `✗ Popup blockiert — <a href="${action.url}" target="_blank" style="color:inherit;text-decoration:underline">${escHtml(action.title || action.url)}</a> manuell öffnen`;
+            t.appendChild(el);
+            setTimeout(() => el.remove(), 8000);
+          }
         }
       }
     }
   } catch(e) {
     if (jarvisOrb) jarvisOrb.classList.remove('speaking');
     setJarvisStatus('FEHLER');
-    jarvisSay('Verbindungsfehler, Mutti. Ich arbeite daran.');
+    jarvisSay('Verbindungsfehler. Ich arbeite daran.');
   }
 }
 
@@ -1850,37 +1770,48 @@ async function renderAudit() {
 async function loadAuditHistory() {
   const list = document.getElementById('audit-hist-list');
   if (!list) return;
-  const files = await apiFetch('/api/audit/history');
-  if (!files || !files.length) {
+  const items = await apiFetch('/api/audit/history');
+  if (!items || !items.length) {
     list.innerHTML = '<div style="color:var(--text3);font-size:12px">Noch keine Berichte erstellt.</div>';
     return;
   }
   list.innerHTML = '';
-  files.forEach(f => {
+  items.forEach(job => {
     const item = document.createElement('div');
-    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:6px';
-    const domain = f.replace('audit_','').replace('.pdf','').replace(/_/g,'.');
-    item.innerHTML = '<span style="font-size:12px;color:var(--text)">' + escHtml(f) + '</span>';
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:6px;gap:8px';
+    item.innerHTML = '<span style="font-size:12px;color:var(--text)">' + escHtml(job.url || job.filename || '') + '</span>';
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
+
     const dlBtn = document.createElement('a');
     dlBtn.href = '#';
     dlBtn.className = 'btn btn-ghost';
     dlBtn.style.cssText = 'font-size:11px;padding:4px 10px';
     dlBtn.textContent = '⬇ PDF';
-    dlBtn.onclick = (e) => { e.preventDefault(); downloadAuditPdf(f); };
-    item.appendChild(dlBtn);
+    dlBtn.onclick = (e) => { e.preventDefault(); window.open('/api/audit/download/' + job.id, '_blank'); };
+    btnRow.appendChild(dlBtn);
+
+    const mailBtn = document.createElement('button');
+    mailBtn.className = 'btn btn-ghost';
+    mailBtn.style.cssText = 'font-size:11px;padding:4px 10px';
+    mailBtn.textContent = '✉ Senden';
+    mailBtn.onclick = () => sendAuditPdf(job.id);
+    btnRow.appendChild(mailBtn);
+
+    item.appendChild(btnRow);
     list.appendChild(item);
   });
 }
 
-async function downloadAuditPdf(filename) {
-  // Suche job_id anhand filename
-  for (const [jid, job] of Object.entries(window._auditJobs || {})) {
-    if (job.pdf_filename === filename) {
-      window.open('/api/audit/download/' + jid, '_blank');
-      return;
-    }
+async function sendAuditPdf(jobId) {
+  const to = prompt('An welche E-Mail-Adresse soll der Bericht gesendet werden?');
+  if (!to) return;
+  const res = await apiFetch('/api/audit/send/' + jobId, 'POST', { to });
+  if (res && res.success) {
+    showToast('Bericht gesendet an ' + to, 'success');
+  } else {
+    showToast('Fehler beim Senden: ' + (res?.error || 'Unbekannt'), 'error');
   }
-  showToast('Direkt-Download nur für aktuelle Session verfügbar', 'error');
 }
 
 async function startAudit() {
@@ -1995,6 +1926,7 @@ function renderAuditResult(data) {
       </div>
       <div>
         ${data.pdf_filename ? `<button class="btn btn-primary" onclick="window.open('/api/audit/download/${auditJobId}','_blank')">⬇ PDF herunterladen</button>` : ''}
+        ${data.pdf_filename ? `<button class="btn btn-ghost" onclick="sendAuditPdf('${auditJobId}')">✉ Per Mail senden</button>` : ''}
       </div>
     </div>
     ${ai.altbacken_begruendung ? `<div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2)">${escHtml(ai.altbacken_begruendung)}</div>` : ''}
@@ -2987,7 +2919,7 @@ async function renderStats() {
 
   content.innerHTML = `
     <div class="settings-panel">
-      <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
         ${statCard('📥', 'Posteingang', totalInbox, 'var(--accent)')}
         ${statCard('📞', 'Rückrufe', totalCallbacks, 'var(--warning)')}
         ${statCard('🧾', 'Rechnungen', totalInvoices, 'var(--accent2)')}
@@ -3006,7 +2938,7 @@ async function renderStats() {
           <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px">
             <div>
               <div style="font-weight:700;color:var(--text)">${escHtml(s.subject || '')}</div>
-              <div style="color:var(--text2)">An: ${escHtml(s.to_addr || s.from_addr || '')}</div>
+              <div style="color:var(--text2)">An: ${escHtml(s.to_addr || '')}</div>
             </div>
             <div style="color:var(--text3);font-family:var(--font-mono)">${formatDate(s.sent_at)}</div>
           </div>
@@ -3019,7 +2951,7 @@ async function renderStats() {
           <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px">
             <div>
               <div style="font-weight:700;color:var(--text)">${escHtml(m.subject || '(kein Betreff)')}</div>
-              <div style="color:var(--text2)">An: ${escHtml(m.to_addr || m.from_addr || '')}</div>
+              <div style="color:var(--text2)">An: ${escHtml(m.to_addr || '')}</div>
             </div>
             <div style="color:var(--text3);font-family:var(--font-mono)">${formatDate(m.sent_at)}</div>
           </div>
@@ -3030,10 +2962,10 @@ async function renderStats() {
 }
 
 function statCard(icon, label, value, color) {
-  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;min-width:0">
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center">
     <div style="font-size:28px;margin-bottom:8px">${icon}</div>
     <div style="font-size:26px;font-weight:800;color:${color};font-family:var(--font-mono)">${value}</div>
-    <div style="font-size:11px;color:var(--text2);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;overflow-wrap:break-word">${label}</div>
+    <div style="font-size:11px;color:var(--text2);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">${label}</div>
   </div>`;
 }
 
@@ -3117,18 +3049,6 @@ async function renderSettings() {
       <button class="btn btn-primary" onclick="saveAiSettings()">💾 Speichern</button>
     </div>
 
-    <!-- Desktop-Zugriff -->
-    <div class="settings-section">
-      <h3>🖥️ Desktop-Zugriff</h3>
-      <div id="desktop-agent-status" style="margin-bottom:10px;font-size:13px;color:var(--text2)">Lade Status...</div>
-      <button class="btn btn-primary" onclick="pairDesktopAgent()">🔑 Neuen Pairing-Token erzeugen</button>
-      <button class="btn btn-danger" style="margin-left:8px" onclick="unpairDesktopAgent()">Token widerrufen</button>
-      <div id="desktop-agent-token" style="margin-top:10px"></div>
-      <div style="margin-top:8px;font-size:12px;color:var(--text3)">
-        Token in <code>desktop_agent/agent_config.json</code> auf deinem PC eintragen, siehe <code>desktop_agent/README.md</code>.
-      </div>
-    </div>
-
     <!-- Wissenslücken -->
     <div class="settings-section">
       <h3>❓ Wissenslücken-Prompts</h3>
@@ -3142,37 +3062,6 @@ async function renderSettings() {
       </div>
     </div>
   `;
-
-  loadDesktopAgentStatus();
-}
-
-async function loadDesktopAgentStatus() {
-  const el = document.getElementById('desktop-agent-status');
-  if (!el) return;
-  const status = await apiFetch('/api/desktop/status');
-  if (!status) { el.textContent = 'Status konnte nicht geladen werden.'; return; }
-  const paired = status.paired ? '🔑 gekoppelt' : '⚪ nicht gekoppelt';
-  const connected = status.connected ? '🟢 verbunden' : '🔴 getrennt';
-  el.textContent = `${paired} · ${connected}`;
-}
-
-async function pairDesktopAgent() {
-  const res = await apiFetch('/api/desktop/pair', 'POST');
-  const el = document.getElementById('desktop-agent-token');
-  if (res?.token) {
-    el.innerHTML = `<div class="form-row"><label class="form-label">Neuer Token (nur jetzt sichtbar - jetzt kopieren)</label>
-      <input class="form-input" readonly value="${escHtml(res.token)}" onclick="this.select()"></div>`;
-    showToast('Token erzeugt - in agent_config.json eintragen', 'success');
-  }
-  loadDesktopAgentStatus();
-}
-
-async function unpairDesktopAgent() {
-  if (!confirm('Desktop-Agent-Token wirklich widerrufen? Der Agent verliert dann die Verbindung.')) return;
-  await apiFetch('/api/desktop/unpair', 'POST');
-  document.getElementById('desktop-agent-token').innerHTML = '';
-  showToast('Token widerrufen', 'success');
-  loadDesktopAgentStatus();
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────
@@ -3328,6 +3217,37 @@ function setTheme(theme) {
   apiFetch('/api/settings', 'POST', { theme });
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+async function loadSettings() {
+  settings = await apiFetch('/api/settings') || {};
+  const autoEl = document.getElementById('global-toggle');
+  if (autoEl) autoEl.checked = settings.global_auto || false;
+  document.getElementById('status-dot').className = 'status-dot' + (settings.global_auto ? '' : ' off');
+  if (settings.theme === 'light') document.body.classList.add('light');
+}
+
+async function loadCounts() {
+  const counts = await apiFetch('/api/counts');
+  if (counts) {
+    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash'].forEach(cat => {
+      const el = document.getElementById(`badge-${cat}`);
+      if (el) {
+        el.textContent = counts[cat] || 0;
+        el.style.display = counts[cat] ? 'inline-block' : 'none';
+      }
+    });
+  }
+
+  const draftData = await apiFetch('/api/mail-drafts');
+  const draftBadge = document.getElementById('badge-mail_drafts');
+  if (draftBadge && draftData) {
+    const n = draftData.drafts?.length || 0;
+    draftBadge.textContent = n;
+    draftBadge.style.display = n ? 'inline-block' : 'none';
+  }
+}
+
 // ── Mail-Entwürfe (Freigabe-Workflow) ───────────────────────────────────────
 
 async function renderMailDrafts() {
@@ -3361,7 +3281,7 @@ async function renderMailDrafts() {
 
       <div class="settings-section">
         <h3>📊 Qualität bisheriger Entwürfe</h3>
-        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
           ${statCard('✓', 'Sauber freigegeben', trust.approved_clean, 'var(--success)')}
           ${statCard('✎', 'Musste korrigiert werden', trust.approved_edited, 'var(--warning)')}
           ${statCard('✗', 'Verworfen', trust.rejected, 'var(--danger)')}
@@ -3432,37 +3352,6 @@ async function rejectDraft(id) {
     loadCounts();
   } else {
     showToast(res?.error || 'Fehler', 'error');
-  }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-async function loadSettings() {
-  settings = await apiFetch('/api/settings') || {};
-  const autoEl = document.getElementById('global-toggle');
-  if (autoEl) autoEl.checked = settings.global_auto || false;
-  document.getElementById('status-dot').className = 'status-dot' + (settings.global_auto ? '' : ' off');
-  if (settings.theme === 'light') document.body.classList.add('light');
-}
-
-async function loadCounts() {
-  const counts = await apiFetch('/api/counts');
-  if (counts) {
-    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash'].forEach(cat => {
-      const el = document.getElementById(`badge-${cat}`);
-      if (el) {
-        el.textContent = counts[cat] || 0;
-        el.style.display = counts[cat] ? 'inline-block' : 'none';
-      }
-    });
-  }
-
-  const draftData = await apiFetch('/api/mail-drafts');
-  const draftBadge = document.getElementById('badge-mail_drafts');
-  if (draftBadge && draftData) {
-    const n = draftData.drafts?.length || 0;
-    draftBadge.textContent = n;
-    draftBadge.style.display = n ? 'inline-block' : 'none';
   }
 }
 

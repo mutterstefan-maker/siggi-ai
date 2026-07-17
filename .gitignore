@@ -21,3 +21,6 @@ flyer_pool/
 !package-lock.json
 !tsconfig.json
 !desktop_agent/agent_config.example.json
+
+# Enthält ein hardcodiertes Login-Passwort - existiert nur auf dem Server, nie ins (öffentliche) Repo
+auth.py

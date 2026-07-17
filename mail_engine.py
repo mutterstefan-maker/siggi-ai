@@ -16,6 +16,27 @@ DB_PATH = os.path.join(BASE_DIR, 'mails.db')
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
 
 
+_AI_DISCLAIMER_PATTERNS = [
+    'Diese Nachricht wurde von SIGGI (KI) verfasst.',
+    'Diese Nachricht wurde von SIGGI (KI) verfasst',
+    'Diese Nachricht wurde von SIGGI verfasst.',
+    'Stefan meldet sich persönlich wenn nötig.',
+    'Stefan meldet sich persönlich wenn nötig',
+]
+
+
+def strip_ai_disclaimer(text):
+    """Entfernt KI-Selbstauskunfts-Sätze, die das Modell manchmal trotz Anweisung an den Text
+    anhängt - die echte, in den Einstellungen hinterlegte Signatur wird separat angehängt."""
+    if not text:
+        return text
+    cleaned = text
+    for phrase in _AI_DISCLAIMER_PATTERNS:
+        cleaned = cleaned.replace(phrase, '')
+    cleaned = '\n'.join(line for line in cleaned.split('\n') if line.strip())
+    return cleaned.strip()
+
+
 def load_settings():
     with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
         return json.load(f)
@@ -140,7 +161,9 @@ def is_auto_reply_mail(msg, from_addr, subject):
     if precedence in ('bulk', 'auto_reply', 'junk'):
         return True
     from_lower = from_addr.lower()
-    strict_noreply = ['noreply@', 'no-reply@', 'donotreply@', 'mailer-daemon@', 'postmaster@']
+    strict_noreply = ['noreply@', 'no-reply@', 'donotreply@', 'mailer-daemon@', 'postmaster@',
+        'account-alerts@', 'notification@', 'notifications@', 'alert@', 'alerts@',
+        'brevo.com', 'sendgrid', 'mailchimp', 'stripe.com', 'paypal.com', 'newsletter@']
     if any(kw in from_lower for kw in strict_noreply):
         return True
     subject_lower = subject.lower()
@@ -271,7 +294,7 @@ def send_followups():
                           'messages': [{'role': 'user', 'content': f'Schreib eine kurze freundliche Nachfass-Mail auf Deutsch fuer unbeantwortete Anfrage: {subject}. Ticket: {ticket_nr}. Max 4 Saetze.'}]},
                     timeout=20
                 )
-                followup_text = resp.json()['content'][0]['text']
+                followup_text = strip_ai_disclaimer(resp.json()['content'][0]['text'])
             except:
                 pass
         signature = acc_config.get('signature', '')
@@ -305,7 +328,7 @@ def ai_categorize_and_reply(from_addr, subject, body, category, settings, is_aut
     if is_auto:
         return category, None, False
 
-    ai_character = settings.get('ai_character', 'Du bist ein hilfreicher E-Mail-Assistent.')
+    ai_character = settings.get('email_ai_character') or settings.get('ai_character', 'Du bist ein hilfreicher E-Mail-Assistent.')
     knowledge_prompts = settings.get('knowledge_gap_prompts', [])
 
     knowledge_context = ""
@@ -341,11 +364,7 @@ def ai_categorize_and_reply(from_addr, subject, body, category, settings, is_aut
     except:
         pass
 
-    _wochentage = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
-    _jetzt = datetime.now()
-    datum_zeit_context = f"\n\nAKTUELLES DATUM/UHRZEIT: {_wochentage[_jetzt.weekday()]}, {_jetzt.strftime('%d.%m.%Y %H:%M')} Uhr"
-
-    system_prompt = f"""{ai_character}{knowledge_context}{spam_instruction}{new_customer_hint}{few_shot_examples}{datum_zeit_context}
+    system_prompt = f"""{ai_character}{knowledge_context}{spam_instruction}{new_customer_hint}{few_shot_examples}
 
 Antworte NUR mit JSON (kein Markdown):
 {{
@@ -356,9 +375,16 @@ Antworte NUR mit JSON (kein Markdown):
   "is_spam": false
 }}
 
-Kategorien: inbox=normal, callbacks=Rueckruf, invoices=Rechnung, knowledge_gap=unklar, spam=Werbung
-ai_reply=null nur bei Systemnachrichten.
-is_spam=true NUR bei Gewinnspiel/Phishing. Kundenanfragen NIEMALS Spam.
+Kategorien: inbox=normal, callbacks=Rueckruf, invoices=Rechnung, knowledge_gap=unklar, spam=Werbung/irrelevant
+
+WICHTIG - Inhaltliche Pruefung:
+Pruefe ob die Mail inhaltlich etwas mit ChefBlick (Webdesign/Software-Agentur, deren Kunden, Auftraege, Rechnungen, Anfragen) zu tun hat.
+is_spam=true wenn die Mail NICHTS mit ChefBlick-Geschaeft zu tun hat, z.B.:
+- Automatische System-/Plattform-Benachrichtigungen (Google, IONOS, SendOwl, TikTok, Social-Media-Plattformen, etc.)
+- Newsletter, Werbung, Gewinnspiele, Phishing
+- Account-/Sicherheitsbenachrichtigungen die nicht direkt eine Kundenanfrage sind
+is_spam=false wenn es eine echte Kundenanfrage, ein Auftrag, eine Rechnung oder sonstige ChefBlick-relevante Kommunikation ist - auch wenn Absender @gmail.com o.ae. ist.
+ai_reply=null nur bei Systemnachrichten/Spam.
 knowledge_gap=true NUR wenn du wirklich nicht weisst was zu tun ist."""
 
     try:
@@ -387,7 +413,7 @@ knowledge_gap=true NUR wenn du wirklich nicht weisst was zu tun ist."""
         data = json.loads(text)
 
         final_category = data.get('category', category)
-        ai_reply = data.get('ai_reply')
+        ai_reply = strip_ai_disclaimer(data.get('ai_reply'))
         is_gap = data.get('knowledge_gap', False)
         ki_spam = data.get('is_spam', False)
 
@@ -555,7 +581,8 @@ def send_auto_replies():
         smtp_port = acc_config.get('smtp_port', 587)
         password = acc_config.get('password', '')
         signature = acc_config.get('signature', '')
-        full_body = f"{ai_reply}\n\n--\n{signature}" if signature else ai_reply
+        clean_reply = strip_ai_disclaimer(ai_reply)
+        full_body = f"{clean_reply}\n\n--\n{signature}" if signature else clean_reply
 
         try:
             msg = EmailMessage()

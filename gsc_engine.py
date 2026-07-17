@@ -5,15 +5,11 @@ Liest Keywords, Klicks, Impressionen, CTR und Position für chefblick.de
 """
 import os
 import json
-import time
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVICE_ACCOUNT_PATH = os.path.join(BASE_DIR, 'google_service_account.json')
 SITE_URL = 'sc-domain:chefblick.de'  # oder 'https://www.chefblick.de/'
-
-_context_cache = {'text': None, 'expires': 0}
-_CONTEXT_TTL = 900  # 15 Minuten - Tages-Statistiken müssen nicht pro Chat frisch sein
 
 
 def _get_service():
@@ -103,11 +99,9 @@ def get_overview(days=28):
 
 
 def get_gsc_context():
-    """Für SIGGIs System-Prompt: kompakte Search Console Zusammenfassung (gecacht, 15 Min TTL)."""
+    """Für SIGGIs System-Prompt: kompakte Search Console Zusammenfassung."""
     if not os.path.exists(SERVICE_ACCOUNT_PATH):
         return ''
-    if _context_cache['text'] is not None and time.time() < _context_cache['expires']:
-        return _context_cache['text']
     try:
         overview = get_overview(28)
         keywords = get_top_keywords(28, 5)
@@ -118,9 +112,6 @@ def get_gsc_context():
         if keywords:
             kw_str = ', '.join(f'{k["keyword"]} ({k["clicks"]} Klicks)' for k in keywords[:5])
             lines.append(f'  Top-Keywords: {kw_str}')
-        text = '\n'.join(lines)
-        _context_cache['text'] = text
-        _context_cache['expires'] = time.time() + _CONTEXT_TTL
-        return text
+        return '\n'.join(lines)
     except Exception as e:
         return f'SEARCH CONSOLE: Fehler ({e})'

@@ -10,7 +10,54 @@ from datetime import datetime, timedelta
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CREDENTIALS_PATH = os.path.join(BASE_DIR, 'google_credentials.json')
 TOKEN_PATH = os.path.join(BASE_DIR, 'google_token.json')
+SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
 SCOPES = ['https://www.googleapis.com/auth/calendar']
+
+# ──────────────────────────────────────────────
+# TERMINIERUNGS-REGELN
+# ──────────────────────────────────────────────
+
+DEFAULT_SCHEDULING_RULES = {
+    'work_start_hour': 8,        # nie vor 8 Uhr
+    'work_end_hour': 18,
+    'blocked_start_hour': 11,    # 11-14 Uhr geblockt
+    'blocked_end_hour': 14,
+    'friday_emergency_only': True,  # freitags nur im Notfall
+}
+
+
+def get_scheduling_rules():
+    try:
+        with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+        return {**DEFAULT_SCHEDULING_RULES, **settings.get('scheduling_rules', {})}
+    except Exception:
+        return dict(DEFAULT_SCHEDULING_RULES)
+
+
+def get_scheduling_rules_text():
+    """Für SIGGIs System-Prompt: die aktuell geltenden Terminierungs-Regeln als Text."""
+    r = get_scheduling_rules()
+    lines = [
+        'TERMINIERUNGS-REGELN (immer einhalten wenn du Termine vorschlägst oder anlegst):',
+        f"- Nie vor {r['work_start_hour']}:00 Uhr",
+        f"- Keine Termine zwischen {r['blocked_start_hour']}:00 und {r['blocked_end_hour']}:00 Uhr",
+    ]
+    if r['friday_emergency_only']:
+        lines.append('- Freitags nur im absoluten Notfall Termine vereinbaren')
+    return '\n'.join(lines)
+
+
+def is_slot_allowed(dt, is_emergency=False):
+    """Prüft ob ein Zeitpunkt gegen die Terminierungs-Regeln verstößt."""
+    r = get_scheduling_rules()
+    if dt.hour < r['work_start_hour'] or dt.hour >= r['work_end_hour']:
+        return False, f"außerhalb der Arbeitszeit ({r['work_start_hour']}-{r['work_end_hour']} Uhr)"
+    if r['blocked_start_hour'] <= dt.hour < r['blocked_end_hour']:
+        return False, f"in der geblockten Zeit ({r['blocked_start_hour']}-{r['blocked_end_hour']} Uhr)"
+    if dt.weekday() == 4 and r['friday_emergency_only'] and not is_emergency:
+        return False, 'freitags werden nur im Notfall Termine vereinbart'
+    return True, ''
 
 
 def get_calendar_service():
@@ -90,6 +137,39 @@ def get_upcoming_events(days=3):
     except Exception as e:
         print(f"[Calendar] Fehler: {e}")
         return []
+
+
+def find_free_slots(duration_minutes=60, days_ahead=7, max_results=5, is_emergency=False):
+    """Sucht freie Zeitfenster in den nächsten X Tagen unter Beachtung der
+    Terminierungs-Regeln (Arbeitszeit, geblockte Stunden, Freitags-Regel) und
+    bestehender Kalendertermine. Gibt eine Liste von (start_dt, end_dt) zurück."""
+    events = get_upcoming_events(days=days_ahead) or []
+    busy = []
+    for ev in events:
+        start = ev.get('start', {})
+        end = ev.get('end', {})
+        if 'dateTime' not in start or 'dateTime' not in end:
+            continue  # ganztägige Termine ignorieren wir hier
+        busy.append((
+            datetime.fromisoformat(start['dateTime'].replace('Z', '+00:00')).replace(tzinfo=None),
+            datetime.fromisoformat(end['dateTime'].replace('Z', '+00:00')).replace(tzinfo=None)
+        ))
+
+    r = get_scheduling_rules()
+    slots = []
+    now = datetime.now()
+    cursor = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+    while cursor < now + timedelta(days=days_ahead) and len(slots) < max_results:
+        allowed, _ = is_slot_allowed(cursor, is_emergency)
+        if allowed:
+            slot_end = cursor + timedelta(minutes=duration_minutes)
+            overlaps = any(cursor < b_end and slot_end > b_start for b_start, b_end in busy)
+            if not overlaps and slot_end.hour <= r['work_end_hour']:
+                slots.append((cursor, slot_end))
+        cursor += timedelta(hours=1)
+
+    return slots
 
 
 def create_event(title, start_dt, end_dt=None, description=''):

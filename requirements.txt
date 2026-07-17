@@ -16,3 +16,8 @@ Werkzeug==2.3.7
 gunicorn==21.2.0
 flask-socketio==5.3.6
 python-socketio==5.11.0
+reportlab==5.0.0
+playwright==1.61.0
+bcrypt==3.2.2
+IMAPClient==3.1.0
+parsedatetime==2.6

@@ -7,7 +7,6 @@ Docs: https://developers.solarmanpv.com/
 import os
 import json
 import hashlib
-import time
 import requests as req
 from datetime import datetime
 
@@ -20,8 +19,6 @@ _DEFAULT_APP_ID     = '2000000118'
 _DEFAULT_APP_SECRET = 'Y95jqDa4lIeEVU59MDkFc26C4JIeSFaH'
 
 _token_cache = {}
-_context_cache = {'text': None, 'expires': 0}
-_CONTEXT_TTL = 300  # 5 Minuten - Echtzeitdaten, aber nicht pro Chat-Nachricht neu nötig
 
 
 def _load_settings():
@@ -159,12 +156,10 @@ def get_device_info():
 # ──────────────────────────────────────────────
 
 def get_solar_context():
-    """Kompakte Solar-Zusammenfassung für SIGGIs System-Prompt (gecacht, 5 Min TTL)."""
+    """Kompakte Solar-Zusammenfassung für SIGGIs System-Prompt."""
     cfg = _get_config()
     if not all([cfg['app_id'], cfg['app_secret'], cfg['email']]):
         return ''
-    if _context_cache['text'] is not None and time.time() < _context_cache['expires']:
-        return _context_cache['text']
     try:
         stations = get_stations()
         if not stations:
@@ -190,9 +185,6 @@ def get_solar_context():
             else:
                 lines.append(f'  {name}: Keine Echtzeit-Daten')
         lines.append('  (Tagesertraege: im Free-Plan nicht per API abrufbar)')
-        text = '\n'.join(lines)
-        _context_cache['text'] = text
-        _context_cache['expires'] = time.time() + _CONTEXT_TTL
-        return text
+        return '\n'.join(lines)
     except Exception as e:
         return f'BALKONKRAFTWERK: Fehler ({e})'
