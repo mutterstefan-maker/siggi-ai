@@ -3061,7 +3061,73 @@ async function renderSettings() {
         <button class="btn btn-primary" onclick="addKnowledgePrompt()">➕ Prompt hinzufügen</button>
       </div>
     </div>
+
+    <!-- Desktop-Zugriff -->
+    <div class="settings-section">
+      <h3>🖥️ Desktop-Zugriff</h3>
+      <div id="desktop-access-panel">Lade Status...</div>
+    </div>
   `;
+
+  loadDesktopAccessStatus();
+}
+
+async function loadDesktopAccessStatus() {
+  const panel = document.getElementById('desktop-access-panel');
+  if (!panel) return;
+  const status = await apiFetch('/api/desktop/status');
+  if (!status) {
+    panel.innerHTML = `<div style="color:var(--text3);font-size:12px">Desktop-Agent nicht verfügbar.</div>`;
+    return;
+  }
+  if (status.connected) {
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="width:10px;height:10px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+        <span>Desktop-Agent verbunden</span>
+      </div>
+      <button class="btn btn-danger" onclick="unpairDesktop()">Verbindung trennen</button>
+    `;
+  } else if (status.paired) {
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="width:10px;height:10px;border-radius:50%;background:#eab308;display:inline-block"></span>
+        <span>Gekoppelt, aber Agent gerade nicht online</span>
+      </div>
+      <button class="btn btn-danger" onclick="unpairDesktop()">Verbindung trennen</button>
+    `;
+  } else {
+    panel.innerHTML = `
+      <div style="color:var(--text3);font-size:12px;margin-bottom:12px">Kein Desktop-Agent gekoppelt.</div>
+      <button class="btn btn-primary" onclick="generatePairingToken()">🔑 Pairing-Token erzeugen</button>
+      <div id="pairing-token-result" style="margin-top:12px"></div>
+    `;
+  }
+}
+
+async function generatePairingToken() {
+  const res = await apiFetch('/api/desktop/pair', 'POST');
+  const box = document.getElementById('pairing-token-result');
+  if (!res || !res.token) {
+    if (box) box.innerHTML = `<div style="color:var(--danger)">Token konnte nicht erzeugt werden.</div>`;
+    return;
+  }
+  if (box) {
+    box.innerHTML = `
+      <div class="form-row">
+        <label class="form-label">Device-Token (in agent_config.json eintragen)</label>
+        <input class="form-input" readonly value="${escHtml(res.token)}" onclick="this.select()">
+      </div>
+      <div style="color:var(--text3);font-size:12px">Token in <code>agent_config.json</code> des Desktop-Agents eintragen, dann <code>python agent.py</code> starten.</div>
+    `;
+  }
+}
+
+async function unpairDesktop() {
+  if (!confirm('Verbindung zum Desktop-Agent trennen?')) return;
+  await apiFetch('/api/desktop/unpair', 'POST');
+  showToast('Verbindung getrennt', 'success');
+  loadDesktopAccessStatus();
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────
