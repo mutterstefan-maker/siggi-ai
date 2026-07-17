@@ -1145,7 +1145,7 @@ let jarvisRecognition = null;
 let jarvisListening = false;
 let jarvisSpeaking = false;
 let jarvisConversation = [];
-let siggiGreetedDate = null; // Datum der letzten Begrüßung (einmal pro Tag)
+let siggiGreetedDate = localStorage.getItem('siggiGreetedDate'); // Datum der letzten Begrüßung (einmal pro Tag)
 let jarvisOrb = null;
 let jarvisVoice = null;
 
@@ -1305,6 +1305,7 @@ async function renderJarvis() {
   const today = new Date().toDateString();
   if (siggiGreetedDate === today) return; // Bereits heute begrüßt
   siggiGreetedDate = today;
+  localStorage.setItem('siggiGreetedDate', today);
 
   setTimeout(async () => {
     const hour = new Date().getHours();
