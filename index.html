@@ -1522,6 +1522,41 @@ function addJarvisMessage(text, type) {
   t.scrollTop = t.scrollHeight;
 }
 
+// ── Desktop-Agent Bestätigungskarte ──────────────────────────────────────
+
+function addDesktopConfirmCard(actionId, description) {
+  const t = document.getElementById('jarvis-transcript');
+  if (!t) return;
+  const card = document.createElement('div');
+  card.className = 'jarvis-msg-system';
+  card.id = `desktop-confirm-${actionId}`;
+  card.style.cssText = 'margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)';
+  card.innerHTML = `
+    <div style="margin-bottom:8px">🖥️ <strong>Desktop-Aktion bestätigen:</strong><br>${escHtml(description)}</div>
+    <button class="btn btn-primary" style="margin-right:8px" onclick="confirmDesktopAction('${actionId}')">✅ Ausführen</button>
+    <button class="btn btn-ghost" onclick="cancelDesktopAction('${actionId}')">✕ Abbrechen</button>
+  `;
+  t.appendChild(card);
+  t.scrollTop = t.scrollHeight;
+}
+
+async function confirmDesktopAction(actionId) {
+  const card = document.getElementById(`desktop-confirm-${actionId}`);
+  if (card) card.innerHTML = '⏳ Wird ausgeführt...';
+  const result = await apiFetch(`/api/desktop/confirm/${actionId}`, 'POST');
+  if (card) {
+    card.innerHTML = result?.ok
+      ? `✅ Erledigt: ${escHtml(JSON.stringify(result.data ?? 'OK'))}`
+      : `❌ Fehler: ${escHtml(result?.error || 'unbekannt')}`;
+  }
+}
+
+async function cancelDesktopAction(actionId) {
+  const card = document.getElementById(`desktop-confirm-${actionId}`);
+  await apiFetch(`/api/desktop/cancel/${actionId}`, 'POST');
+  if (card) card.innerHTML = '✕ Abgebrochen.';
+}
+
 // ── Spracheingabe (Web Speech API) ───────────────────────────────────────
 
 function toggleMic() {
@@ -1722,7 +1757,15 @@ async function sendJarvisMessageDirect(text) {
     const data = await response.json();
     const reply = data.reply || 'Entschuldigung, Mutti. Kurzer Aussetzer.';
     jarvisConversation.push({ role: 'assistant', content: reply });
-    jarvisSay(reply);
+
+    const desktopMatch = reply.match(/BESTAETIGUNG_ERFORDERLICH id=([a-f0-9-]+):\s*(.+)/i);
+    if (desktopMatch) {
+      const [, actionId, desc] = desktopMatch;
+      jarvisSay(`Soll ich das wirklich tun? ${desc}`);
+      addDesktopConfirmCard(actionId, desc);
+    } else {
+      jarvisSay(reply);
+    }
 
     // UI-Aktionen ausführen
     if (data.actions && data.actions.length > 0) {
@@ -2518,6 +2561,28 @@ async function renderInstagram() {
   autoRow.appendChild(autoLabel);
   settingsDiv.appendChild(autoRow);
 
+  // Graph-API Zugangsdaten
+  const apiGrid = document.createElement('div');
+  apiGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px';
+  apiGrid.innerHTML = `
+    <div class="form-row">
+      <label class="form-label">Instagram Access-Token ${igSettings?.access_token_set ? '(gesetzt - leer lassen zum Beibehalten)' : ''}</label>
+      <input class="form-input" type="password" id="ig-access-token" placeholder="${igSettings?.access_token_set ? '••••••••' : 'Meta Graph API Access-Token'}">
+    </div>
+    <div class="form-row">
+      <label class="form-label">Instagram Business-Account-ID</label>
+      <input class="form-input" type="text" id="ig-user-id" value="${escHtml(igSettings?.ig_user_id || '')}" placeholder="1789...">
+    </div>
+  `;
+  settingsDiv.appendChild(apiGrid);
+
+  const captionRow = document.createElement('div');
+  captionRow.className = 'form-row';
+  captionRow.style.marginBottom = '20px';
+  captionRow.innerHTML = `<label class="form-label">Standard-Bildunterschrift</label>
+    <textarea class="form-textarea" id="ig-default-caption" rows="2" placeholder="Wird bei jedem Auto-Post verwendet">${escHtml(igSettings?.default_caption || '')}</textarea>`;
+  settingsDiv.appendChild(captionRow);
+
   // Ordner-Pfade
   const pathGrid = document.createElement('div');
   pathGrid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px';
@@ -2788,13 +2853,20 @@ async function saveIgSettings() {
   const postedPath = document.getElementById('ig-posted-path')?.value || 'flyer_pool/gepostet';
   const timeInputs = document.querySelectorAll('#ig-times-container input[type=time]');
   const times = Array.from(timeInputs).map(i => i.value).filter(Boolean);
-  await apiFetch('/api/instagram/settings', 'POST', {
+  const accessToken = document.getElementById('ig-access-token')?.value || '';
+  const igUserId = document.getElementById('ig-user-id')?.value || '';
+  const defaultCaption = document.getElementById('ig-default-caption')?.value || '';
+  const payload = {
     auto_enabled: auto,
     post_times: times.join(','),
     pool_path: poolPath,
     posted_path: postedPath,
-    post_days: igDays.join(',')
-  });
+    post_days: igDays.join(','),
+    ig_user_id: igUserId,
+    default_caption: defaultCaption
+  };
+  if (accessToken) payload.access_token = accessToken;
+  await apiFetch('/api/instagram/settings', 'POST', payload);
   showToast('Instagram-Einstellungen gespeichert', 'success');
 }
 
@@ -3082,6 +3154,18 @@ async function renderSettings() {
       <button class="btn btn-primary" onclick="saveAiSettings()">💾 Speichern</button>
     </div>
 
+    <!-- Desktop-Zugriff -->
+    <div class="settings-section">
+      <h3>🖥️ Desktop-Zugriff</h3>
+      <div id="desktop-agent-status" style="margin-bottom:10px;font-size:13px;color:var(--text2)">Lade Status...</div>
+      <button class="btn btn-primary" onclick="pairDesktopAgent()">🔑 Neuen Pairing-Token erzeugen</button>
+      <button class="btn btn-danger" style="margin-left:8px" onclick="unpairDesktopAgent()">Token widerrufen</button>
+      <div id="desktop-agent-token" style="margin-top:10px"></div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text3)">
+        Token in <code>desktop_agent/agent_config.json</code> auf deinem PC eintragen, siehe <code>desktop_agent/README.md</code>.
+      </div>
+    </div>
+
     <!-- Wissenslücken -->
     <div class="settings-section">
       <h3>❓ Wissenslücken-Prompts</h3>
@@ -3095,6 +3179,37 @@ async function renderSettings() {
       </div>
     </div>
   `;
+
+  loadDesktopAgentStatus();
+}
+
+async function loadDesktopAgentStatus() {
+  const el = document.getElementById('desktop-agent-status');
+  if (!el) return;
+  const status = await apiFetch('/api/desktop/status');
+  if (!status) { el.textContent = 'Status konnte nicht geladen werden.'; return; }
+  const paired = status.paired ? '🔑 gekoppelt' : '⚪ nicht gekoppelt';
+  const connected = status.connected ? '🟢 verbunden' : '🔴 getrennt';
+  el.textContent = `${paired} · ${connected}`;
+}
+
+async function pairDesktopAgent() {
+  const res = await apiFetch('/api/desktop/pair', 'POST');
+  const el = document.getElementById('desktop-agent-token');
+  if (res?.token) {
+    el.innerHTML = `<div class="form-row"><label class="form-label">Neuer Token (nur jetzt sichtbar - jetzt kopieren)</label>
+      <input class="form-input" readonly value="${escHtml(res.token)}" onclick="this.select()"></div>`;
+    showToast('Token erzeugt - in agent_config.json eintragen', 'success');
+  }
+  loadDesktopAgentStatus();
+}
+
+async function unpairDesktopAgent() {
+  if (!confirm('Desktop-Agent-Token wirklich widerrufen? Der Agent verliert dann die Verbindung.')) return;
+  await apiFetch('/api/desktop/unpair', 'POST');
+  document.getElementById('desktop-agent-token').innerHTML = '';
+  showToast('Token widerrufen', 'success');
+  loadDesktopAgentStatus();
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────

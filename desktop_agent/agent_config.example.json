@@ -1,0 +1,8 @@
+{
+  "server_url": "https://stean.info",
+  "device_token": "PASTE_TOKEN_FROM_SIGGI_SETTINGS_HERE",
+  "allowed_dirs": [
+    "C:\\Users\\Admin\\Downloads",
+    "C:\\Users\\Admin\\Documents"
+  ]
+}

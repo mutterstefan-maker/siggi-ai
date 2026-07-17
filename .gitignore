@@ -20,3 +20,4 @@ flyer_pool/
 !package.json
 !package-lock.json
 !tsconfig.json
+!desktop_agent/agent_config.example.json

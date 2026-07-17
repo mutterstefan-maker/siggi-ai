@@ -5,6 +5,7 @@ Nur essenzielle Features - FUNKTIONIERT!
 """
 from flask import Flask, jsonify, request, send_from_directory, session, redirect, Response
 from flask_cors import CORS
+from flask_socketio import SocketIO
 import os
 import json
 import sqlite3
@@ -22,15 +23,22 @@ from email.header import decode_header
 import imaplib
 import time
 from dotenv import load_dotenv
+import base64
 import memory_engine
 import gsc_engine
 import ga4_engine
 import solar_engine
+import desktop_engine
+import instagram_engine
+import linkedin_engine
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', '.env'))
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB, genug für Base64-kodierte Flyer-Bilder
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
+desktop_engine.init(socketio)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
@@ -90,6 +98,8 @@ def logout():
 def require_login():
     if request.path in ('/login', '/logout') or request.path.startswith('/static/'):
         return None
+    if request.path.startswith('/api/instagram/media/'):
+        return None  # muss öffentlich erreichbar sein, damit Meta das Bild abrufen kann
     if not session.get('logged_in'):
         return redirect('/login')
 
@@ -542,21 +552,67 @@ def instagram_settings():
         try:
             data = request.get_json() or {}
             settings = load_settings()
-            settings['instagram_settings'] = data
+            existing = settings.get('instagram_settings', {})
+            if not data.get('access_token'):
+                data.pop('access_token', None)  # leer gelassen = nicht ändern
+            existing.update(data)
+            settings['instagram_settings'] = existing
             save_settings(settings)
             return jsonify({'success': True})
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     settings = load_settings()
-    return jsonify(settings.get('instagram_settings', {}))
+    ig = dict(settings.get('instagram_settings', {}))
+    ig['access_token_set'] = bool(ig.pop('access_token', None))  # Token nie im Klartext zurückgeben
+    return jsonify(ig)
 
 @app.route('/api/instagram/queue')
 def instagram_queue():
-    return jsonify([])
+    return jsonify(instagram_engine.get_ig_queue())
 
 @app.route('/api/instagram/history')
 def instagram_history():
-    return jsonify([])
+    return jsonify(instagram_engine.get_ig_history())
+
+@app.route('/api/instagram/upload', methods=['POST'])
+def instagram_upload():
+    try:
+        data = request.get_json() or {}
+        filename = data.get('filename', '')
+        b64 = data.get('data', '')
+        if not filename or not b64:
+            return jsonify({'success': False, 'error': 'Dateiname oder Daten fehlen.'}), 400
+        raw = base64.b64decode(b64)
+        result = instagram_engine.save_uploaded_flyer(filename, raw)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/instagram/delete_flyer', methods=['POST'])
+def instagram_delete_flyer():
+    data = request.get_json() or {}
+    result = instagram_engine.delete_flyer(data.get('filename', ''))
+    return jsonify(result)
+
+@app.route('/api/instagram/resolve_path', methods=['POST'])
+def instagram_resolve_path():
+    data = request.get_json() or {}
+    folder = instagram_engine.resolve_path_by_filename(data.get('filename', ''))
+    return jsonify({'folder': folder})
+
+@app.route('/api/instagram/media/<path:filename>')
+def instagram_media(filename):
+    """Öffentliche Route (kein Login nötig), damit Meta die Bilddatei per Graph-API abrufen kann."""
+    path = instagram_engine.media_file_path(filename)
+    if not path:
+        return jsonify({'error': 'Nicht gefunden'}), 404
+    return send_from_directory(os.path.dirname(path), os.path.basename(path))
+
+@app.route('/api/instagram/post_now', methods=['POST'])
+def instagram_post_now():
+    public_base_url = os.environ.get('PUBLIC_BASE_URL') or request.url_root
+    result = instagram_engine.post_next_in_queue(public_base_url)
+    return jsonify(result)
 
 SIGGI_TOOLS = [
     {
@@ -618,6 +674,56 @@ SIGGI_TOOLS = [
                 'text': {'type': 'string', 'description': 'Inhalt der Mail.'}
             },
             'required': ['empfaenger', 'betreff', 'text']
+        }
+    },
+    {
+        'name': 'linkedin_post',
+        'description': (
+            'Veröffentlicht direkt einen Beitrag auf LinkedIn (Stefan hat dafür die Freigabe erteilt - '
+            'kein Entwurf, keine zusätzliche Bestätigung nötig, wird sofort live gepostet). '
+            'Optional kann ein Bild mitgepostet werden, wenn ein lokaler Dateipfad zu einem bereits '
+            'vorhandenen Bild angegeben wird. Nur aufrufen, wenn Stefan im Chat ausdrücklich einen '
+            'LinkedIn-Post in Auftrag gibt.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'text': {'type': 'string', 'description': 'Der vollständige Beitragstext.'},
+                'bild_pfad': {'type': 'string', 'description': 'Optional: absoluter Pfad zu einem Bild, das mitgepostet werden soll.'}
+            },
+            'required': ['text']
+        }
+    },
+    {
+        'name': 'desktop_agent_action',
+        'description': (
+            'Führt eine Aktion auf Stefans lokalem Windows-Desktop über den verbundenen Desktop-Agenten aus. '
+            'Unkritische Aktionen (screenshot, read_file, list_dir) werden sofort ausgeführt. '
+            'Kritische Aktionen (write_file, open_app, office_write, click, type_text, close_app) werden NICHT sofort '
+            'ausgeführt, sondern erzeugen eine Bestätigungskarte im Chat - frag Stefan vorher IMMER kurz im Klartext, '
+            'ob er die geplante Aktion wirklich so ausführen möchte, bevor du dieses Tool mit einer kritischen Aktion aufrufst. '
+            'Wenn kein Desktop-Agent verbunden ist, informiere Stefan darüber statt es erneut zu versuchen.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'action': {
+                    'type': 'string',
+                    'enum': ['screenshot', 'read_file', 'list_dir', 'write_file', 'open_app',
+                              'office_write', 'click', 'type_text', 'close_app'],
+                    'description': 'Welche Aktion ausgeführt werden soll.'
+                },
+                'params': {
+                    'type': 'object',
+                    'description': (
+                        'Parameter je nach Aktion, z.B. {"path": "..."} für read_file/list_dir, '
+                        '{"path": "...", "content": "..."} für write_file, {"name": "winword"} für open_app, '
+                        '{"app": "Word", "text": "...", "save_path": "..."} für office_write, '
+                        '{"x": 100, "y": 200} für click, {"text": "..."} für type_text.'
+                    )
+                }
+            },
+            'required': ['action']
         }
     }
 ]
@@ -754,9 +860,72 @@ def run_siggi_tool(name, tool_input):
                 f"(noch {max(trust['threshold'] - trust['count'], 0)} Freigaben bis der Autopilot scharf geschaltet wird)."
             )
 
+        if name == 'linkedin_post':
+            result = linkedin_engine.post_share(tool_input['text'], tool_input.get('bild_pfad'))
+            if result.get('success'):
+                return f"Auf LinkedIn gepostet: {result.get('post_urn', '')}"
+            return f"LinkedIn-Post fehlgeschlagen: {result.get('error', 'unbekannt')}"
+
+        if name == 'desktop_agent_action':
+            action = tool_input.get('action')
+            params = tool_input.get('params', {}) or {}
+            if not desktop_engine.is_agent_connected():
+                return 'Kein Desktop-Agent verbunden. Stefan muss den lokalen Agent auf seinem PC starten und koppeln (Einstellungen > Desktop-Zugriff).'
+            if action in desktop_engine.RISKY_ACTIONS:
+                action_id = desktop_engine.create_pending_action(action, params)
+                desc = desktop_engine.describe_action(action, params)
+                return (
+                    f"BESTAETIGUNG_ERFORDERLICH id={action_id}: {desc}. "
+                    "Diese Aktion wird erst ausgeführt, nachdem Stefan sie über die Bestätigungskarte im Chat freigegeben hat."
+                )
+            result = desktop_engine.execute_action(action, params)
+            if result.get('ok'):
+                return f"Aktion '{action}' ausgeführt: {result.get('data', 'OK')}"
+            return f"Fehler bei Aktion '{action}': {result.get('error', 'unbekannt')}"
+
         return f"Unbekanntes Tool: {name}"
     except Exception as e:
         return f"Fehler beim Ausführen von {name}: {e}"
+
+
+@app.route('/api/desktop/status')
+def desktop_status():
+    return jsonify({
+        'paired': desktop_engine.is_paired(),
+        'connected': desktop_engine.is_agent_connected()
+    })
+
+
+@app.route('/api/desktop/pair', methods=['POST'])
+def desktop_pair():
+    token = desktop_engine.generate_pairing_token()
+    return jsonify({'token': token})
+
+
+@app.route('/api/desktop/unpair', methods=['POST'])
+def desktop_unpair():
+    desktop_engine.revoke_pairing_token()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/desktop/confirm/<action_id>', methods=['POST'])
+def desktop_confirm(action_id):
+    result = desktop_engine.confirm_pending_action(action_id)
+    return jsonify(result)
+
+
+@app.route('/api/desktop/cancel/<action_id>', methods=['POST'])
+def desktop_cancel(action_id):
+    result = desktop_engine.cancel_pending_action(action_id)
+    return jsonify(result)
+
+
+@app.route('/api/desktop/pending/<action_id>')
+def desktop_pending(action_id):
+    entry = desktop_engine.get_pending_action(action_id)
+    if not entry:
+        return jsonify({'found': False}), 404
+    return jsonify({'found': True, 'description': entry['description'], 'action': entry['action']})
 
 
 @app.route('/api/mail-drafts')
@@ -1231,5 +1400,19 @@ if __name__ == '__main__':
     reminder_thread = threading.Thread(target=reminder_loop, daemon=True)
     reminder_thread.start()
     print("Erinnerungs-Loop im Hintergrund aktiv!")
+
+    # Starte Instagram Auto-Post-Loop im Hintergrund
+    def instagram_auto_post_loop():
+        public_base_url = os.environ.get('PUBLIC_BASE_URL', 'http://localhost:8080')
+        while True:
+            try:
+                instagram_engine.maybe_auto_post(public_base_url)
+            except Exception as e:
+                print(f'[Instagram] Auto-Post-Loop-Fehler: {e}')
+            time.sleep(60)
+
+    instagram_thread = threading.Thread(target=instagram_auto_post_loop, daemon=True)
+    instagram_thread.start()
+    print("Instagram Auto-Post-Loop im Hintergrund aktiv!")
     print("=" * 50)
-    app.run(port=8080, debug=False)
+    socketio.run(app, port=8080, debug=False)
