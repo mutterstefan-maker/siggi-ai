@@ -12,10 +12,14 @@ Ablauf pro Post (Graph API Standardverfahren für Bild-Posts):
   5. Datei wird in posted_path verschoben, Ergebnis in ig_posts-Tabelle protokolliert.
 """
 import os
+import re
 import sqlite3
 from datetime import datetime
 
 import requests as req
+
+ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
+ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IG_DB_PATH = os.path.join(BASE_DIR, 'instagram.db')
@@ -220,6 +224,55 @@ def post_ig(content):
     return {'success': False, 'message': 'Nutze post_next_in_queue() stattdessen.'}
 
 
+def _filename_to_topic(filename):
+    """Wandelt einen Dateinamen wie 'AutomatisiereDeineAblaeufe.png' in ein Thema
+    für die Caption-Generierung um: Endung weg, camelCase/snake_case/Bindestriche in Wörter."""
+    name = os.path.splitext(filename)[0]
+    name = re.sub(r'[_\-]+', ' ', name)
+    name = re.sub(r'(?<=[a-zäöüß])(?=[A-ZÄÖÜ])', ' ', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def _generate_caption_from_filename(filename, default_caption=''):
+    """Erzeugt per Claude einen Instagram-Text zum Thema, das aus dem Dateinamen abgeleitet
+    wird. Gibt bei Fehlern (kein API-Key, Netzwerkfehler, ...) default_caption zurück."""
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    topic = _filename_to_topic(filename)
+    if not api_key or not topic:
+        return default_caption
+
+    prompt = f"""Schreib einen kurzen, ansprechenden Instagram-Beitragstext auf Deutsch fuer ChefBlick \
+(Webdesign- und Software-Agentur aus Haag an der Amper, Oberbayern) zum Thema: "{topic}".
+
+Vorgaben:
+- 2-4 Saetze, locker und direkt, kein Marketing-Geschwaetz
+- Am Ende 3-5 passende Hashtags
+- Antworte NUR mit dem fertigen Text, keine Erklaerungen, keine Anfuehrungszeichen drumherum"""
+
+    try:
+        response = req.post(
+            ANTHROPIC_API_URL,
+            headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': ANTHROPIC_MODEL,
+                'max_tokens': 300,
+                'messages': [{'role': 'user', 'content': prompt}]
+            },
+            timeout=30
+        )
+        result = response.json()
+        text = result['content'][0]['text'].strip()
+        return text or default_caption
+    except Exception as e:
+        print(f'[Instagram] Caption-Generierung fehlgeschlagen: {e}')
+        return default_caption
+
+
 def post_next_in_queue(public_base_url):
     """Postet das erste Bild aus der Warteschlange. public_base_url ist die von außen
     erreichbare Basis-URL des Servers (z.B. https://www.stean.info), damit Meta das Bild
@@ -230,7 +283,7 @@ def post_next_in_queue(public_base_url):
 
     filename = queue[0]
     s = _ig_settings()
-    caption = s.get('default_caption', '')
+    caption = _generate_caption_from_filename(filename, s.get('default_caption', ''))
     image_url = f"{public_base_url.rstrip('/')}/api/instagram/media/{filename}"
 
     result = _publish_image(image_url, caption)
