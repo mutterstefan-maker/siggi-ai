@@ -206,6 +206,20 @@ def analyze_content(html, url):
     return findings
 
 
+SHOP_PATTERNS = [
+    'warenkorb', 'in den warenkorb', 'zum warenkorb', 'checkout', 'zur kasse',
+    'add-to-cart', 'add_to_cart', 'jetzt bestellen', 'jetzt kaufen', 'woocommerce',
+    'shopware', 'shopify', 'magento', 'produkt-detail', 'preis inkl. mwst', 'inkl. mwst',
+]
+
+
+def detect_online_shop(html):
+    """Heuristik: erkennt, ob die Seite (vermutlich) ein Online-Shop mit Kaufabschluss ist -
+    relevant fuer die Frage, ob ein Widerrufsbutton/-belehrung gesetzlich noetig ist."""
+    h = html.lower()
+    return any(p in h for p in SHOP_PATTERNS)
+
+
 def analyze_legal(html, url):
     findings = []
     h = html.lower()
@@ -233,7 +247,86 @@ def analyze_legal(html, url):
     f4.description = "HTTPS aktiv" if f4.status else "Keine HTTPS-Verschluesselung"
     f4.recommendation = "" if f4.status else "SSL zwingend erforderlich fuer DSGVO-konforme Datenuebertragung."
     findings.append(f4)
+
+    is_shop = detect_online_shop(html)
+    f5 = AuditFinding('Widerrufsbutton / Widerrufsbelehrung', 'Rechtlich', 'KRITISCH' if is_shop else 'INFO')
+    if is_shop:
+        has_widerruf = bool(re.search(r'widerruf', h))
+        f5.status = has_widerruf
+        f5.description = ("Widerrufsbelehrung bzw. Widerrufsbutton gefunden" if has_widerruf else
+                           "Diese Seite hat Merkmale eines Online-Shops (Warenkorb/Kauf-Funktion), "
+                           "aber es wurde keine Widerrufsbelehrung bzw. kein Widerrufsbutton gefunden")
+        f5.recommendation = "" if has_widerruf else (
+            "Widerrufsbutton und Widerrufsbelehrung ergaenzen - fuer Online-Shops, die an Verbraucher "
+            "verkaufen, gesetzlich Pflicht (Fernabsatzrecht, Paragraph 355 BGB)."
+        )
+    else:
+        f5.status = True
+        f5.description = "Kein Online-Shop mit Kauffunktion erkannt - Widerrufsrecht daher hier nicht verpflichtend"
+        f5.recommendation = ""
+    findings.append(f5)
     return findings
+
+
+ELEMENT_CHECKS = [
+    ('has_ssl', 'SSL/HTTPS'),
+    ('has_contact_form', 'Kontaktformular'),
+    ('has_phone', 'Telefonnummer'),
+    ('has_email', 'E-Mail-Adresse'),
+    ('has_address', 'Adresse/Standort'),
+    ('has_impressum', 'Impressum'),
+    ('has_datenschutz', 'Datenschutz'),
+    ('has_cookie_banner', 'Cookie-Banner'),
+    ('has_google_maps', 'Google Maps'),
+    ('has_social_links', 'Social Media Links'),
+    ('has_reviews', 'Kundenbewertungen'),
+    ('has_cta', 'Call-to-Action'),
+    ('has_newsletter', 'Newsletter'),
+    ('has_viewport', 'Mobile Viewport'),
+    ('has_structured_data', 'Strukturierte Daten'),
+]
+
+
+def analyze_elements(html, url):
+    """Einfache An/Aus-Checkliste einzelner Website-Bausteine (fuer das Dashboard und den
+    PDF-Report). Rein regelbasiert, unabhaengig von den Kategorie-Findings oben."""
+    h = html.lower()
+    return {
+        'has_ssl': url.startswith('https://'),
+        'has_contact_form': bool(re.search(r'<form', h)),
+        'has_phone': bool(re.search(r'tel:\+?\d|(\+49[\s\-]?\d[\d\s\-/]{5,})|\b0\d{2,5}[\s/\-]\d{3,}', h)),
+        'has_email': bool(re.search(r'mailto:|[\w.\-]+@[\w\-]+\.[a-z]{2,}', h)),
+        'has_address': bool(re.search(r'\b\d{5}\b\s+[a-zäöüß]', h) or re.search(r'stra(ss|ß)e\s*\d', h)),
+        'has_impressum': bool(re.search(r'impressum', h)),
+        'has_datenschutz': bool(re.search(r'datenschutz|privacy.?policy', h)),
+        'has_cookie_banner': any(p in h for p in COOKIE_PATTERNS) or bool(re.search(r'cookie', h)),
+        'has_google_maps': bool(re.search(r'google\.[a-z.]+/maps|maps\.google', h)),
+        'has_social_links': bool(re.search(r'facebook\.com/|instagram\.com/|linkedin\.com/|tiktok\.com/|(twitter|x)\.com/', h)),
+        'has_reviews': bool(re.search(r'bewertung|testimonial|kundenstimme|trustpilot|google.?review|sternebewertung', h)),
+        'has_cta': bool(re.search(r'jetzt anfragen|jetzt buchen|jetzt kaufen|termin vereinbaren|angebot anfordern|kontaktieren sie uns|jetzt bestellen', h)),
+        'has_newsletter': bool(re.search(r'newsletter', h)),
+        'has_viewport': bool(re.search(r'viewport', h)),
+        'has_structured_data': bool(re.search(r'application/ld\+json|schema\.org', h)),
+    }
+
+
+def build_top_massnahmen(categories, limit=5):
+    """Konsolidierte Top-Massnahmen aus allen offenen (status=False) Regel-Findings,
+    priorisiert nach KRITISCH > HOCH > MITTEL."""
+    order = {'KRITISCH': 0, 'HOCH': 1, 'MITTEL': 2, 'INFO': 3}
+    aufwand_map = {'KRITISCH': 'mittel', 'HOCH': 'mittel', 'MITTEL': 'gering'}
+    issues = []
+    for items in categories.values():
+        for f in items:
+            if f.status is False and f.recommendation:
+                issues.append({
+                    'massnahme': f.signal,
+                    'prioritaet': f.priority,
+                    'begruendung': f.recommendation,
+                    'aufwand': aufwand_map.get(f.priority, 'gering'),
+                })
+    issues.sort(key=lambda x: order.get(x['prioritaet'], 3))
+    return issues[:limit]
 
 
 def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_key=None):
@@ -293,6 +386,9 @@ def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_
     for cat_name, findings in categories.items():
         result['findings'][cat_name] = [f.to_dict() for f in findings]
 
+    result['html_analysis'] = dict(result['findings'])
+    result['html_analysis']['elements'] = analyze_elements(html, final_url)
+
     total_findings = sum(len(f) for f in categories.values())
     all_flat = [f for cat in categories.values() for f in cat]
     issues = [f for f in all_flat if f.status is False]
@@ -308,7 +404,6 @@ def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_
         'categories': list(categories.keys()),
         'duration_seconds': round(time.time() - t_start, 1),
     }
-    result['html_analysis'] = result['findings']
     result['pagespeed'] = pagespeed_full or {'success': False, 'mobile': {}, 'desktop': {}}
     report(92)
 
@@ -320,6 +415,7 @@ def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_
             'ist_altbacken': None, 'altbacken_begruendung': '',
             'kategorien': {}
         }
+    ai_result['top_massnahmen'] = build_top_massnahmen(categories)
     result['ai_result'] = ai_result
 
     report(100)
