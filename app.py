@@ -69,6 +69,30 @@ def api_logout():
     session.clear()
     return jsonify({'success': True})
 
+SECURITY_STATUS_PATH = '/opt/stean/security_status.json'
+
+@app.route('/api/security/status')
+def security_status():
+    try:
+        with open(SECURITY_STATUS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        data = {'checked_at': None, 'overall': 'unknown', 'checks': []}
+
+    now = time.time()
+    with _login_attempts_lock:
+        blocked_ips = [
+            ip for ip, attempts in _login_attempts.items()
+            if len([t for t in attempts if now - t < LOGIN_WINDOW_SECONDS]) >= LOGIN_MAX_ATTEMPTS
+        ]
+        recent_failures = sum(
+            len([t for t in attempts if now - t < LOGIN_WINDOW_SECONDS])
+            for attempts in _login_attempts.values()
+        )
+    data['live_login_blocked_ips'] = len(blocked_ips)
+    data['live_login_recent_failures'] = recent_failures
+    return jsonify(data)
+
 @app.before_request
 def require_login():
     allowed = ('/login', '/api/login')

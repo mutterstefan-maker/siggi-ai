@@ -825,6 +825,10 @@ input:checked + .slider:before { transform: translateX(16px); }
     <div class="nav-item" data-view="stats">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Statistik
     </div>
+    <div class="nav-item" data-view="security">
+      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg></span> Sicherheit
+      <span class="badge danger" id="badge-security" style="display:none">!</span>
+    </div>
     <div class="nav-item" data-view="settings">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span> Einstellungen
     </div>
@@ -899,6 +903,7 @@ const VIEW_TITLES = {
   trash: 'Papierkorb',
   settings: 'Einstellungen',
   stats: 'Statistik',
+  security: 'Sicherheit',
   spam: 'Spam',
   instagram: 'Instagram Marketing',
   audit: 'Website Audit',
@@ -952,6 +957,10 @@ async function showView(view) {
   }
   if (view === 'stats') {
     renderStats();
+    return;
+  }
+  if (view === 'security') {
+    renderSecurity();
     return;
   }
   if (view === 'contacts') {
@@ -2961,6 +2970,56 @@ async function renderStats() {
   `;
 }
 
+const SECURITY_STATUS_META = {
+  ok:       { color: 'var(--success)', icon: '✅', label: 'OK' },
+  warning:  { color: 'var(--warning)', icon: '⚠️', label: 'Warnung' },
+  critical: { color: 'var(--danger)',  icon: '🚨', label: 'Kritisch' },
+  unknown:  { color: 'var(--text3)',   icon: '❔', label: 'Unbekannt' },
+};
+
+async function renderSecurity() {
+  const content = document.getElementById('main-content');
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const data = await apiFetch('/api/security/status');
+  const overall = data?.overall || 'unknown';
+  const meta = SECURITY_STATUS_META[overall] || SECURITY_STATUS_META.unknown;
+  const checks = data?.checks || [];
+  const checkedAt = data?.checked_at ? formatDate(data.checked_at) : 'noch keine Prüfung durchgeführt';
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${meta.color};border-radius:var(--radius);padding:20px;margin-bottom:20px;display:flex;align-items:center;gap:16px">
+        <div style="font-size:32px">${meta.icon}</div>
+        <div>
+          <div style="font-size:16px;font-weight:800;color:${meta.color}">Gesamtstatus: ${meta.label}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Letzte Server-Prüfung: ${escHtml(checkedAt)}</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px">
+        ${statCard('🔐', 'Blockierte IPs (Login)', data?.live_login_blocked_ips ?? 0, 'var(--danger)')}
+        ${statCard('🕵️', 'Fehlversuche (5 Min)', data?.live_login_recent_failures ?? 0, 'var(--warning)')}
+      </div>
+
+      <div class="settings-section">
+        <h3>🛡️ Server-Sicherheitschecks</h3>
+        ${checks.length ? checks.map(c => {
+          const m = SECURITY_STATUS_META[c.status] || SECURITY_STATUS_META.unknown;
+          return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);font-size:12px">
+            <div>
+              <div style="font-weight:700;color:var(--text)">${m.icon} ${escHtml(c.label || c.id || '')}</div>
+              <div style="color:var(--text2);margin-top:2px">${escHtml(c.detail || '')}</div>
+            </div>
+            <div style="color:${m.color};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;white-space:nowrap;margin-left:12px">${m.label}</div>
+          </div>`;
+        }).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Checks vorhanden – der tägliche Server-Check läuft automatisch und befüllt diese Ansicht nach dem ersten Durchlauf.</div>'}
+      </div>
+    </div>
+  `;
+}
+
 function statCard(icon, label, value, color) {
   return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center">
     <div style="font-size:28px;margin-bottom:8px">${icon}</div>
@@ -3311,6 +3370,13 @@ async function loadCounts() {
     const n = draftData.drafts?.length || 0;
     draftBadge.textContent = n;
     draftBadge.style.display = n ? 'inline-block' : 'none';
+  }
+
+  const secData = await apiFetch('/api/security/status');
+  const secBadge = document.getElementById('badge-security');
+  if (secBadge && secData) {
+    const needsAttention = secData.overall === 'critical' || secData.overall === 'warning';
+    secBadge.style.display = needsAttention ? 'inline-block' : 'none';
   }
 }
 
