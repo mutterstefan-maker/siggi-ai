@@ -17,7 +17,7 @@ import audit_pdf
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB, genug für Base64-kodierte Flyer-Bilder
-CORS(app)
+CORS(app, origins=['https://stean.info', 'https://www.stean.info'])
 
 from flask import session, redirect
 from dotenv import load_dotenv
