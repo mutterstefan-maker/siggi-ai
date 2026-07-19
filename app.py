@@ -842,6 +842,12 @@ def jarvis_chat():
                 system_prompt += "\n" + gsc_engine.get_gsc_context()
             except:
                 pass
+        if GA4_AVAILABLE:
+            try:
+                from ga4_engine import get_ga4_context
+                system_prompt += "\n" + get_ga4_context()
+            except:
+                pass
         system_prompt += (
             "\nANWEISUNG: Keine Signatur! Antworte direkt. "
             "Nutze die verfügbaren Tools proaktiv, wenn Stefan dir etwas zum Merken, Vergessen, "
