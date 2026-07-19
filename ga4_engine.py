@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 Google Analytics 4 Engine für SIGGI
-Liest Traffic, Sessions, Nutzer und Conversions für chefblick.de
+Liest Traffic, Sessions, Nutzer und Conversions für chefblick.de über die
+GA4 Data API (reines REST, kein google-analytics-data SDK nötig).
 """
 import os
+import json
+import urllib.request
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SERVICE_ACCOUNT_PATH = os.path.join(BASE_DIR, 'google_service_account.json')
+SERVICE_ACCOUNT_PATH = os.path.join(BASE_DIR, 'siggi-dashboard-ac0baeaaaef6.json')
+GA4_API_URL = 'https://analyticsdata.googleapis.com/v1beta/properties/{}:runReport'
 
-# GA4 Property ID — im Format '123456789' (ohne 'properties/')
-# Zu finden in GA4: Admin → Property → Property-Details
 GA4_PROPERTY_ID = ''  # wird aus settings.json geladen falls vorhanden
 
 
 def _get_property_id():
     try:
-        import json
         settings_path = os.path.join(BASE_DIR, 'settings.json')
         with open(settings_path, 'r', encoding='utf-8') as f:
             s = json.load(f)
@@ -25,48 +26,57 @@ def _get_property_id():
         return GA4_PROPERTY_ID
 
 
-def _get_client():
+def _get_access_token():
     if not os.path.exists(SERVICE_ACCOUNT_PATH):
         return None
     try:
         from google.oauth2 import service_account
-        from google.analytics.data_v1beta import BetaAnalyticsDataClient
+        from google.auth.transport.requests import Request
         creds = service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_PATH,
             scopes=['https://www.googleapis.com/auth/analytics.readonly']
         )
-        return BetaAnalyticsDataClient(credentials=creds)
+        creds.refresh(Request())
+        return creds.token
     except Exception as e:
         print(f'[GA4] Verbindungsfehler: {e}')
         return None
 
 
+def _run_report(property_id, body):
+    token = _get_access_token()
+    if not token:
+        return None
+    req = urllib.request.Request(
+        GA4_API_URL.format(property_id),
+        data=json.dumps(body).encode('utf-8'),
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        method='POST'
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
 def get_overview(days=28):
     """Sessions, Nutzer, Seitenaufrufe der letzten X Tage."""
-    client = _get_client()
     property_id = _get_property_id()
-    if not client or not property_id:
+    if not property_id:
         return None
     try:
-        from google.analytics.data_v1beta.types import (
-            RunReportRequest, DateRange, Metric
-        )
-        request = RunReportRequest(
-            property=f'properties/{property_id}',
-            date_ranges=[DateRange(start_date=f'{days}daysAgo', end_date='today')],
-            metrics=[
-                Metric(name='sessions'),
-                Metric(name='totalUsers'),
-                Metric(name='screenPageViews'),
-                Metric(name='bounceRate'),
-                Metric(name='averageSessionDuration'),
+        body = {
+            'dateRanges': [{'startDate': f'{days}daysAgo', 'endDate': 'today'}],
+            'metrics': [
+                {'name': 'sessions'},
+                {'name': 'totalUsers'},
+                {'name': 'screenPageViews'},
+                {'name': 'bounceRate'},
+                {'name': 'averageSessionDuration'},
             ]
-        )
-        resp = client.run_report(request)
-        if not resp.rows:
+        }
+        resp = _run_report(property_id, body)
+        if not resp or not resp.get('rows'):
             return None
-        row = resp.rows[0]
-        vals = [mv.value for mv in row.metric_values]
+        vals = [mv['value'] for mv in resp['rows'][0]['metricValues']]
         return {
             'sessions': int(float(vals[0])),
             'users': int(float(vals[1])),
@@ -82,26 +92,23 @@ def get_overview(days=28):
 
 def get_top_pages(days=28, limit=5):
     """Top-Seiten nach Aufrufen."""
-    client = _get_client()
     property_id = _get_property_id()
-    if not client or not property_id:
+    if not property_id:
         return []
     try:
-        from google.analytics.data_v1beta.types import (
-            RunReportRequest, DateRange, Dimension, Metric, OrderBy
-        )
-        request = RunReportRequest(
-            property=f'properties/{property_id}',
-            date_ranges=[DateRange(start_date=f'{days}daysAgo', end_date='today')],
-            dimensions=[Dimension(name='pagePath')],
-            metrics=[Metric(name='screenPageViews')],
-            order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name='screenPageViews'), desc=True)],
-            limit=limit
-        )
-        resp = client.run_report(request)
+        body = {
+            'dateRanges': [{'startDate': f'{days}daysAgo', 'endDate': 'today'}],
+            'dimensions': [{'name': 'pagePath'}],
+            'metrics': [{'name': 'screenPageViews'}],
+            'orderBys': [{'metric': {'metricName': 'screenPageViews'}, 'desc': True}],
+            'limit': limit
+        }
+        resp = _run_report(property_id, body)
+        if not resp:
+            return []
         return [
-            {'page': r.dimension_values[0].value, 'views': int(r.metric_values[0].value)}
-            for r in resp.rows
+            {'page': r['dimensionValues'][0]['value'], 'views': int(r['metricValues'][0]['value'])}
+            for r in resp.get('rows', [])
         ]
     except Exception as e:
         print(f'[GA4] Fehler bei Top-Seiten: {e}')
