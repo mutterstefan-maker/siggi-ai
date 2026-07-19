@@ -25,7 +25,7 @@ MARGIN = 18 * mm
 CATEGORY_ICONS = {
     'Indexierung': 'ⓘ', 'Technik': '⚙', 'SEO': '↗', 'Inhalte': '✎',
     'Rechtlich': '⚖', 'Performance': '⚡', 'Formulare': '✉', 'Bilder': '🖼',
-    'Internetpraesenz': '🌐', 'Vertrauen': '★', 'Kundengewinnung': '📈',
+    'Internetpraesenz': '🌐', 'Vertrauen': '★', 'Kundengewinnung': '📈', 'Mobile': '📱',
 }
 
 KATEGORIE_LABELS = {

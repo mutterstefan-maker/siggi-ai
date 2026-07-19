@@ -5,6 +5,11 @@ from datetime import datetime
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import audit_ai
+try:
+    import audit_playwright
+    PLAYWRIGHT_MODULE_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_MODULE_AVAILABLE = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIT_RESULTS_PATH = os.path.join(BASE_DIR, 'audit_results')
@@ -801,6 +806,108 @@ def analyze_customer_acquisition(combined_html):
     return findings
 
 
+def analyze_broken_images(pw_result):
+    """Browserverifizierte Pruefung auf defekte/fehlende Bilder (naturalWidth=0 nach Laden) -
+    zuverlaessiger als eine reine HTTP-Statuspruefung, da sie auch fehlerhaft dekodierte oder
+    per JS nachgeladene Bilder erfasst."""
+    f1 = AuditFinding('Defekte oder fehlende Bilder (Browsertest)', 'Bilder', 'HOCH',
+                       was_geprueft="Ob beim tatsaechlichen Laden der Seite im Browser Bilder erkannt wurden, die nicht angezeigt werden konnten (kaputter Link, fehlende Datei, Ladefehler).",
+                       warum_wichtig="Defekte Bilder (das bekannte 'kaputtes Bild'-Symbol) wirken auf Besucher sofort unprofessionell und unfertig.")
+    if not pw_result or not pw_result.get('available'):
+        f1.status = None
+        f1.description = pw_result.get('reason', 'Browserbasierte Pruefung nicht verfuegbar.') if pw_result else 'Browserbasierte Pruefung nicht verfuegbar.'
+        f1.recommendation = ""
+        return [f1]
+
+    broken = pw_result.get('broken_images_max', 0)
+    f1.status = broken == 0
+    f1.description = f"{broken} defekte(s)/fehlende(s) Bild(er) im Browsertest gefunden" if broken else "Keine defekten oder fehlenden Bilder im Browsertest gefunden"
+    f1.recommendation = "" if f1.status else "Bild-Links pruefen und defekte/fehlende Bilder ersetzen oder entfernen."
+    return [f1]
+
+
+def analyze_mobile_devices(pw_result):
+    """Wandelt die Playwright-Viewport-Ergebnisse in verstaendliche Findings um. pw_result kann
+    {'available': False, ...} sein, wenn Chromium auf dem Server nicht verfuegbar ist - dann
+    wird das transparent als INFO-Finding vermerkt statt den ganzen Report scheitern zu lassen."""
+    findings = []
+
+    if not pw_result or not pw_result.get('available'):
+        f0 = AuditFinding('Mobile-Test auf mehreren Geraeten', 'Mobile', 'INFO',
+                           was_geprueft="Ob die Seite auf verschiedenen Bildschirmgroessen automatisiert getestet werden konnte.",
+                           warum_wichtig="Diese browserbasierte Pruefung war fuer diesen Report nicht verfuegbar.")
+        f0.status = None
+        f0.description = pw_result.get('reason', 'Browserbasierte Pruefung nicht verfuegbar.') if pw_result else 'Browserbasierte Pruefung nicht verfuegbar.'
+        f0.recommendation = ""
+        findings.append(f0)
+        return findings
+
+    viewports = pw_result.get('viewports', [])
+    tested_names = [v['name'] for v in viewports if v.get('ok')]
+
+    f1 = AuditFinding('Getestete Bildschirmgroessen', 'Mobile', 'INFO',
+                       was_geprueft="Auf welchen Bildschirmgroessen die Website automatisiert im echten Browser geladen und geprueft wurde.",
+                       warum_wichtig="Ein Grossteil der Besucher nutzt heute Smartphones - eine Seite, die nur am Desktop gut aussieht, verliert dadurch potenzielle Kunden.")
+    f1.status = True
+    f1.description = (f"Getestet auf {len(tested_names)}/{len(viewports)} Geraeten: " + ', '.join(tested_names)
+                       if tested_names else "Kein Geraet konnte erfolgreich getestet werden.")
+    f1.recommendation = ""
+    findings.append(f1)
+
+    overflow_devices = [v['name'] for v in viewports if v.get('ok') and v.get('overflow')]
+    f2 = AuditFinding('Horizontales Scrollen / abgeschnittene Inhalte', 'Mobile', 'HOCH',
+                       was_geprueft="Ob die Seite auf einem der getesteten Geraete breiter als der Bildschirm ist und dadurch horizontal gescrollt werden muss.",
+                       warum_wichtig="Horizontales Scrollen ist auf Mobilgeraeten ein starkes Warnsignal fuer schlechte Bedienbarkeit und schreckt Besucher ab.")
+    f2.status = not overflow_devices
+    f2.description = (f"Betroffen: {', '.join(overflow_devices)}" if overflow_devices
+                       else "Keine horizontalen Scroll-Probleme auf den getesteten Geraeten gefunden")
+    f2.recommendation = "" if f2.status else "Layout/CSS pruefen - vermutlich feste Breiten oder zu grosse Elemente, die auf kleinen Bildschirmen ueberlaufen."
+    findings.append(f2)
+
+    tiny_btn_devices = [v['name'] for v in viewports if v.get('ok') and v.get('tinyButtons', 0) > 0]
+    f3 = AuditFinding('Buttons/Links auf Mobilgeraeten', 'Mobile', 'MITTEL',
+                       was_geprueft="Ob Buttons und klickbare Elemente auf mobilen Bildschirmgroessen gross genug sind, um bequem antippbar zu sein (Richtwert: mind. 32x32 Pixel).",
+                       warum_wichtig="Zu kleine Buttons fuehren zu Fehlklicks und Frust, besonders bei der Bedienung mit dem Finger statt der Maus.")
+    f3.status = not tiny_btn_devices
+    f3.description = (f"Zu kleine Buttons erkannt auf: {', '.join(tiny_btn_devices)}" if tiny_btn_devices
+                       else "Keine zu kleinen Buttons auf den getesteten Geraeten gefunden")
+    f3.recommendation = "" if f3.status else "Klickbare Elemente auf mobilen Geraeten vergroessern (mind. 32x32 Pixel Touch-Flaeche)."
+    findings.append(f3)
+
+    table_overflow_devices = [v['name'] for v in viewports if v.get('ok') and v.get('tableOverflow')]
+    if any(v.get('tables', 0) > 0 for v in viewports if v.get('ok')):
+        f4 = AuditFinding('Tabellen-Darstellung', 'Mobile', 'MITTEL',
+                           was_geprueft="Ob Tabellen auf kleinen Bildschirmen breiter als der sichtbare Bereich sind.",
+                           warum_wichtig="Nicht angepasste Tabellen sind auf Smartphones oft nur durch seitliches Scrollen lesbar - schlechte Nutzererfahrung.")
+        f4.status = not table_overflow_devices
+        f4.description = (f"Tabellen laufen ueber auf: {', '.join(table_overflow_devices)}" if table_overflow_devices
+                           else "Tabellen passen sich den getesteten Bildschirmgroessen an")
+        f4.recommendation = "" if f4.status else "Tabellen fuer mobile Ansicht responsiv gestalten (z.B. horizontales Scrollen innerhalb der Tabelle statt der ganzen Seite, oder Kartenlayout)."
+        findings.append(f4)
+
+    return findings
+
+
+def analyze_js_errors(pw_result):
+    findings = []
+    f1 = AuditFinding('JavaScript-/CSS-Fehler', 'Technik', 'MITTEL',
+                       was_geprueft="Ob beim Laden der Seite im echten Browser Fehler in der Entwicklerkonsole auftreten (defekte Skripte, fehlerhafte Ressourcen).",
+                       warum_wichtig="Skriptfehler koennen dazu fuehren, dass Teile der Seite (z.B. Formulare, Menues, interaktive Elemente) nicht richtig funktionieren, ohne dass es auf den ersten Blick auffaellt.")
+    if not pw_result or not pw_result.get('available'):
+        f1.status = None
+        f1.description = pw_result.get('reason', 'Browserbasierte Pruefung nicht verfuegbar.') if pw_result else 'Browserbasierte Pruefung nicht verfuegbar.'
+        f1.recommendation = ""
+        return [f1]
+
+    errors = pw_result.get('console_errors', [])
+    f1.status = not errors
+    f1.description = (f"{len(errors)} unterschiedliche Fehlermeldung(en) in der Browserkonsole gefunden, z.B.: {errors[0][:150]}"
+                       if errors else "Keine Fehler in der Browserkonsole gefunden")
+    f1.recommendation = "" if f1.status else "Fehlermeldungen in der Browserkonsole pruefen und beheben (z.B. mit den Entwicklertools im Browser)."
+    findings.append(f1)
+    return findings
+
+
 ELEMENT_CHECKS = [
     ('has_ssl', 'SSL/HTTPS'),
     ('has_contact_form', 'Kontaktformular'),
@@ -888,30 +995,44 @@ def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_
     domain = urlparse(final_url).netloc
     report(15)
 
-    # Parallel: robots.txt, sitemap.xml, interne Unterseiten (Impressum/Widerruf/Sortiment) crawlen
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    # Parallel: robots.txt, sitemap.xml, interne Unterseiten crawlen, Playwright-Browsercheck
+    with ThreadPoolExecutor(max_workers=3) as ex:
         fut_robots = ex.submit(fetch_url_ok, f"{urlparse(final_url).scheme}://{domain}/robots.txt")
         fut_sitemap = ex.submit(fetch_url_ok, f"{urlparse(final_url).scheme}://{domain}/sitemap.xml")
         fut_crawl = ex.submit(crawl_site, html, final_url, domain)
+        fut_pw = None
+        if PLAYWRIGHT_MODULE_AVAILABLE:
+            fut_pw = ex.submit(audit_playwright.run_visual_checks, final_url)
 
         robots_ok = fut_robots.result()
-        report(40)
+        report(35)
         sitemap_ok = fut_sitemap.result()
-        report(55)
+        report(45)
         combined_html, crawled_urls = fut_crawl.result()
-        report(70)
+        report(60)
+        if fut_pw is not None:
+            try:
+                pw_result = fut_pw.result(timeout=120)
+            except Exception as e:
+                pw_result = {'available': False, 'reason': f'Zeitueberschreitung oder Fehler: {e}'}
+        else:
+            pw_result = {'available': False, 'reason': 'Playwright-Modul nicht verfuegbar auf diesem Server.'}
+        report(75)
     pagespeed_full = None
 
     result['crawled_pages'] = crawled_urls
 
+    technik_findings = analyze_technical(html, final_url, domain) + analyze_js_errors(pw_result)
+
     categories = {
         'Indexierung': analyze_indexing(html, final_url, domain, robots_ok, sitemap_ok),
-        'Technik': analyze_technical(html, final_url, domain),
+        'Technik': technik_findings,
         'SEO': analyze_seo(html, final_url),
         'Inhalte': analyze_content(html, final_url),
         'Rechtlich': analyze_legal(html, final_url, combined_html, crawled_urls),
         'Formulare': analyze_forms(combined_html),
-        'Bilder': analyze_images(html, final_url),
+        'Bilder': analyze_images(html, final_url) + analyze_broken_images(pw_result),
+        'Mobile': analyze_mobile_devices(pw_result),
         'Internetpraesenz': analyze_web_presence(combined_html),
         'Vertrauen': analyze_trust(combined_html),
         'Kundengewinnung': analyze_customer_acquisition(combined_html),
