@@ -499,17 +499,23 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
             box_w = PAGE_W - 2 * MARGIN
             status_txt = ""
             if widerruf:
-                if widerruf.get('status') is True and 'Kein Online-Shop' in widerruf.get('description', ''):
+                desc = widerruf.get('description', '')
+                if widerruf.get('status') is True and 'Kein Online-Shop' in desc:
                     status_txt = "Bei Ihnen: kein Online-Shop mit Kauffunktion erkannt - daher hier nicht verpflichtend."
+                elif widerruf.get('status') is True and 'verderblich' in desc:
+                    status_txt = ("Bei Ihnen: keine Widerrufsfunktion gefunden, aber das Sortiment deutet auf "
+                                   "schnell verderbliche Ware hin - moeglicherweise Ausnahme nach Paragraph 312g "
+                                   "Abs. 2 Nr. 2 BGB. Bitte im Einzelfall rechtlich pruefen lassen.")
                 elif widerruf.get('status') is True:
-                    status_txt = "Bei Ihnen: Widerrufsbelehrung wurde gefunden."
+                    status_txt = "Bei Ihnen: Widerrufsbelehrung bzw. Widerrufsfunktion wurde gefunden."
                 else:
-                    status_txt = "Bei Ihnen: Ihre Seite wirkt wie ein Online-Shop, aber es wurde keine Widerrufsbelehrung gefunden."
+                    status_txt = "Bei Ihnen: Ihre Seite wirkt wie ein Online-Shop, aber es wurde keine Widerrufsfunktion gefunden."
             y = _info_box(c, MARGIN, y, box_w, "Was ist ein Widerrufsbutton?", [
                 "Verbraucher duerfen einen online geschlossenen Kaufvertrag innerhalb von 14 Tagen",
-                "ohne Angabe von Gruenden widerrufen (Fernabsatzrecht, Paragraph 355 BGB). Online-Shops",
-                "muessen dieses Recht vor Vertragsschluss klar und leicht auffindbar erklaeren -",
-                "ueblicherweise ueber eine eigene 'Widerruf'-Seite oder einen Link/Button im Checkout.",
+                "ohne Angabe von Gruenden widerrufen (Paragraph 312g BGB). Seit dem 19.06.2026 muessen",
+                "Online-Shops dafuer eine elektronische Widerrufsfunktion bereitstellen, erreichbar ueber",
+                "eine klar beschriftete Schaltflaeche wie 'Vertrag widerrufen' (Paragraph 356a BGB). Ausnahmen",
+                "gelten u.a. fuer schnell verderbliche Ware wie frische Lebensmittel (Paragraph 312g Abs. 2 Nr. 2 BGB).",
                 status_txt,
             ], border_color=ACCENT)
 
@@ -556,6 +562,23 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
     c.drawCentredString(PAGE_W / 2, y - 9 * mm, contact['contact_person'])
     c.setFont('Helvetica', 10.5)
     c.drawCentredString(PAGE_W / 2, y - 15 * mm, f"{contact['email']}  |  {contact['phone']}  |  {contact['web']}")
+
+    # ── Haftungsausschluss ──────────────────────────────────────
+    y = y - 22 * mm - 12 * mm
+    if y < 35 * mm:
+        y = _new_page_header(c, "Hinweis", contact)
+    disclaimer = (
+        "Haftungsausschluss: Dieser Report wurde automatisiert mit Hilfe der KI-gestuetzten Analyse-Software "
+        "SIGGI erstellt, basierend auf dem oeffentlich zugaenglichen Inhalt der geprueften Website zum "
+        "Zeitpunkt der Analyse. Trotz sorgfaeltiger Pruefung koennen Fehler, Unvollstaendigkeiten oder "
+        "Fehlinterpretationen nicht vollstaendig ausgeschlossen werden - insbesondere bei rechtlichen "
+        "Einschaetzungen, die vom individuellen Geschaeftsmodell, Sortiment und Einzelfall abhaengen. Dieser "
+        "Report ersetzt keine individuelle Rechts-, SEO- oder technische Beratung durch einen Fachanwalt bzw. "
+        "Experten. Fuer die Richtigkeit, Vollstaendigkeit und Aktualitaet der dargestellten Inhalte sowie fuer "
+        "Entscheidungen, die auf Basis dieses Reports getroffen werden, wird keine Haftung uebernommen."
+    )
+    c.setFillColor(GREY)
+    _draw_wrapped(c, disclaimer, MARGIN, y, 'Helvetica-Oblique', 7.5, PAGE_W - 2 * MARGIN, GREY, 3.6 * mm)
 
     c.save()
     return output_path

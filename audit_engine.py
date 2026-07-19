@@ -212,6 +212,34 @@ SHOP_PATTERNS = [
     'shopware', 'shopify', 'magento', 'produkt-detail', 'preis inkl. mwst', 'inkl. mwst',
 ]
 
+# Interne Links, die bevorzugt mitgecrawlt werden - erhoehen die Trefferquote fuer rechtliche
+# Pflichtseiten (die oft nicht auf der Startseite selbst stehen, sondern nur verlinkt sind) und
+# fuer die Einordnung des Sortiments (perishable vs. nicht-perishable, siehe PERISHABLE_HINTS).
+CRAWL_PRIORITY_KEYWORDS = [
+    'impressum', 'datenschutz', 'agb', 'widerruf', 'versand', 'lieferung', 'liefergebiet',
+    'sortiment', 'produkte', 'shop', 'angebot', 'speisekarte', 'menu', 'menue', 'kategorie',
+    'zahlung', 'kasse', 'warenkorb',
+]
+
+# Woerter, die auf tatsaechlich schnell verderbliche Ware/frisch zubereitete Speisen hindeuten -
+# fuer diese greift die Ausnahme vom Widerrufsrecht nach Paragraph 312g Abs. 2 Nr. 2 BGB
+# ("Waren, die schnell verderben koennen, wie frische Lebensmittel"). Verifiziert am 19.07.2026
+# gegen den offiziellen Gesetzestext auf gesetze-im-internet.de.
+PERISHABLE_HINTS = [
+    'frisch zubereitet', 'frische lebensmittel', 'tagesgericht', 'gericht', 'speise', 'menue des tages',
+    'mittagsmenue', 'pizza', 'sushi', 'doener', 'kebab', 'backwaren', 'baeckerei', 'konditorei',
+    'catering', 'mahlzeit', 'essen bestellen', 'restaurant',
+]
+
+# Woerter, die auf NICHT schnell verderbliche Ware hindeuten (widerlegen eine vorschnelle
+# Perishable-Einstufung, z.B. bei einem Getraenke-/Haushaltswaren-Lieferservice wie
+# koller-lieferservice.de, wo die Ausnahme nicht greift).
+NON_PERISHABLE_HINTS = [
+    'getraenke', 'bier', 'mineralwasser', 'softdrink', 'limonade', 'saft', 'kasten',
+    'haushaltsware', 'haushaltsprodukt', 'drogerie', 'elektronik', 'moebel', 'deko',
+    'buecher', 'spielzeug', 'kleidung', 'schuhe', 'werkzeug',
+]
+
 
 def detect_online_shop(html):
     """Heuristik: erkennt, ob die Seite (vermutlich) ein Online-Shop mit Kaufabschluss ist -
@@ -220,9 +248,77 @@ def detect_online_shop(html):
     return any(p in h for p in SHOP_PATTERNS)
 
 
-def analyze_legal(html, url):
+def crawl_site(base_html, base_url, domain, max_pages=8, timeout=8):
+    """Folgt internen Links von der Startseite aus, um rechtliche Pflichtseiten (Impressum,
+    Widerruf, AGB etc.) und das tatsaechliche Sortiment zu finden - diese stehen haeufig nicht
+    auf der Startseite selbst. Liefert den kombinierten HTML-Text aller gecrawlten Seiten plus
+    die Liste der besuchten URLs, damit im Report nachvollziehbar bleibt, was geprueft wurde."""
+    scheme = urlparse(base_url).scheme
+    raw_links = re.findall(r'href=["\']([^"\'#?]+)', base_html, re.IGNORECASE)
+
+    candidates = []
+    seen = {base_url}
+    for link in raw_links:
+        if link.startswith('mailto:') or link.startswith('tel:') or link.startswith('javascript:'):
+            continue
+        if link.startswith('http'):
+            if urlparse(link).netloc != domain:
+                continue
+            full = link
+        elif link.startswith('/'):
+            full = f"{scheme}://{domain}{link}"
+        else:
+            continue
+        full = full.split('#')[0]
+        if full in seen:
+            continue
+        seen.add(full)
+        score = sum(1 for kw in CRAWL_PRIORITY_KEYWORDS if kw in full.lower())
+        if score > 0:
+            candidates.append((score, full))
+
+    candidates.sort(key=lambda x: -x[0])
+    to_fetch = [url for _, url in candidates[:max_pages]]
+
+    visited_pages = {base_url: base_html}
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = {ex.submit(fetch_page, u): u for u in to_fetch}
+            for fut in as_completed(futures):
+                u = futures[fut]
+                try:
+                    page_html, status, _ = fut.result()
+                    if page_html and status == 200:
+                        visited_pages[u] = page_html
+                except Exception:
+                    pass
+
+    combined_html = '\n'.join(visited_pages.values())
+    return combined_html, list(visited_pages.keys())
+
+
+def classify_perishable(combined_html):
+    """Grobe Einordnung, ob das erkennbare Sortiment ueberwiegend aus schnell verderblicher
+    Ware/frisch zubereiteten Speisen besteht (Ausnahme Paragraph 312g Abs. 2 Nr. 2 BGB) oder
+    nicht (z.B. Getraenke, Haushaltswaren - dort greift die Ausnahme NICHT). Bei Unklarheit
+    (keine oder gemischte Signale) wird konservativ 'nicht verderblich' angenommen, damit der
+    Report im Zweifel eher zu einem KRITISCH-Fund als zu einer falschen Entwarnung neigt."""
+    h = combined_html.lower()
+    perishable_hits = [kw for kw in PERISHABLE_HINTS if kw in h]
+    non_perishable_hits = [kw for kw in NON_PERISHABLE_HINTS if kw in h]
+    if perishable_hits and not non_perishable_hits:
+        return True, perishable_hits, non_perishable_hits
+    return False, perishable_hits, non_perishable_hits
+
+
+def analyze_legal(html, url, combined_html=None, crawled_urls=None):
+    """combined_html: HTML aller gecrawlten Seiten (Startseite + Unterseiten), falls vorhanden -
+    macht die Pruefung deutlich zuverlaessiger, weil Impressum/Widerruf/AGB oft auf Unterseiten
+    stehen. Faellt auf reines Startseiten-HTML zurueck, wenn kein Crawl durchgefuehrt wurde."""
     findings = []
-    h = html.lower()
+    search_html = combined_html or html
+    h = search_html.lower()
+    crawled_urls = crawled_urls or [url]
 
     f1 = AuditFinding('Impressum vorhanden', 'Rechtlich', 'KRITISCH')
     f1.status = bool(re.search(r'impressum', h))
@@ -248,18 +344,43 @@ def analyze_legal(html, url):
     f4.recommendation = "" if f4.status else "SSL zwingend erforderlich fuer DSGVO-konforme Datenuebertragung."
     findings.append(f4)
 
-    is_shop = detect_online_shop(html)
+    is_shop = detect_online_shop(search_html)
     f5 = AuditFinding('Widerrufsbutton / Widerrufsbelehrung', 'Rechtlich', 'KRITISCH' if is_shop else 'INFO')
     if is_shop:
         has_widerruf = bool(re.search(r'widerruf', h))
-        f5.status = has_widerruf
-        f5.description = ("Widerrufsbelehrung bzw. Widerrufsbutton gefunden" if has_widerruf else
-                           "Diese Seite hat Merkmale eines Online-Shops (Warenkorb/Kauf-Funktion), "
-                           "aber es wurde keine Widerrufsbelehrung bzw. kein Widerrufsbutton gefunden")
-        f5.recommendation = "" if has_widerruf else (
-            "Widerrufsbutton und Widerrufsbelehrung ergaenzen - fuer Online-Shops, die an Verbraucher "
-            "verkaufen, gesetzlich Pflicht (Fernabsatzrecht, Paragraph 355 BGB)."
-        )
+        is_perishable, per_hits, nonper_hits = classify_perishable(search_html)
+        if has_widerruf:
+            f5.status = True
+            f5.description = f"Widerrufsbelehrung bzw. Widerrufsfunktion gefunden (geprueft ueber {len(crawled_urls)} Seite(n))."
+            f5.recommendation = ""
+        elif is_perishable:
+            f5.status = True
+            f5.priority = 'INFO'
+            f5.description = (
+                "Diese Seite hat Merkmale eines Online-Shops, aber es wurde keine Widerrufsbelehrung gefunden. "
+                f"Da das Sortiment auf schnell verderbliche Ware/frisch zubereitete Speisen hindeutet ({', '.join(per_hits[:3])}), "
+                "greift moeglicherweise die gesetzliche Ausnahme nach Paragraph 312g Abs. 2 Nr. 2 BGB "
+                "('Waren, die schnell verderben koennen'). Diese Einschaetzung basiert auf einer automatischen "
+                "Keyword-Analyse und ersetzt keine Rechtsberatung - bitte im Einzelfall pruefen lassen."
+            )
+            f5.recommendation = (
+                "Rechtlich pruefen lassen, ob die Ausnahme fuer verderbliche Ware tatsaechlich auf das gesamte "
+                "Sortiment zutrifft (z.B. nicht bei Getraenken oder verpackten Beilagen im selben Bestellvorgang)."
+            )
+        else:
+            f5.status = False
+            f5.description = (
+                "Diese Seite hat Merkmale eines Online-Shops (Warenkorb/Kauf-Funktion), aber es wurde auf "
+                f"{len(crawled_urls)} geprueften Seite(n) keine Widerrufsbelehrung bzw. keine Widerrufsfunktion gefunden. "
+                + (f"Das Sortiment deutet auf nicht schnell verderbliche Ware hin ({', '.join(nonper_hits[:3])}), "
+                   "die Ausnahme fuer verderbliche Ware greift daher voraussichtlich nicht." if nonper_hits else "")
+            )
+            f5.recommendation = (
+                "Elektronische Widerrufsfunktion ergaenzen: Der Verbraucher muss einen Fernabsatzvertrag ueber "
+                "eine klar erreichbare Funktion (Beschriftung z.B. 'Vertrag widerrufen') widerrufen koennen, mit "
+                "Bestaetigungsschritt und sofortiger Empfangsbestaetigung auf dauerhaftem Datentraeger "
+                "(Paragraph 356a BGB, in Verbindung mit dem Widerrufsrecht nach Paragraph 312g BGB)."
+            )
     else:
         f5.status = True
         f5.description = "Kein Online-Shop mit Kauffunktion erkannt - Widerrufsrecht daher hier nicht verpflichtend"
@@ -287,10 +408,10 @@ ELEMENT_CHECKS = [
 ]
 
 
-def analyze_elements(html, url):
+def analyze_elements(html, url, combined_html=None):
     """Einfache An/Aus-Checkliste einzelner Website-Bausteine (fuer das Dashboard und den
     PDF-Report). Rein regelbasiert, unabhaengig von den Kategorie-Findings oben."""
-    h = html.lower()
+    h = (combined_html or html).lower()
     return {
         'has_ssl': url.startswith('https://'),
         'has_contact_form': bool(re.search(r'<form', h)),
@@ -353,25 +474,30 @@ def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_
         return result
 
     domain = urlparse(final_url).netloc
-    report(20)
+    report(15)
 
-    # Parallel: robots.txt, sitemap.xml, PageSpeed gleichzeitig abrufen
+    # Parallel: robots.txt, sitemap.xml, interne Unterseiten (Impressum/Widerruf/Sortiment) crawlen
     with ThreadPoolExecutor(max_workers=2) as ex:
         fut_robots = ex.submit(fetch_url_ok, f"{urlparse(final_url).scheme}://{domain}/robots.txt")
         fut_sitemap = ex.submit(fetch_url_ok, f"{urlparse(final_url).scheme}://{domain}/sitemap.xml")
+        fut_crawl = ex.submit(crawl_site, html, final_url, domain)
 
         robots_ok = fut_robots.result()
-        report(45)
+        report(40)
         sitemap_ok = fut_sitemap.result()
-        report(65)
+        report(55)
+        combined_html, crawled_urls = fut_crawl.result()
+        report(70)
     pagespeed_full = None
+
+    result['crawled_pages'] = crawled_urls
 
     categories = {
         'Indexierung': analyze_indexing(html, final_url, domain, robots_ok, sitemap_ok),
         'Technik': analyze_technical(html, final_url),
         'SEO': analyze_seo(html, final_url),
         'Inhalte': analyze_content(html, final_url),
-        'Rechtlich': analyze_legal(html, final_url),
+        'Rechtlich': analyze_legal(html, final_url, combined_html, crawled_urls),
     }
 
     # Performance-Kategorie aus PageSpeed
@@ -387,7 +513,7 @@ def run_full_audit(url, progress_cb=None, pagespeed_api_key=None, anthropic_api_
         result['findings'][cat_name] = [f.to_dict() for f in findings]
 
     result['html_analysis'] = dict(result['findings'])
-    result['html_analysis']['elements'] = analyze_elements(html, final_url)
+    result['html_analysis']['elements'] = analyze_elements(html, final_url, combined_html)
 
     total_findings = sum(len(f) for f in categories.values())
     all_flat = [f for cat in categories.values() for f in cat]
