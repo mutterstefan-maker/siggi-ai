@@ -180,12 +180,33 @@ def _graph_config():
     return {
         'access_token': s.get('access_token', ''),
         'ig_user_id': s.get('ig_user_id', ''),
+        'fb_page_id': s.get('fb_page_id', ''),
     }
 
 
 def is_configured():
     cfg = _graph_config()
     return bool(cfg['access_token'] and cfg['ig_user_id'])
+
+
+def _publish_to_facebook_page(image_url, caption):
+    """Postet dasselbe Bild als Foto-Post auf die verknüpfte Facebook-Seite.
+    Nutzt denselben Page-Access-Token wie das Instagram-Business-Konto."""
+    cfg = _graph_config()
+    if not cfg['fb_page_id']:
+        return {'success': False, 'error': 'Keine fb_page_id in den Instagram-Einstellungen hinterlegt.'}
+    try:
+        resp = req.post(
+            f"{GRAPH_BASE}/{cfg['fb_page_id']}/photos",
+            data={'url': image_url, 'caption': caption, 'access_token': cfg['access_token']},
+            timeout=30
+        )
+        data = resp.json()
+        if not resp.ok or 'id' not in data:
+            return {'success': False, 'error': f'Facebook-Post fehlgeschlagen: {data}'}
+        return {'success': True, 'post_id': data.get('post_id', data['id'])}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
 
 
 def _publish_image(image_url, caption):
@@ -296,10 +317,16 @@ def post_next_in_queue(public_base_url):
         except Exception as e:
             print(f'[Instagram] Konnte Datei nicht archivieren: {e}')
         _log_post(filename, caption, 'posted')
+
+        fb_result = _publish_to_facebook_page(image_url, caption)
+        if not fb_result['success']:
+            print(f"[Facebook] Post fehlgeschlagen: {fb_result.get('error')}")
+
         settings = _load_settings()
-        settings.setdefault('instagram_settings', {})['last_posted'] = datetime.now().isoformat()
+        ig_settings = settings.setdefault('instagram_settings', {})
+        ig_settings['last_posted'] = datetime.now().isoformat()
         _save_settings(settings)
-        return {'success': True, 'filename': filename}
+        return {'success': True, 'filename': filename, 'facebook_posted': fb_result['success']}
     else:
         _log_post(filename, caption, 'error', result.get('error'))
         return {'success': False, 'error': result.get('error')}
