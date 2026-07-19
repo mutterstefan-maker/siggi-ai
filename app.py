@@ -774,11 +774,27 @@ def index():
     resp.headers['Pragma'] = 'no-cache'
     return resp
 
+def _strip_markdown_for_tts(text):
+    """Entfernt Markdown-Formatierung, damit edge-tts nicht 'Stern Stern' etc. vorliest."""
+    text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)  # Codeblöcke
+    text = re.sub(r'`([^`]*)`', r'\1', text)                # Inline-Code
+    text = re.sub(r'\*\*\*([^*]+)\*\*\*', r'\1', text)      # fett+kursiv
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)          # fett
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)               # kursiv
+    text = re.sub(r'__([^_]+)__', r'\1', text)               # fett (Unterstrich)
+    text = re.sub(r'_([^_]+)_', r'\1', text)                 # kursiv (Unterstrich)
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)  # Überschriften
+    text = re.sub(r'^[-*+]\s+', '', text, flags=re.MULTILINE)   # Listenpunkte
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)     # Links
+    text = re.sub(r'[#*_~`]', '', text)                       # Rest-Sonderzeichen
+    return text.strip()
+
+
 @app.route('/api/voice/speak', methods=['POST'])
 def voice_speak():
     try:
         data = request.json or {}
-        text = data.get('text', 'Hallo')
+        text = _strip_markdown_for_tts(data.get('text', 'Hallo'))
         settings = load_settings()
         voice = settings.get('tts_voice', 'de-DE-ConradNeural')
         pitch = settings.get('tts_pitch', '+0Hz')
