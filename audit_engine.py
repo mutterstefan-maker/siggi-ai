@@ -248,7 +248,8 @@ def analyze_seo(html, url):
     title = re.sub(r'\s+', ' ', title_match.group(1)).strip() if title_match else ''
     title_len = len(title)
     f1.status = 30 <= title_len <= 65
-    f1.description = f"Title-Laenge: {title_len} Zeichen (ideal: 30-65)"
+    f1.description = (f"Title-Laenge: {title_len} Zeichen (ideal: 30-65). Aktueller Title: \"{title}\"" if title
+                       else f"Title-Laenge: {title_len} Zeichen (ideal: 30-65). Kein <title>-Tag gefunden.")
     f1.recommendation = "" if f1.status else "Seitentitel auf 30-65 Zeichen anpassen fuer bessere Klickrate in Google."
     findings.append(f1)
 
@@ -259,7 +260,8 @@ def analyze_seo(html, url):
     desc = desc_match.group(1) if desc_match else ''
     desc_len = len(desc)
     f2.status = 120 <= desc_len <= 160
-    f2.description = f"Meta Description: {desc_len} Zeichen (ideal: 120-160)"
+    f2.description = (f"Meta Description: {desc_len} Zeichen (ideal: 120-160). Aktueller Text: \"{desc}\"" if desc
+                       else f"Meta Description: {desc_len} Zeichen (ideal: 120-160). Keine Meta-Description gefunden.")
     f2.recommendation = "" if f2.status else "Meta-Description auf 120-160 Zeichen bringen - wichtig fuer Klickrate."
     findings.append(f2)
 
@@ -788,7 +790,14 @@ def analyze_customer_acquisition(combined_html):
                        was_geprueft="Ob zusaetzlich zu klassischen Kanaelen moderne Kontaktwege wie WhatsApp-Button, Live-Chat oder Online-Terminbuchung angeboten werden.",
                        warum_wichtig="Diese Kanaele senken die Kontakt-Huerde weiter, besonders bei juengeren Zielgruppen, die ungern anrufen oder E-Mails schreiben.")
     found = []
-    if re.search(r'wa\.me/|whatsapp', h): found.append('WhatsApp')
+    if re.search(r'wa\.me/|whatsapp', h):
+        wa_label = ''
+        wa_link = re.search(r'<a[^>]*href=["\'][^"\']*(?:wa\.me|whatsapp)[^"\']*["\'][^>]*>(.*?)</a>',
+                             combined_html, re.IGNORECASE | re.DOTALL)
+        if wa_link:
+            wa_label = re.sub(r'<[^>]+>', ' ', wa_link.group(1))
+            wa_label = re.sub(r'\s+', ' ', wa_label).strip()
+        found.append(f'WhatsApp (Button-Text: "{wa_label}")' if wa_label else 'WhatsApp')
     if re.search(r'live[- ]?chat|intercom|tawk\.to|crisp\.chat|zendesk', h): found.append('Live-Chat')
     if re.search(r'termin (buchen|vereinbaren)|calendly|termin online', h): found.append('Terminbuchung')
     f2.status = bool(found)
