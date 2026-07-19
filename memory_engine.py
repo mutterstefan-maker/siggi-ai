@@ -180,6 +180,33 @@ def parse_reminder_time(text):
     now = datetime.now()
     text = text.lower().strip()
 
+    MONTHS = {
+        'januar': 1, 'februar': 2, 'märz': 3, 'maerz': 3, 'april': 4, 'mai': 5, 'juni': 6,
+        'juli': 7, 'august': 8, 'september': 9, 'oktober': 10, 'november': 11, 'dezember': 12,
+    }
+
+    # explizites Datum ausgeschrieben "8. August" / "8. August 2025" (optional mit "um HH:MM")
+    m = re.search(
+        r'\b(\d{1,2})\.?\s+(' + '|'.join(MONTHS.keys()) + r')(?:\s+(\d{4}))?\b', text
+    )
+    if m:
+        day, month = int(m.group(1)), MONTHS[m.group(2)]
+        year_part = m.group(3)
+        year = int(year_part) if year_part else now.year
+        try:
+            dt = datetime(year, month, day)
+        except ValueError:
+            dt = None
+        if dt:
+            tm = re.search(r'um (\d{1,2})[:\.](\d{2})', text)
+            if tm:
+                dt = dt.replace(hour=int(tm.group(1)), minute=int(tm.group(2)))
+            else:
+                dt = dt.replace(hour=9, minute=0)
+            if not year_part and dt < now.replace(hour=0, minute=0, second=0, microsecond=0):
+                dt = dt.replace(year=year + 1)
+            return dt
+
     # explizites Datum "DD.MM.YYYY" oder "DD.MM." (optional mit "um HH:MM")
     m = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})?\b', text)
     if m:
