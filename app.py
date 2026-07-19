@@ -1347,6 +1347,29 @@ def audit_pdf_download(audit_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/audit/<audit_id>/delete', methods=['POST'])
+def audit_delete(audit_id):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT pdf_path, pdf_path_customer FROM audit_history WHERE id=?', (audit_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Nicht gefunden'}), 404
+        for p in row:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        c.execute('DELETE FROM audit_history WHERE id=?', (audit_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/audit/send/<audit_id>', methods=['POST'])
 def audit_send(audit_id):
     try:

@@ -1817,9 +1817,28 @@ async function loadAuditHistory() {
     mailBtn.onclick = () => sendAuditPdf(job.id);
     btnRow.appendChild(mailBtn);
 
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-ghost';
+    delBtn.style.cssText = 'font-size:11px;padding:4px 10px;color:var(--danger)';
+    delBtn.textContent = '🗑';
+    delBtn.title = 'Analyse und beide PDFs endgueltig loeschen';
+    delBtn.onclick = () => deleteAuditPdf(job.id, item);
+    btnRow.appendChild(delBtn);
+
     item.appendChild(btnRow);
     list.appendChild(item);
   });
+}
+
+async function deleteAuditPdf(jobId, itemEl) {
+  if (!confirm('Diese Analyse inkl. beider PDFs (intern + Kunde) endgueltig loeschen?')) return;
+  const res = await apiFetch('/api/audit/' + jobId + '/delete', 'POST');
+  if (res && res.success) {
+    itemEl.remove();
+    showToast('Analyse geloescht', 'success');
+  } else {
+    showToast('Loeschen fehlgeschlagen', 'error');
+  }
 }
 
 async function sendAuditPdf(jobId) {

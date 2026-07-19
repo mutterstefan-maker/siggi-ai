@@ -940,12 +940,20 @@ def analyze_elements(html, url, combined_html=None):
     """Einfache An/Aus-Checkliste einzelner Website-Bausteine (fuer das Dashboard und den
     PDF-Report). Rein regelbasiert, unabhaengig von den Kategorie-Findings oben."""
     h = (combined_html or html).lower()
+    # Fuer den Adress-Check HTML-Tags entfernen, damit z.B. PLZ und Ort in getrennten
+    # <span>-Elementen den Regex nicht kuenstlich auseinanderreissen.
+    text_only = re.sub(r'<[^>]+>', ' ', h)
+    text_only = re.sub(r'\s+', ' ', text_only)
     return {
         'has_ssl': url.startswith('https://'),
         'has_contact_form': bool(re.search(r'<form', h)),
         'has_phone': bool(re.search(r'tel:\+?\d|(\+49[\s\-]?\d[\d\s\-/]{5,})|\b0\d{2,5}[\s/\-]\d{3,}', h)),
         'has_email': bool(re.search(r'mailto:|[\w.\-]+@[\w\-]+\.[a-z]{2,}', h)),
-        'has_address': bool(re.search(r'\b\d{5}\b\s+[a-zäöüß]', h) or re.search(r'stra(ss|ß)e\s*\d', h)),
+        'has_address': bool(
+            re.search(r'\b\d{5}\b\s+[a-zäöüß]', text_only)
+            or re.search(r'stra(ss|ß)e\s*\d', text_only)
+            or re.search(r'\bstr\.\s*\d', text_only)
+        ),
         'has_impressum': bool(re.search(r'impressum', h)),
         'has_datenschutz': bool(re.search(r'datenschutz|privacy.?policy', h)),
         'has_cookie_banner': any(p in h for p in COOKIE_PATTERNS) or bool(re.search(r'cookie', h)),
