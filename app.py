@@ -31,8 +31,27 @@ app.secret_key = os.environ.get('FLASK_SECRET') or _secrets.token_hex(32)
 def login_page():
     return send_from_directory('/opt/stean', 'login.html')
 
+_login_attempts = {}
+_login_attempts_lock = threading.Lock()
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 300
+
+def _login_rate_limited(ip):
+    now = time.time()
+    with _login_attempts_lock:
+        attempts = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_WINDOW_SECONDS]
+        _login_attempts[ip] = attempts
+        return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+def _record_login_failure(ip):
+    with _login_attempts_lock:
+        _login_attempts.setdefault(ip, []).append(time.time())
+
 @app.route('/api/login', methods=['POST'])
 def api_login():
+    ip = request.remote_addr
+    if _login_rate_limited(ip):
+        return jsonify({'error': 'too many attempts, try again later'}), 429
     data = request.json or {}
     username = data.get('username', '')
     password = data.get('password', '')
@@ -42,6 +61,7 @@ def api_login():
         session['user'] = username
         session.permanent = True
         return jsonify({'success': True})
+    _record_login_failure(ip)
     return jsonify({'error': 'invalid credentials'}), 401
 
 @app.route('/api/logout', methods=['POST'])
@@ -735,9 +755,9 @@ def voice_speak():
         pitch = settings.get('tts_pitch', '+0Hz')
         rate = settings.get('tts_rate', '+0%')
         output_file = f'/tmp/tts_{int(time.time())}.mp3'
-        safe_text = text.replace('"', "'")
-        cmd = f'edge-tts --voice "{voice}" --pitch="{pitch}" --rate="{rate}" --text "{safe_text}" --write-media "{output_file}"'
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        cmd = ['edge-tts', '--voice', voice, '--pitch', pitch, '--rate', rate,
+               '--text', text, '--write-media', output_file]
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
         
         if result.returncode == 0 and os.path.exists(output_file):
             with open(output_file, 'rb') as f:

@@ -60,7 +60,10 @@ def open_app(params, config):
     name = params.get('name', '')
     if not name:
         return {'ok': False, 'error': 'Kein Programmname angegeben.'}
-    subprocess.Popen(name, shell=True)
+    try:
+        os.startfile(name)
+    except OSError as e:
+        return {'ok': False, 'error': f'Konnte "{name}" nicht starten: {e}'}
     return {'ok': True, 'data': f'Gestartet: {name}'}
 
 
