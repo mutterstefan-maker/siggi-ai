@@ -863,7 +863,7 @@ def jarvis_chat():
                 headers=headers,
                 json={
                     'model': 'claude-opus-4-1-20250805',
-                    'max_tokens': 400,
+                    'max_tokens': 1500,
                     'system': system_prompt,
                     'tools': SIGGI_TOOLS,
                     'messages': messages
