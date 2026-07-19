@@ -270,11 +270,11 @@ def get_mail_trust_status():
     clean = settings.get('mail_trust_approved_clean', 0)
     edited = settings.get('mail_trust_approved_edited', 0)
     rejected = settings.get('mail_trust_rejected', 0)
-    count = clean + edited + rejected
+    total = clean + edited + rejected
     enabled = settings.get('mail_auto_send_enabled', False)
-    quality_rate = round((clean / count) * 100) if count else 0
+    quality_rate = round((clean / total) * 100) if total else 0
     return {
-        'count': count,
+        'count': clean,
         'threshold': threshold,
         'auto_send_enabled': enabled,
         'approved_clean': clean,
@@ -284,17 +284,15 @@ def get_mail_trust_status():
     }
 
 def register_mail_decision(kind):
-    """kind: 'approved_clean' | 'approved_edited' | 'rejected'"""
+    """kind: 'approved_clean' | 'approved_edited' | 'rejected'.
+    Nur unbearbeitet ('approved_clean') versendete Mails zählen auf den Autopilot-Schwellenwert -
+    bearbeitete oder abgelehnte Entwürfe zeigen, dass SIGGI noch nicht zuverlässig genug ist."""
     settings = load_settings()
     threshold = settings.get('mail_trust_threshold', MAIL_TRUST_THRESHOLD_DEFAULT)
     key = f'mail_trust_{kind}'
     settings[key] = settings.get(key, 0) + 1
-    total = (
-        settings.get('mail_trust_approved_clean', 0)
-        + settings.get('mail_trust_approved_edited', 0)
-        + settings.get('mail_trust_rejected', 0)
-    )
-    if total >= threshold:
+    clean_count = settings.get('mail_trust_approved_clean', 0)
+    if clean_count >= threshold:
         settings['mail_auto_send_enabled'] = True
     save_settings(settings)
     return settings.get('mail_auto_send_enabled', False)

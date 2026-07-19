@@ -3401,13 +3401,13 @@ async function renderMailDrafts() {
           <div style="color:var(--success);font-size:13px;font-weight:700">✓ Autopilot aktiv — SIGGI verschickt eigene Mails direkt, ohne Freigabe.</div>
         ` : `
           <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
-            SIGGI legt neue Mails vorerst nur als Entwurf an. Jede Freigabe, Korrektur oder Ablehnung zählt auf die Quote –
-            bei ${trust.threshold} entschiedenen Entwürfen schaltet sich der Autopilot automatisch frei.
+            SIGGI legt neue Mails vorerst nur als Entwurf an. Nur unbearbeitet freigegebene und verschickte Mails zählen auf die Quote –
+            Korrekturen oder Ablehnungen zählen nicht mit. Bei ${trust.threshold} unbearbeitet versendeten Mails schaltet sich der Autopilot automatisch frei.
           </div>
           <div style="background:var(--surface2);border-radius:8px;height:10px;overflow:hidden;margin-bottom:6px">
             <div style="background:var(--accent);height:100%;width:${pct}%"></div>
           </div>
-          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${trust.count} / ${trust.threshold} entschieden</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${trust.count} / ${trust.threshold} unbearbeitet versendet</div>
         `}
       </div>
 
