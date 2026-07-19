@@ -45,12 +45,19 @@ def get_scheduling_rules_text():
     ]
     if r['friday_emergency_only']:
         lines.append('- Freitags nur im absoluten Notfall Termine vereinbaren')
+    lines.append('- Diese Regeln gelten NICHT für private Termine (Parameter privat=true) - die dürfen jederzeit angelegt werden')
     return '\n'.join(lines)
 
 
-def is_slot_allowed(dt, is_emergency=False):
-    """Prüft ob ein Zeitpunkt gegen die Terminierungs-Regeln verstößt."""
+def is_slot_allowed(dt, is_emergency=False, is_private=False):
+    """Prüft ob ein Zeitpunkt gegen die Terminierungs-Regeln verstößt.
+
+    Private Termine sind von den Arbeitszeit-/Blocked-Zeit-Regeln ausgenommen,
+    da diese Regeln nur für geschäftliche Terminvereinbarungen gedacht sind.
+    """
     r = get_scheduling_rules()
+    if is_private:
+        return True, ''
     if dt.hour < r['work_start_hour'] or dt.hour >= r['work_end_hour']:
         return False, f"außerhalb der Arbeitszeit ({r['work_start_hour']}-{r['work_end_hour']} Uhr)"
     if r['blocked_start_hour'] <= dt.hour < r['blocked_end_hour']:

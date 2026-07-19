@@ -451,7 +451,8 @@ SIGGI_TOOLS = [
         'description': (
             'Legt einen neuen Termin in Stefans Google Kalender an. Die Zeit wird automatisch gegen die '
             'Terminierungs-Regeln geprüft (nie vor 8 Uhr, nicht 11-14 Uhr, freitags nur im Notfall) - '
-            'bei einem Verstoß wird NICHTS angelegt, sondern der Grund zurückgegeben. Nutze bei unklarer Zeit '
+            'bei einem Verstoß wird NICHTS angelegt, sondern der Grund zurückgegeben. Private Termine (privat=true) '
+            'sind von diesen Regeln ausgenommen und dürfen jederzeit angelegt werden. Nutze bei unklarer Zeit '
             'zuerst freie_termine_vorschlagen.'
         ),
         'input_schema': {
@@ -461,7 +462,8 @@ SIGGI_TOOLS = [
                 'wann': {'type': 'string', 'description': 'Natürlichsprachliche Zeitangabe auf Deutsch, z.B. "morgen um 14:00", "in 2 stunden", "heute abend".'},
                 'dauer_minuten': {'type': 'integer', 'description': 'Dauer in Minuten, Standard 60.'},
                 'beschreibung': {'type': 'string', 'description': 'Optionale Beschreibung/Notiz zum Termin.'},
-                'notfall': {'type': 'boolean', 'description': 'true wenn es ein dringender Ausnahmefall ist (erlaubt dann auch Freitag).'}
+                'notfall': {'type': 'boolean', 'description': 'true wenn es ein dringender Ausnahmefall ist (erlaubt dann auch Freitag).'},
+                'privat': {'type': 'boolean', 'description': 'true wenn es ein privater Termin ist - dann gelten die Arbeitszeit-Regeln nicht, private Termine dürfen jederzeit angelegt werden.'}
             },
             'required': ['titel', 'wann']
         }
@@ -630,7 +632,8 @@ def _run_siggi_tool_inner(name, tool_input):
                 return f"Konnte die Zeitangabe '{tool_input['wann']}' nicht verstehen."
 
             is_emergency = tool_input.get('notfall', False)
-            allowed, reason = is_slot_allowed(start_dt, is_emergency)
+            is_private = tool_input.get('privat', False)
+            allowed, reason = is_slot_allowed(start_dt, is_emergency, is_private)
             if not allowed:
                 return f"Termin NICHT angelegt: {start_dt.strftime('%d.%m.%Y %H:%M')} Uhr verstößt gegen die Terminierungs-Regeln ({reason})."
 
