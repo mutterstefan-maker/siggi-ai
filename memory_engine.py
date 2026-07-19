@@ -180,6 +180,29 @@ def parse_reminder_time(text):
     now = datetime.now()
     text = text.lower().strip()
 
+    # explizites Datum "DD.MM.YYYY" oder "DD.MM." (optional mit "um HH:MM")
+    m = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})?\b', text)
+    if m:
+        day, month = int(m.group(1)), int(m.group(2))
+        year_part = m.group(3)
+        if year_part:
+            year = int(year_part) if len(year_part) == 4 else 2000 + int(year_part)
+        else:
+            year = now.year
+        try:
+            dt = datetime(year, month, day)
+        except ValueError:
+            dt = None
+        if dt:
+            tm = re.search(r'um (\d{1,2})[:\.](\d{2})', text)
+            if tm:
+                dt = dt.replace(hour=int(tm.group(1)), minute=int(tm.group(2)))
+            else:
+                dt = dt.replace(hour=9, minute=0)
+            if not year_part and dt < now.replace(hour=0, minute=0, second=0, microsecond=0):
+                dt = dt.replace(year=year + 1)
+            return dt
+
     # "in X minuten/stunden"
     m = re.search(r'in (\d+)\s*(minute[n]?|min)', text)
     if m:
