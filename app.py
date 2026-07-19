@@ -194,6 +194,10 @@ def init_audit_table():
         pdf_path TEXT,
         created_at TEXT
     )''')
+    try:
+        c.execute('ALTER TABLE audit_history ADD COLUMN pdf_path_customer TEXT')
+    except sqlite3.OperationalError:
+        pass  # Spalte existiert schon
     conn.commit()
     conn.close()
 
@@ -1206,15 +1210,19 @@ def _run_audit_background(audit_id, url):
                                            anthropic_api_key=anthropic_key)
 
         pdf_path = None
+        pdf_path_customer = None
         if not result.get('error'):
             domain_slug = re.sub(r'[^a-zA-Z0-9]+', '_', url.replace('https://', '').replace('http://', '')).strip('_')
-            pdf_filename = f"audit_{domain_slug}_{audit_id}.pdf"
-            pdf_path = os.path.join(audit_eng.AUDIT_RESULTS_PATH, pdf_filename)
-            audit_pdf.generate_audit_pdf(result, audit_eng.LOGO_PATH, audit_eng.CONTACT, pdf_path)
+            pdf_path = os.path.join(audit_eng.AUDIT_RESULTS_PATH, f"audit_{domain_slug}_{audit_id}.pdf")
+            audit_pdf.generate_audit_pdf(result, audit_eng.LOGO_PATH, audit_eng.CONTACT, pdf_path,
+                                          customer_version=False)
+            pdf_path_customer = os.path.join(audit_eng.AUDIT_RESULTS_PATH, f"audit_{domain_slug}_{audit_id}_kunde.pdf")
+            audit_pdf.generate_audit_pdf(result, audit_eng.LOGO_PATH, audit_eng.CONTACT, pdf_path_customer,
+                                          customer_version=True)
 
         status = 'error' if result.get('error') else 'done'
-        c.execute('UPDATE audit_history SET status=?, progress=100, result=?, pdf_path=? WHERE id=?',
-                  (status, json.dumps(result, ensure_ascii=False), pdf_path, audit_id))
+        c.execute('UPDATE audit_history SET status=?, progress=100, result=?, pdf_path=?, pdf_path_customer=? WHERE id=?',
+                  (status, json.dumps(result, ensure_ascii=False), pdf_path, pdf_path_customer, audit_id))
         conn.commit()
 
         if status == 'done':
@@ -1318,16 +1326,22 @@ def audit_history():
 @app.route('/api/audit/pdf/<audit_id>')
 def audit_pdf_download(audit_id):
     try:
+        want_customer = request.args.get('version') == 'kunde'
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('SELECT pdf_path, url FROM audit_history WHERE id=?', (audit_id,))
+        c.execute('SELECT pdf_path, pdf_path_customer, url FROM audit_history WHERE id=?', (audit_id,))
         row = c.fetchone()
         conn.close()
-        if not row or not row[0] or not os.path.exists(row[0]):
+        if not row:
             return jsonify({'error': 'PDF nicht gefunden'}), 404
-        pdf_path, url = row
+        pdf_path, pdf_path_customer, url = row
+        if want_customer:
+            pdf_path = pdf_path_customer or pdf_path
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({'error': 'PDF nicht gefunden'}), 404
         domain = url.replace('https://', '').replace('http://', '').split('/')[0]
-        dl_name = f"Website-Analyse_{domain}.pdf"
+        suffix = '_Kundenversion' if want_customer else ''
+        dl_name = f"Website-Analyse_{domain}{suffix}.pdf"
         return send_from_directory(os.path.dirname(pdf_path), os.path.basename(pdf_path),
                                     as_attachment=True, download_name=dl_name)
     except Exception as e:
@@ -1343,12 +1357,17 @@ def audit_send(audit_id):
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute('SELECT pdf_path, url FROM audit_history WHERE id=?', (audit_id,))
+        c.execute('SELECT pdf_path, pdf_path_customer, url FROM audit_history WHERE id=?', (audit_id,))
         row = c.fetchone()
         conn.close()
-        if not row or not row[0] or not os.path.exists(row[0]):
+        if not row:
             return jsonify({'error': 'PDF nicht gefunden'}), 404
-        pdf_path, url = row
+        pdf_path_internal, pdf_path_customer, url = row
+        # Per Mail geht IMMER die Kundenversion raus, nie die interne Vollversion mit Loesungen -
+        # Faellt auf die interne Version zurueck, falls sie (bei alten Audits) noch nicht existiert.
+        pdf_path = pdf_path_customer or pdf_path_internal
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({'error': 'PDF nicht gefunden'}), 404
 
         settings = load_settings()
         accounts = settings.get('accounts', {})

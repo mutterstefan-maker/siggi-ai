@@ -1796,9 +1796,19 @@ async function loadAuditHistory() {
     dlBtn.href = '#';
     dlBtn.className = 'btn btn-ghost';
     dlBtn.style.cssText = 'font-size:11px;padding:4px 10px';
-    dlBtn.textContent = '⬇ PDF';
+    dlBtn.textContent = '⬇ PDF (intern)';
+    dlBtn.title = 'Vollstaendige Analyse mit Empfehlungen und Massnahmenplan';
     dlBtn.onclick = (e) => { e.preventDefault(); window.open('/api/audit/download/' + job.id, '_blank'); };
     btnRow.appendChild(dlBtn);
+
+    const dlKundeBtn = document.createElement('a');
+    dlKundeBtn.href = '#';
+    dlKundeBtn.className = 'btn btn-ghost';
+    dlKundeBtn.style.cssText = 'font-size:11px;padding:4px 10px';
+    dlKundeBtn.textContent = '⬇ PDF (Kunde)';
+    dlKundeBtn.title = 'Gekuerzte Vorschau-Version ohne konkrete Loesungen - fuer den Erstkontakt';
+    dlKundeBtn.onclick = (e) => { e.preventDefault(); window.open('/api/audit/download/' + job.id + '?version=kunde', '_blank'); };
+    btnRow.appendChild(dlKundeBtn);
 
     const mailBtn = document.createElement('button');
     mailBtn.className = 'btn btn-ghost';
@@ -1933,9 +1943,10 @@ function renderAuditResult(data) {
           ${altbacken ? '⚠ DESIGN VERALTET' : '✓ DESIGN MODERN'}
         </div>
       </div>
-      <div>
-        ${data.pdf_filename ? `<button class="btn btn-primary" onclick="window.open('/api/audit/download/${auditJobId}','_blank')">⬇ PDF herunterladen</button>` : ''}
-        ${data.pdf_filename ? `<button class="btn btn-ghost" onclick="sendAuditPdf('${auditJobId}')">✉ Per Mail senden</button>` : ''}
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+        ${data.pdf_filename ? `<button class="btn btn-primary" onclick="window.open('/api/audit/download/${auditJobId}','_blank')" title="Vollstaendige Analyse mit Empfehlungen und Massnahmenplan">⬇ PDF (intern)</button>` : ''}
+        ${data.pdf_filename ? `<button class="btn btn-ghost" onclick="window.open('/api/audit/download/${auditJobId}?version=kunde','_blank')" title="Gekuerzte Vorschau-Version fuer den Erstkontakt">⬇ PDF (Kunde)</button>` : ''}
+        ${data.pdf_filename ? `<button class="btn btn-ghost" onclick="sendAuditPdf('${auditJobId}')" title="Verschickt automatisch die Kundenversion">✉ Per Mail senden (Kundenversion)</button>` : ''}
       </div>
     </div>
     ${ai.altbacken_begruendung ? `<div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2)">${escHtml(ai.altbacken_begruendung)}</div>` : ''}

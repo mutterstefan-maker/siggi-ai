@@ -213,7 +213,12 @@ def _info_box(c, x, y, w, title, body_lines, border_color=ACCENT, bg=LIGHT_BG):
     return y - total_h - 5 * mm
 
 
-def generate_audit_pdf(result, logo_path, contact, output_path):
+def generate_audit_pdf(result, logo_path, contact, output_path, customer_version=False):
+    """customer_version=True erzeugt eine gekuerzte Fassung fuer Interessenten/Kunden vor
+    Auftragserteilung: zeigt Status und 'Warum ist das wichtig?' (schafft Problembewusstsein),
+    verbirgt aber die konkrete Loesung (Empfehlung, Rechtsgrundlage-Details, Massnahmenplan,
+    dringendste Massnahmen/Quick-Wins/langfristige Optimierungen aus der KI-Zusammenfassung) -
+    das ist die eigentliche bezahlte Leistung und soll nicht schon im Erstkontakt verschenkt werden."""
     c = canvas.Canvas(output_path, pagesize=A4)
     ai = result.get('ai_result') or {}
     kategorien = ai.get('kategorien') or {}
@@ -239,6 +244,10 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
     c.drawString(MARGIN, PAGE_H - 118 * mm, result.get('url', ''))
     ts = result.get('timestamp', '')[:10]
     c.drawString(MARGIN, PAGE_H - 125 * mm, f"Erstellt am {ts}")
+    if customer_version:
+        c.setFillColor(AMBER)
+        c.setFont('Helvetica-Bold', 9)
+        c.drawString(MARGIN, PAGE_H - 131 * mm, "VORSCHAU - zeigt Handlungsbedarf, konkrete Umsetzung im Beratungsgespraech")
 
     summary = result.get('summary', {})
     score = ai.get('gesamtpunkte', summary.get('score', 0))
@@ -393,7 +402,7 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
                                   PAGE_W - 2 * MARGIN - 16 * mm, '✕', RED)
                 y -= 2 * mm
 
-            empfehlungen = kat.get('empfehlungen') or []
+            empfehlungen = (kat.get('empfehlungen') or []) if not customer_version else []
             if empfehlungen:
                 c.setFillColor(GREEN)
                 c.setFont('Helvetica-Bold', 8.7)
@@ -425,10 +434,13 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
         ZSF_BLOCKS = [
             ('groesste_staerken', 'Groesste Staerken', '✓', GREEN),
             ('groesste_schwaechen', 'Groesste Schwaechen', '✕', RED),
-            ('dringendste_massnahmen', 'Dringendste Massnahmen', '!', RED),
-            ('quick_wins', 'Kurzfristige Quick-Wins', '⚡', AMBER),
-            ('langfristige_optimierungen', 'Langfristige Optimierungen', '→', ACCENT),
         ]
+        if not customer_version:
+            ZSF_BLOCKS += [
+                ('dringendste_massnahmen', 'Dringendste Massnahmen', '!', RED),
+                ('quick_wins', 'Kurzfristige Quick-Wins', '⚡', AMBER),
+                ('langfristige_optimierungen', 'Langfristige Optimierungen', '→', ACCENT),
+            ]
         for key, label, bullet, color in ZSF_BLOCKS:
             items = zsf.get(key) or []
             if not items:
@@ -527,8 +539,8 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
                 if row_y < 30 * mm:
                     row_y = _new_page_header(c, "Inhalts-Checkliste (Fortsetzung)", contact)
 
-    # ── Massnahmenplan ─────────────────────────────────────────
-    massnahmen = ai.get('top_massnahmen') or []
+    # ── Massnahmenplan (nur interne Version - ist die eigentliche Arbeitsgrundlage) ──
+    massnahmen = (ai.get('top_massnahmen') or []) if not customer_version else []
     if massnahmen:
         y = _new_page_header(c, "Massnahmenplan", contact,
                               "Die wichtigsten naechsten Schritte mit Aufwandseinschaetzung - dient gleichzeitig "
@@ -617,16 +629,21 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
                     y -= 4.3 * mm
                 y -= 1.5 * mm
 
-            rec = f.get('recommendation', '')
+            rec = f.get('recommendation', '') if not customer_version else ''
             if rec:
                 c.setFont('Helvetica-Oblique', 8.5)
                 c.setFillColor(ACCENT)
                 for l in _wrap_text("Empfehlung: " + rec, 'Helvetica-Oblique', 8.5, PAGE_W - 2 * MARGIN - 12 * mm):
                     c.drawString(MARGIN + 12 * mm, y, l)
                     y -= 4.6 * mm
+            elif customer_version and f.get('status') is False:
+                c.setFont('Helvetica-Oblique', 8.5)
+                c.setFillColor(GREY)
+                c.drawString(MARGIN + 12 * mm, y, "Konkrete Empfehlung zur Behebung: siehe vollstaendige Analyse.")
+                y -= 4.6 * mm
 
-            # Rechtsgrundlage nur zeigen, wenn hier tatsaechlich Handlungsbedarf besteht
-            legal_basis = f.get('legal_basis', '')
+            # Rechtsgrundlage nur zeigen, wenn hier tatsaechlich Handlungsbedarf besteht (und nicht in der Kundenversion)
+            legal_basis = f.get('legal_basis', '') if not customer_version else ''
             if legal_basis and badge_label == 'Handlungsbedarf':
                 box_x = MARGIN + 12 * mm
                 box_w = PAGE_W - MARGIN - box_x
@@ -710,9 +727,14 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
     y -= 10 * mm
     c.setFont('Helvetica', 10.5)
     c.setFillColor(TEXT_DARK)
-    cta_text = (f"{contact['name']} hat alle oben genannten Punkte bereits fuer viele Kunden erfolgreich "
-                f"umgesetzt. Melden Sie sich gerne fuer ein unverbindliches Gespraech - wir zeigen Ihnen, "
-                f"wie Ihre Website moderner, schneller und rechtssicher wird.")
+    if customer_version:
+        cta_text = (f"Diese Analyse zeigt Ihnen, wo bei Ihrer Website Handlungsbedarf besteht. {contact['name']} zeigt "
+                    f"Ihnen in einem unverbindlichen Gespraech gerne, wie sich jeder Punkt konkret und effizient "
+                    f"umsetzen laesst - inklusive Aufwandseinschaetzung und Prioritaeten.")
+    else:
+        cta_text = (f"{contact['name']} hat alle oben genannten Punkte bereits fuer viele Kunden erfolgreich "
+                    f"umgesetzt. Melden Sie sich gerne fuer ein unverbindliches Gespraech - wir zeigen Ihnen, "
+                    f"wie Ihre Website moderner, schneller und rechtssicher wird.")
     for l in _wrap_text(cta_text, 'Helvetica', 10.5, PAGE_W - 2 * MARGIN):
         c.drawString(MARGIN, y, l)
         y -= 6 * mm
