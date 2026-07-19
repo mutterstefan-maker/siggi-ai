@@ -24,7 +24,8 @@ MARGIN = 18 * mm
 
 CATEGORY_ICONS = {
     'Indexierung': 'ⓘ', 'Technik': '⚙', 'SEO': '↗', 'Inhalte': '✎',
-    'Rechtlich': '⚖', 'Performance': '⚡',
+    'Rechtlich': '⚖', 'Performance': '⚡', 'Formulare': '✉', 'Bilder': '🖼',
+    'Internetpraesenz': '🌐', 'Vertrauen': '★', 'Kundengewinnung': '📈',
 }
 
 KATEGORIE_LABELS = {
@@ -254,6 +255,53 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
 
     y = PAGE_H - 148 * mm
 
+    intro_txt = ("Eine professionelle Website ist heute oft der erste Kontakt, den ein potenzieller Kunde mit "
+                 "einem Unternehmen hat - sie entscheidet mit ueber Vertrauen, Sichtbarkeit in Google und ob aus "
+                 "einem Besucher eine Anfrage wird. Dieser Report prueft Ihre Website in mehreren Hauptbereichen: "
+                 "Technik, SEO, Inhalte, rechtliche Pflichtangaben, Formulare, Bilder, Internetpraesenz, Vertrauen "
+                 "und Kundengewinnung.")
+    c.setFillColor(TEXT_DARK)
+    for l in _wrap_text(intro_txt, 'Helvetica', 9.5, PAGE_W - 2 * MARGIN):
+        c.setFont('Helvetica', 9.5)
+        c.drawString(MARGIN, y, l)
+        y -= 4.8 * mm
+    y -= 5 * mm
+
+    # ── Kacheln je Hauptbereich ──────────────────────────────
+    findings_by_cat = result.get('findings', {})
+    if findings_by_cat:
+        tile_names = list(findings_by_cat.keys())
+        cols = 4
+        tile_w = (PAGE_W - 2 * MARGIN - (cols - 1) * 4 * mm) / cols
+        tile_h = 16 * mm
+        col_i = 0
+        row_top = y
+        for cat_name in tile_names:
+            items = findings_by_cat[cat_name]
+            open_count = sum(1 for f in items if f.get('status') is False)
+            tile_color = RED if open_count > 0 else GREEN
+            tx = MARGIN + col_i * (tile_w + 4 * mm)
+            c.setFillColor(LIGHT_BG)
+            c.roundRect(tx, row_top - tile_h, tile_w, tile_h, 2 * mm, fill=1, stroke=0)
+            c.setFillColor(NAVY)
+            c.setFont('Helvetica-Bold', 8)
+            c.drawString(tx + 3 * mm, row_top - 5.5 * mm, CATEGORY_ICONS.get(cat_name, '•') + ' ' + cat_name[:16])
+            c.setFillColor(tile_color)
+            c.setFont('Helvetica-Bold', 8.5)
+            status_txt = f"{open_count} offen" if open_count > 0 else "alles ok"
+            c.drawString(tx + 3 * mm, row_top - 11 * mm, status_txt)
+            col_i += 1
+            if col_i == cols:
+                col_i = 0
+                row_top -= tile_h + 3 * mm
+        if col_i != 0:
+            row_top -= tile_h + 3 * mm
+        y = row_top - 2 * mm
+
+    if y < 60 * mm:
+        _footer(c, contact)
+        y = _new_page_header(c, "Zusammenfassung", contact)
+
     if ai.get('ist_altbacken') is not None:
         pill_text = "✓ Design wirkt modern" if not ai['ist_altbacken'] else "✕ Design wirkt veraltet"
         pill_color = GREEN if not ai['ist_altbacken'] else RED
@@ -359,6 +407,57 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
             c.line(MARGIN, y, PAGE_W - MARGIN, y)
             y -= 8 * mm
 
+    # ── KI-Zusammenfassung ─────────────────────────────────────
+    zsf = ai.get('zusammenfassung') or {}
+    if zsf.get('gesamteindruck') or zsf.get('groesste_staerken') or zsf.get('groesste_schwaechen'):
+        y = _new_page_header(c, "KI-Zusammenfassung", contact,
+                              "Automatisch aus den Analyseergebnissen dieser Website generiert.")
+        if zsf.get('gesamteindruck'):
+            c.setFillColor(NAVY)
+            c.setFont('Helvetica-Bold', 10.5)
+            c.drawString(MARGIN, y, "Gesamteindruck")
+            y -= 5.5 * mm
+            c.setFont('Helvetica', 9.5)
+            y = _draw_wrapped(c, zsf['gesamteindruck'], MARGIN, y, 'Helvetica', 9.5,
+                               PAGE_W - 2 * MARGIN, TEXT_DARK, 4.8 * mm)
+            y -= 6 * mm
+
+        ZSF_BLOCKS = [
+            ('groesste_staerken', 'Groesste Staerken', '✓', GREEN),
+            ('groesste_schwaechen', 'Groesste Schwaechen', '✕', RED),
+            ('dringendste_massnahmen', 'Dringendste Massnahmen', '!', RED),
+            ('quick_wins', 'Kurzfristige Quick-Wins', '⚡', AMBER),
+            ('langfristige_optimierungen', 'Langfristige Optimierungen', '→', ACCENT),
+        ]
+        for key, label, bullet, color in ZSF_BLOCKS:
+            items = zsf.get(key) or []
+            if not items:
+                continue
+            if y < 40 * mm:
+                y = _new_page_header(c, "KI-Zusammenfassung (Fortsetzung)", contact)
+            c.setFillColor(color)
+            c.setFont('Helvetica-Bold', 9.5)
+            c.drawString(MARGIN, y, label)
+            y -= 5.5 * mm
+            y = _bullet_list(c, items, MARGIN, y, PAGE_W - 2 * MARGIN, bullet, color)
+            y -= 4 * mm
+
+        tq = ai.get('textqualitaet') or {}
+        if tq.get('bewertung'):
+            if y < 40 * mm:
+                y = _new_page_header(c, "KI-Zusammenfassung (Fortsetzung)", contact)
+            c.setFillColor(NAVY)
+            c.setFont('Helvetica-Bold', 9.5)
+            c.drawString(MARGIN, y, "Text-Qualitaet (Rechtschreibung, Grammatik, Lesbarkeit)")
+            y -= 5.5 * mm
+            c.setFont('Helvetica', 9)
+            y = _draw_wrapped(c, tq['bewertung'], MARGIN, y, 'Helvetica', 9,
+                               PAGE_W - 2 * MARGIN, TEXT_DARK, 4.6 * mm)
+            beispiele = tq.get('beispiele') or []
+            if beispiele:
+                y -= 2 * mm
+                y = _bullet_list(c, beispiele, MARGIN, y, PAGE_W - 2 * MARGIN, '•', GREY)
+
     # ── Legende: Was bedeuten Status & Prioritaet ─────────────
     y = _new_page_header(c, "Wie ist dieser Report zu lesen?", contact)
     c.setFillColor(NAVY)
@@ -428,14 +527,16 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
                 if row_y < 30 * mm:
                     row_y = _new_page_header(c, "Inhalts-Checkliste (Fortsetzung)", contact)
 
-    # ── Empfohlene Massnahmen ──────────────────────────────────
+    # ── Massnahmenplan ─────────────────────────────────────────
     massnahmen = ai.get('top_massnahmen') or []
     if massnahmen:
-        y = _new_page_header(c, "Empfohlene Massnahmen", contact,
-                              "Die wichtigsten naechsten Schritte, priorisiert nach Dringlichkeit.")
+        y = _new_page_header(c, "Massnahmenplan", contact,
+                              "Die wichtigsten naechsten Schritte mit Aufwandseinschaetzung - dient gleichzeitig "
+                              "als Arbeitsgrundlage fuer die Umsetzung.")
+        AUFWAND_LABEL = {'gering': 'Aufwand: gering', 'mittel': 'Aufwand: mittel', 'hoch': 'Aufwand: hoch'}
         for i, m in enumerate(massnahmen, 1):
             if y < 40 * mm:
-                y = _new_page_header(c, "Empfohlene Massnahmen (Fortsetzung)", contact)
+                y = _new_page_header(c, "Massnahmenplan (Fortsetzung)", contact)
             label, color = _result_badge(False, m.get('prioritaet'))
             c.setFillColor(color)
             c.roundRect(MARGIN, y - 5.5 * mm, 32 * mm, 6.5 * mm, 2 * mm, fill=1, stroke=0)
@@ -445,6 +546,9 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
             c.setFillColor(NAVY)
             c.setFont('Helvetica-Bold', 10)
             c.drawString(MARGIN + 36 * mm, y - 3.5 * mm, f"{i}. {m.get('massnahme', '')}")
+            c.setFillColor(GREY)
+            c.setFont('Helvetica-Oblique', 7.7)
+            c.drawRightString(PAGE_W - MARGIN, y - 3.5 * mm, AUFWAND_LABEL.get(m.get('aufwand'), ''))
             y -= 9 * mm
             if m.get('begruendung'):
                 y = _draw_wrapped(c, m['begruendung'], MARGIN + 36 * mm, y, 'Helvetica', 8.7,
@@ -457,7 +561,7 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
         y = _new_page_header(c, f"{CATEGORY_ICONS.get(cat_name, '•')}  {cat_name}", contact)
 
         for f in items:
-            if y < 35 * mm:
+            if y < 95 * mm:
                 y = _new_page_header(c, f"{CATEGORY_ICONS.get(cat_name, '•')}  {cat_name} (Fortsetzung)", contact)
 
             _status_icon(c, MARGIN + 4 * mm, y - 3 * mm, f.get('status'))
@@ -475,11 +579,43 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
             c.drawCentredString(PAGE_W - MARGIN - 15 * mm, y - 2.5 * mm, badge_label)
 
             y -= 5.5 * mm
+
+            was_geprueft = f.get('was_geprueft', '')
+            if was_geprueft:
+                c.setFont('Helvetica-Bold', 7.8)
+                c.setFillColor(GREY)
+                c.drawString(MARGIN + 12 * mm, y, "Was wurde geprueft?")
+                y -= 4 * mm
+                c.setFont('Helvetica', 8.7)
+                c.setFillColor(TEXT_DARK)
+                for l in _wrap_text(was_geprueft, 'Helvetica', 8.7, PAGE_W - 2 * MARGIN - 12 * mm):
+                    c.drawString(MARGIN + 12 * mm, y, l)
+                    y -= 4.3 * mm
+                y -= 1.5 * mm
+
+            c.setFont('Helvetica-Bold', 7.8)
+            c.setFillColor(GREY)
+            c.drawString(MARGIN + 12 * mm, y, "Ergebnis")
+            y -= 4 * mm
             c.setFont('Helvetica', 9)
             c.setFillColor(TEXT_DARK)
             for l in _wrap_text(f.get('description', ''), 'Helvetica', 9, PAGE_W - 2 * MARGIN - 12 * mm):
                 c.drawString(MARGIN + 12 * mm, y, l)
                 y -= 4.8 * mm
+            y -= 1.5 * mm
+
+            warum_wichtig = f.get('warum_wichtig', '')
+            if warum_wichtig:
+                c.setFont('Helvetica-Bold', 7.8)
+                c.setFillColor(GREY)
+                c.drawString(MARGIN + 12 * mm, y, "Warum ist das wichtig?")
+                y -= 4 * mm
+                c.setFont('Helvetica-Oblique', 8.7)
+                c.setFillColor(TEXT_DARK)
+                for l in _wrap_text(warum_wichtig, 'Helvetica-Oblique', 8.7, PAGE_W - 2 * MARGIN - 12 * mm):
+                    c.drawString(MARGIN + 12 * mm, y, l)
+                    y -= 4.3 * mm
+                y -= 1.5 * mm
 
             rec = f.get('recommendation', '')
             if rec:

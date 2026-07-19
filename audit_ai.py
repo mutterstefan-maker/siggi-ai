@@ -109,10 +109,24 @@ Bewerte die Website ganzheitlich wie ein Profi, der einem Kunden ehrlich aber ve
     "mobile": {{"note":"A-F","punkte":0-100,"bewertung":"1 Satz","probleme":["..."],"empfehlungen":["..."]}},
     "inhalte": {{"note":"A-F","punkte":0-100,"bewertung":"1 Satz","probleme":["..."],"empfehlungen":["..."]}},
     "rechtliches": {{"note":"A-F","punkte":0-100,"bewertung":"1 Satz","probleme":["..."],"empfehlungen":["..."]}}
+  }},
+  "zusammenfassung": {{
+    "gesamteindruck": "2-3 Saetze Gesamteindruck der Website, konkret auf diese Seite bezogen",
+    "groesste_staerken": ["konkrete Staerke 1", "konkrete Staerke 2"],
+    "groesste_schwaechen": ["konkrete Schwaeche 1", "konkrete Schwaeche 2"],
+    "dringendste_massnahmen": ["dringendste Massnahme 1", "dringendste Massnahme 2"],
+    "quick_wins": ["schnell umsetzbare Verbesserung mit grossem Effekt 1", "..."],
+    "langfristige_optimierungen": ["strategische, laengerfristige Verbesserung 1", "..."]
+  }},
+  "textqualitaet": {{
+    "auffaelligkeiten_gefunden": true/false,
+    "beispiele": ["konkretes Beispiel fuer Tippfehler/Grammatikfehler/doppeltes Wort aus dem Text, falls vorhanden"],
+    "lesbarkeit": "gut|mittel|schwer",
+    "bewertung": "1-2 Saetze zu Rechtschreibung, Grammatik und Lesbarkeit des Seitentexts"
   }}
 }}
 
-Jede Kategorie braucht 1-3 konkrete Probleme (falls vorhanden) und 1-3 konkrete Empfehlungen. Nutze die technischen Pruefergebnisse als Grundlage fuer seo/technik/mobile/rechtliches. Fuer design/inhalte nutze Textinhalt und Struktur-Hinweise. Sei ehrlich - wenn etwas gut ist, sag das auch."""
+Jede Kategorie braucht 1-3 konkrete Probleme (falls vorhanden) und 1-3 konkrete Empfehlungen. Nutze die technischen Pruefergebnisse als Grundlage fuer seo/technik/mobile/rechtliches. Fuer design/inhalte nutze Textinhalt und Struktur-Hinweise. Sei ehrlich - wenn etwas gut ist, sag das auch. Fuer "zusammenfassung": leite alles direkt aus den technischen Pruefergebnissen und dem Textinhalt oben ab, keine Standardfloskeln - wenn etwas nicht zutrifft (z.B. keine dringenden Massnahmen), sag das ehrlich statt etwas zu erfinden. Fuer "textqualitaet": lies den Textinhalt oben aufmerksam durch und suche aktiv nach Tippfehlern, doppelten Woertern, unvollstaendigen Saetzen oder schwer verstaendlichen Formulierungen."""
 
     try:
         response = requests.post(
