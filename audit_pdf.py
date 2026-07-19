@@ -36,13 +36,6 @@ KATEGORIE_LABELS = {
     'rechtliches': ('Recht', '⚖'),
 }
 
-PRIORITY_EXPLAIN = {
-    'KRITISCH': 'Sehr wichtig fuer jede Website - sollte immer erfuellt sein',
-    'HOCH': 'Wichtig fuer Sichtbarkeit, Nutzererlebnis oder Rechtssicherheit',
-    'MITTEL': 'Sinnvoll, aber nicht dringend',
-    'INFO': 'Nur zur Information, hier nicht verpflichtend',
-}
-
 ELEMENT_LABELS = [
     ('has_ssl', 'SSL/HTTPS'), ('has_contact_form', 'Kontaktformular'),
     ('has_phone', 'Telefonnummer'), ('has_email', 'E-Mail-Adresse'),
@@ -128,6 +121,21 @@ def _status_icon(c, x, y, status):
         c.setFillColor(colors.white)
         c.setFont('Helvetica-Bold', 8)
         c.drawCentredString(x, y - 2.6, '?')
+
+
+def _result_badge(status, priority):
+    """Vereinfachte 3-Stufen-Einordnung fuer Kunden statt der technischen Prioritaeten
+    (KRITISCH/HOCH/MITTEL/INFO), die intern weiterhin zur Sortierung/Gewichtung genutzt werden.
+    Erfuellt = Punkt ist ok. Handlungsbedarf = wichtiger offener Punkt (vorher KRITISCH/HOCH).
+    Ausreichend = offener Punkt, aber nicht dringend (vorher MITTEL/INFO) oder Sonderfall
+    (z.B. rechtliche Ausnahme moeglich - siehe Beschreibung)."""
+    if status is True:
+        return 'Erfuellt', GREEN
+    if status is False:
+        if priority in ('KRITISCH', 'HOCH'):
+            return 'Handlungsbedarf', RED
+        return 'Ausreichend', AMBER
+    return 'Wird geprueft', GREY
 
 
 def _grade_color(note):
@@ -368,26 +376,31 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
     y -= 4 * mm
     c.setFillColor(NAVY)
     c.setFont('Helvetica-Bold', 11)
-    c.drawString(MARGIN, y, "Prioritaets-Stufen (HOCH / MITTEL / KRITISCH)")
+    c.drawString(MARGIN, y, "Ergebnis-Stufen")
     y -= 7 * mm
     c.setFont('Helvetica', 9.5)
     y = _draw_wrapped(c,
-        "Wichtig: Die Prioritaet zeigt, wie bedeutsam ein Pruefpunkt fuer Webseiten allgemein ist - "
-        "sie sagt nichts darueber aus, ob Ihre Seite ihn erfuellt. Ein gruener Haken mit der Markierung "
-        "'KRITISCH' bedeutet also: ein sehr wichtiger Punkt, den Ihre Seite bereits erfuellt.",
+        "Jeder Pruefpunkt wird einer von drei Stufen zugeordnet, damit auf einen Blick klar ist, "
+        "wo Handlungsbedarf besteht:",
         MARGIN, y, 'Helvetica', 9.5, PAGE_W - 2 * MARGIN, TEXT_DARK, 4.8 * mm)
     y -= 5 * mm
 
-    for prio, color in [('KRITISCH', RED), ('HOCH', AMBER), ('MITTEL', GREY)]:
+    RESULT_EXPLAIN = [
+        ('Erfuellt', GREEN, 'Dieser Punkt ist bei Ihnen bereits erfuellt - kein Handlungsbedarf.'),
+        ('Ausreichend', AMBER, 'Nicht ganz optimal, aber nicht dringend - kann bei Gelegenheit verbessert werden.'),
+        ('Handlungsbedarf', RED, 'Wichtiger offener Punkt - sollte zeitnah angegangen werden.'),
+    ]
+    for label, color, explain in RESULT_EXPLAIN:
         c.setFillColor(color)
-        c.roundRect(MARGIN, y - 5.5 * mm, 24 * mm, 6.5 * mm, 2 * mm, fill=1, stroke=0)
+        c.roundRect(MARGIN, y - 5.5 * mm, 32 * mm, 6.5 * mm, 2 * mm, fill=1, stroke=0)
         c.setFillColor(colors.white)
         c.setFont('Helvetica-Bold', 8)
-        c.drawCentredString(MARGIN + 12 * mm, y - 3.5 * mm, prio)
+        c.drawCentredString(MARGIN + 16 * mm, y - 3.5 * mm, label)
         c.setFillColor(TEXT_DARK)
         c.setFont('Helvetica', 9.5)
-        c.drawString(MARGIN + 28 * mm, y - 3.5 * mm, PRIORITY_EXPLAIN[prio])
-        y -= 10 * mm
+        y = _draw_wrapped(c, explain, MARGIN + 36 * mm, y - 3.5 * mm, 'Helvetica', 9.5,
+                           PAGE_W - 2 * MARGIN - 36 * mm, TEXT_DARK, 4.6 * mm)
+        y -= 6.5 * mm
 
     # ── Inhalts-Checkliste ─────────────────────────────────────
     if elements:
@@ -420,23 +433,22 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
     if massnahmen:
         y = _new_page_header(c, "Empfohlene Massnahmen", contact,
                               "Die wichtigsten naechsten Schritte, priorisiert nach Dringlichkeit.")
-        prio_color = {'KRITISCH': RED, 'HOCH': AMBER, 'MITTEL': GREY}
         for i, m in enumerate(massnahmen, 1):
             if y < 40 * mm:
                 y = _new_page_header(c, "Empfohlene Massnahmen (Fortsetzung)", contact)
-            color = prio_color.get(m.get('prioritaet'), GREY)
+            label, color = _result_badge(False, m.get('prioritaet'))
             c.setFillColor(color)
-            c.roundRect(MARGIN, y - 5.5 * mm, 22 * mm, 6.5 * mm, 2 * mm, fill=1, stroke=0)
+            c.roundRect(MARGIN, y - 5.5 * mm, 32 * mm, 6.5 * mm, 2 * mm, fill=1, stroke=0)
             c.setFillColor(colors.white)
             c.setFont('Helvetica-Bold', 7.5)
-            c.drawCentredString(MARGIN + 11 * mm, y - 3.5 * mm, m.get('prioritaet', ''))
+            c.drawCentredString(MARGIN + 16 * mm, y - 3.5 * mm, label)
             c.setFillColor(NAVY)
             c.setFont('Helvetica-Bold', 10)
-            c.drawString(MARGIN + 26 * mm, y - 3.5 * mm, f"{i}. {m.get('massnahme', '')}")
+            c.drawString(MARGIN + 36 * mm, y - 3.5 * mm, f"{i}. {m.get('massnahme', '')}")
             y -= 9 * mm
             if m.get('begruendung'):
-                y = _draw_wrapped(c, m['begruendung'], MARGIN + 26 * mm, y, 'Helvetica', 8.7,
-                                   PAGE_W - 2 * MARGIN - 26 * mm, TEXT_DARK, 4.4 * mm)
+                y = _draw_wrapped(c, m['begruendung'], MARGIN + 36 * mm, y, 'Helvetica', 8.7,
+                                   PAGE_W - 2 * MARGIN - 36 * mm, TEXT_DARK, 4.4 * mm)
             y -= 5 * mm
 
     # ── Kategorie-Detailseiten (technische Einzel-Pruefungen) ──
@@ -455,10 +467,12 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
             c.drawString(MARGIN + 12 * mm, y, f.get('signal', ''))
 
             prio = f.get('priority', '')
-            prio_color = RED if prio == 'KRITISCH' else (AMBER if prio == 'HOCH' else GREY)
-            c.setFillColor(prio_color)
+            badge_label, badge_color = _result_badge(f.get('status'), prio)
+            c.setFillColor(badge_color)
+            c.roundRect(PAGE_W - MARGIN - 30 * mm, y - 4 * mm, 30 * mm, 5.5 * mm, 1.8 * mm, fill=1, stroke=0)
+            c.setFillColor(colors.white)
             c.setFont('Helvetica-Bold', 7.5)
-            c.drawRightString(PAGE_W - MARGIN, y, prio)
+            c.drawCentredString(PAGE_W - MARGIN - 15 * mm, y - 2.5 * mm, badge_label)
 
             y -= 5.5 * mm
             c.setFont('Helvetica', 9)
@@ -466,17 +480,6 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
             for l in _wrap_text(f.get('description', ''), 'Helvetica', 9, PAGE_W - 2 * MARGIN - 12 * mm):
                 c.drawString(MARGIN + 12 * mm, y, l)
                 y -= 4.8 * mm
-
-            # Erklaerender Hinweis, warum Status und Prioritaet nicht widersprechen
-            if prio in ('KRITISCH', 'HOCH'):
-                note_txt = ("(Wichtiger Pruefpunkt - bei Ihnen bereits erfuellt)" if f.get('status') is True
-                             else "(Wichtiger Pruefpunkt - hier besteht Handlungsbedarf)" if f.get('status') is False
-                             else "")
-                if note_txt:
-                    c.setFont('Helvetica-Oblique', 7.7)
-                    c.setFillColor(GREY)
-                    c.drawString(MARGIN + 12 * mm, y, note_txt)
-                    y -= 4.4 * mm
 
             rec = f.get('recommendation', '')
             if rec:
