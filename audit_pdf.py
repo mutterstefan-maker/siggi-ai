@@ -489,6 +489,30 @@ def generate_audit_pdf(result, logo_path, contact, output_path):
                     c.drawString(MARGIN + 12 * mm, y, l)
                     y -= 4.6 * mm
 
+            # Rechtsgrundlage nur zeigen, wenn hier tatsaechlich Handlungsbedarf besteht
+            legal_basis = f.get('legal_basis', '')
+            if legal_basis and badge_label == 'Handlungsbedarf':
+                box_x = MARGIN + 12 * mm
+                box_w = PAGE_W - MARGIN - box_x
+                lines = _wrap_text(legal_basis, 'Helvetica', 7.8, box_w - 6 * mm)
+                box_h = (len(lines) + 1) * 3.9 * mm + 3 * mm
+                if y - box_h < 20 * mm:
+                    y = _new_page_header(c, f"{CATEGORY_ICONS.get(cat_name, '•')}  {cat_name} (Fortsetzung)", contact)
+                y -= 2 * mm
+                c.setFillColor(RED_BG)
+                c.roundRect(box_x, y - box_h, box_w, box_h, 1.8 * mm, fill=1, stroke=0)
+                ty = y - 4.5 * mm
+                c.setFillColor(RED)
+                c.setFont('Helvetica-Bold', 7.8)
+                c.drawString(box_x + 3 * mm, ty, "§  Warum ist das Pflicht?")
+                ty -= 4.4 * mm
+                c.setFont('Helvetica', 7.8)
+                c.setFillColor(TEXT_DARK)
+                for l in lines:
+                    c.drawString(box_x + 3 * mm, ty, l)
+                    ty -= 3.9 * mm
+                y -= box_h + 2 * mm
+
             y -= 3 * mm
             c.setStrokeColor(colors.HexColor('#eef0f5'))
             c.line(MARGIN, y, PAGE_W - MARGIN, y)

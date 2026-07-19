@@ -37,6 +37,7 @@ class AuditFinding:
         self.description = ''
         self.status = None
         self.recommendation = ''
+        self.legal_basis = ''  # Gesetzestext-Referenz - wird im PDF nur bei "Handlungsbedarf" angezeigt
         self.check_id = f"C{hash(signal) % 1000:03d}"
 
     def to_dict(self):
@@ -47,6 +48,7 @@ class AuditFinding:
             'description': self.description,
             'status': self.status,
             'recommendation': self.recommendation,
+            'legal_basis': self.legal_basis,
             'check_id': self.check_id,
         }
 
@@ -324,24 +326,44 @@ def analyze_legal(html, url, combined_html=None, crawled_urls=None):
     f1.status = bool(re.search(r'impressum', h))
     f1.description = "Impressum verlinkt/gefunden" if f1.status else "Kein Impressum gefunden"
     f1.recommendation = "" if f1.status else "Impressum ergaenzen - in Deutschland gesetzlich Pflicht (Paragraph 5 TMG)."
+    f1.legal_basis = "" if f1.status else (
+        "Paragraph 5 Telemediengesetz (TMG): Diensteanbieter muessen auf ihrer Website leicht erkennbar, "
+        "unmittelbar erreichbar und staendig verfuegbar u.a. Name, Anschrift und Kontaktmoeglichkeiten "
+        "bereithalten. Verstoesse koennen als Wettbewerbsverstoss abgemahnt werden."
+    )
     findings.append(f1)
 
     f2 = AuditFinding('Datenschutzerklaerung vorhanden', 'Rechtlich', 'KRITISCH')
     f2.status = bool(re.search(r'datenschutz|privacy.?policy', h))
     f2.description = "Datenschutzerklaerung gefunden" if f2.status else "Keine Datenschutzerklaerung gefunden"
     f2.recommendation = "" if f2.status else "Datenschutzerklaerung ergaenzen - DSGVO-Pflicht."
+    f2.legal_basis = "" if f2.status else (
+        "Art. 13 DSGVO (Datenschutz-Grundverordnung): Bei jeder Erhebung personenbezogener Daten (z.B. "
+        "durch Kontaktformulare, Cookies, Tracking) muss der Nutzer transparent ueber Zweck, Umfang und "
+        "Rechtsgrundlage der Datenverarbeitung informiert werden."
+    )
     findings.append(f2)
 
     f3 = AuditFinding('Cookie-Banner vorhanden', 'Rechtlich', 'KRITISCH')
     f3.status = any(p in h for p in COOKIE_PATTERNS) or bool(re.search(r'cookie', h))
     f3.description = "Cookie-Hinweis/Banner gefunden" if f3.status else "Kein Cookie-Banner erkannt"
     f3.recommendation = "" if f3.status else "Cookie-Consent-Banner einbauen (z.B. Cookiebot, Borlabs) - Pflicht bei Cookies/Tracking laut DSGVO/TTDSG."
+    f3.legal_basis = "" if f3.status else (
+        "Paragraph 25 TTDSG (Telekommunikation-Telemedien-Datenschutz-Gesetz), i.V.m. Art. 6 DSGVO: "
+        "Fuer nicht technisch notwendige Cookies (z.B. Tracking, Marketing) ist vorherige, aktive "
+        "Einwilligung des Nutzers erforderlich - eine reine Information reicht nicht aus."
+    )
     findings.append(f3)
 
     f4 = AuditFinding('SSL-Verschluesselung (rechtlich)', 'Rechtlich', 'KRITISCH')
     f4.status = url.startswith('https://')
     f4.description = "HTTPS aktiv" if f4.status else "Keine HTTPS-Verschluesselung"
     f4.recommendation = "" if f4.status else "SSL zwingend erforderlich fuer DSGVO-konforme Datenuebertragung."
+    f4.legal_basis = "" if f4.status else (
+        "Art. 32 DSGVO: Verantwortliche muessen geeignete technische Massnahmen treffen, um "
+        "personenbezogene Daten bei der Uebertragung zu schuetzen - eine unverschluesselte Verbindung "
+        "(HTTP statt HTTPS) gilt als Verstoss gegen diese Pflicht."
+    )
     findings.append(f4)
 
     is_shop = detect_online_shop(search_html)
@@ -380,6 +402,14 @@ def analyze_legal(html, url, combined_html=None, crawled_urls=None):
                 "eine klar erreichbare Funktion (Beschriftung z.B. 'Vertrag widerrufen') widerrufen koennen, mit "
                 "Bestaetigungsschritt und sofortiger Empfangsbestaetigung auf dauerhaftem Datentraeger "
                 "(Paragraph 356a BGB, in Verbindung mit dem Widerrufsrecht nach Paragraph 312g BGB)."
+            )
+            f5.legal_basis = (
+                "Paragraph 312g BGB (Widerrufsrecht) i.V.m. Paragraph 356a BGB (Elektronische "
+                "Widerrufsfunktion, verpflichtend seit 19.06.2026): Verbraucher haben bei online geschlossenen "
+                "Fernabsatzvertraegen ein 14-taegiges Widerrufsrecht. Der Unternehmer muss auf der "
+                "Online-Benutzeroberflaeche eine Widerrufsfunktion bereitstellen, mit der der Verbraucher eine "
+                "Widerrufserklaerung abgeben und bestaetigen kann. Verifiziert am 19.07.2026 gegen den "
+                "offiziellen Gesetzestext auf gesetze-im-internet.de."
             )
     else:
         f5.status = True
