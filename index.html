@@ -2501,7 +2501,7 @@ async function renderInstagram() {
   apiGrid.innerHTML = `
     <div class="form-row">
       <label class="form-label">Instagram Access-Token ${igSettings?.access_token_set ? '(gesetzt - leer lassen zum Beibehalten)' : ''}</label>
-      <input class="form-input" type="password" id="ig-access-token" placeholder="${igSettings?.access_token_set ? '••••••••' : 'Meta Graph API Access-Token'}">
+      <input class="form-input" type="password" id="ig-access-token" autocomplete="new-password" placeholder="${igSettings?.access_token_set ? '••••••••' : 'Meta Graph API Access-Token'}">
     </div>
     <div class="form-row">
       <label class="form-label">Instagram Business-Account-ID</label>

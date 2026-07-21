@@ -1458,8 +1458,9 @@ def instagram_settings():
         try:
             settings = load_settings()
             existing = settings.get('instagram_settings', {})
-            if not data.get('access_token'):
-                data.pop('access_token', None)  # leer gelassen = nicht ändern
+            token = data.get('access_token')
+            if not token or not token.startswith('EAA'):
+                data.pop('access_token', None)  # leer oder kein Meta-Token (z.B. Browser-Autofill) = nicht ändern
             existing.update(data)
             settings['instagram_settings'] = existing
             save_settings(settings)
