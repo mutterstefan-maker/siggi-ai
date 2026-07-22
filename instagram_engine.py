@@ -310,17 +310,18 @@ def post_next_in_queue(public_base_url):
     result = _publish_image(image_url, caption)
 
     if result['success']:
+        _log_post(filename, caption, 'posted')
+
+        fb_result = _publish_to_facebook_page(image_url, caption)
+        if not fb_result['success']:
+            print(f"[Facebook] Post fehlgeschlagen: {fb_result.get('error')}")
+
         src = os.path.join(pool_dir(), filename)
         dst = os.path.join(posted_dir(), filename)
         try:
             os.replace(src, dst)
         except Exception as e:
             print(f'[Instagram] Konnte Datei nicht archivieren: {e}')
-        _log_post(filename, caption, 'posted')
-
-        fb_result = _publish_to_facebook_page(image_url, caption)
-        if not fb_result['success']:
-            print(f"[Facebook] Post fehlgeschlagen: {fb_result.get('error')}")
 
         settings = _load_settings()
         ig_settings = settings.setdefault('instagram_settings', {})
