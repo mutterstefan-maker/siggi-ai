@@ -832,6 +832,10 @@ input:checked + .slider:before { transform: translateX(16px); }
     <div class="nav-item" data-view="settings">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span> Einstellungen
     </div>
+    <div class="nav-item" data-view="improvements">
+      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg></span> Selbstverbesserung
+      <span class="badge warn" id="badge-improvements" style="display:none">0</span>
+    </div>
   </nav>
   <div class="sidebar-bottom">
     <div class="auto-toggle">
@@ -909,7 +913,8 @@ const VIEW_TITLES = {
   audit: 'Website Audit',
   jarvis: 'SIGGI',
   contacts: 'Kontakte / CRM',
-  mail_drafts: 'Mail-Entwürfe'
+  mail_drafts: 'Mail-Entwürfe',
+  improvements: 'Selbstverbesserung'
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────
@@ -969,6 +974,10 @@ async function showView(view) {
   }
   if (view === 'mail_drafts') {
     renderMailDrafts();
+    return;
+  }
+  if (view === 'improvements') {
+    renderImprovements();
     return;
   }
   // spam handled by renderMailView
@@ -3062,6 +3071,101 @@ async function renderSecurity() {
   `;
 }
 
+const IMPROVEMENT_STATUS_META = {
+  pending:      { color: 'var(--warning)', icon: '💡', label: 'Offen' },
+  auto_applied: { color: 'var(--success)', icon: '⚡', label: 'Automatisch übernommen' },
+  approved:     { color: 'var(--success)', icon: '✅', label: 'Übernommen' },
+  dismissed:    { color: 'var(--text3)',   icon: '🗑️', label: 'Verworfen' },
+};
+
+const IMPROVEMENT_TYPE_LABEL = {
+  new_prompt: '📌 Neuer Wissens-Prompt',
+  tool_idea: '🛠️ Tool-Idee',
+  process: '⚙️ Prozess',
+};
+
+async function renderImprovements() {
+  const content = document.getElementById('main-content');
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const all = await apiFetch('/api/improvements') || [];
+  const pending = all.filter(s => s.status === 'pending');
+  const history = all.filter(s => s.status !== 'pending');
+
+  const renderCard = (s, showActions) => {
+    const m = IMPROVEMENT_STATUS_META[s.status] || IMPROVEMENT_STATUS_META.pending;
+    return `
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${m.color};border-radius:var(--radius);padding:16px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div>
+            <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.5px">${IMPROVEMENT_TYPE_LABEL[s.type] || s.type}</div>
+            <div style="font-weight:700;color:var(--text);margin-top:4px">${escHtml(s.title)}</div>
+            <div style="color:var(--text2);font-size:13px;margin-top:6px">${escHtml(s.detail || '')}</div>
+            <div style="color:var(--text3);font-size:11px;margin-top:8px;font-family:var(--font-mono)">${formatDate(s.created_at)}${s.decided_at ? ' · entschieden: ' + formatDate(s.decided_at) : ''}</div>
+          </div>
+          <div style="text-align:right;white-space:nowrap">
+            <div style="color:${m.color};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px">${m.icon} ${m.label}</div>
+            ${showActions ? `
+              <div style="margin-top:10px;display:flex;gap:6px;justify-content:flex-end">
+                <button class="btn btn-ghost" style="font-size:11px" onclick="dismissImprovement(${s.id})">Verwerfen</button>
+                <button class="btn btn-primary" style="font-size:11px" onclick="approveImprovement(${s.id})">Übernehmen</button>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">💡 Siggi schaut selbst, wie er sich verbessern kann</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">Läuft täglich automatisch. Eindeutige, wiederkehrende Wissenslücken werden direkt übernommen, alles andere landet hier zur Freigabe.</div>
+        </div>
+        <button class="btn btn-primary" onclick="runImprovementCheck()">🔍 Jetzt prüfen</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>📋 Offene Vorschläge${pending.length ? ' (' + pending.length + ')' : ''}</h3>
+        ${pending.length ? pending.map(s => renderCard(s, true)).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Vorschläge.</div>'}
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
+        <h3>🕓 Verlauf</h3>
+        ${history.length ? history.map(s => renderCard(s, false)).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+async function runImprovementCheck() {
+  showToast('Prüfe auf Verbesserungen...');
+  const res = await apiFetch('/api/improvements/run', 'POST');
+  if (res?.success) {
+    showToast(`${res.new} neue Vorschläge, ${res.auto_applied} automatisch übernommen`, 'success');
+    renderImprovements();
+    loadCounts();
+  } else {
+    showToast(res?.error || 'Fehler bei der Prüfung', 'error');
+  }
+}
+
+async function approveImprovement(id) {
+  await apiFetch(`/api/improvements/${id}/approve`, 'POST');
+  showToast('Übernommen', 'success');
+  renderImprovements();
+  loadCounts();
+}
+
+async function dismissImprovement(id) {
+  await apiFetch(`/api/improvements/${id}/dismiss`, 'POST');
+  showToast('Verworfen', 'success');
+  renderImprovements();
+  loadCounts();
+}
+
 function statCard(icon, label, value, color) {
   return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center">
     <div style="font-size:28px;margin-bottom:8px">${icon}</div>
@@ -3397,7 +3501,7 @@ async function loadSettings() {
 async function loadCounts() {
   const counts = await apiFetch('/api/counts');
   if (counts) {
-    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash'].forEach(cat => {
+    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash', 'improvements'].forEach(cat => {
       const el = document.getElementById(`badge-${cat}`);
       if (el) {
         el.textContent = counts[cat] || 0;

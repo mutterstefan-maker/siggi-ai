@@ -14,6 +14,7 @@ import base64
 from datetime import datetime, timedelta
 import audit_engine as audit_eng
 import audit_pdf
+import self_improve_engine
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB, genug für Base64-kodierte Flyer-Bilder
@@ -254,6 +255,7 @@ def init_actions_log_table():
     conn.close()
 
 init_actions_log_table()
+self_improve_engine.init_table()
 
 def log_siggi_action(tool, tool_input, output):
     try:
@@ -1212,7 +1214,40 @@ def add_spam_sender():
 
 @app.route('/api/counts')
 def get_counts():
-    return jsonify(get_mail_stats())
+    stats = get_mail_stats()
+    try:
+        stats['improvements'] = len([
+            s for s in self_improve_engine.list_suggestions() if s['status'] == 'pending'
+        ])
+    except Exception:
+        stats['improvements'] = 0
+    return jsonify(stats)
+
+@app.route('/api/improvements')
+def api_improvements_list():
+    return jsonify(self_improve_engine.list_suggestions())
+
+@app.route('/api/improvements/run', methods=['POST'])
+def api_improvements_run():
+    try:
+        new_count, auto_count = self_improve_engine.run_analysis()
+        return jsonify({'success': True, 'new': new_count, 'auto_applied': auto_count})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/improvements/<int:suggestion_id>/approve', methods=['POST'])
+def api_improvements_approve(suggestion_id):
+    ok = self_improve_engine.approve_suggestion(suggestion_id)
+    if not ok:
+        return jsonify({'error': 'Vorschlag nicht gefunden'}), 404
+    return jsonify({'success': True})
+
+@app.route('/api/improvements/<int:suggestion_id>/dismiss', methods=['POST'])
+def api_improvements_dismiss(suggestion_id):
+    ok = self_improve_engine.dismiss_suggestion(suggestion_id)
+    if not ok:
+        return jsonify({'error': 'Vorschlag nicht gefunden'}), 404
+    return jsonify({'success': True})
 
 def _run_audit_background(audit_id, url):
     conn = sqlite3.connect(DB_PATH)
