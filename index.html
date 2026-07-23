@@ -3032,6 +3032,18 @@ async function renderSecurity() {
         ${statCard('🕵️', 'Fehlversuche (5 Min)', data?.live_login_recent_failures ?? 0, 'var(--warning)')}
       </div>
 
+      ${data?.attacks ? `
+      <div class="settings-section" style="margin-bottom:20px">
+        <h3>⚔️ Aktuelle Angriffslage (Server)</h3>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+          ${statCard('🔑', 'SSH-Fehlversuche', data.attacks.ssh_failed_attempts ?? 0, 'var(--warning)')}
+          ${statCard('⛔', 'Aktuell gebannt', data.attacks.ssh_currently_banned ?? 0, 'var(--danger)')}
+          ${statCard('🚫', 'Insgesamt gebannt', data.attacks.ssh_total_banned ?? 0, 'var(--text2)')}
+          ${statCard('🕷️', 'Web-Scan-Versuche', data.attacks.suspicious_web_scans ?? 0, 'var(--warning)')}
+        </div>
+      </div>
+      ` : ''}
+
       <div class="settings-section">
         <h3>🛡️ Server-Sicherheitschecks</h3>
         ${checks.length ? checks.map(c => {
