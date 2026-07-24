@@ -14,6 +14,7 @@ Ablauf pro Post (Graph API Standardverfahren für Bild-Posts):
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime
 
 import requests as req
@@ -226,6 +227,22 @@ def _publish_image(image_url, caption):
             return {'success': False, 'error': f'Media-Erstellung fehlgeschlagen: {create_data}'}
         creation_id = create_data['id']
 
+        # Meta verarbeitet das Bild asynchron - vor media_publish auf status_code FINISHED warten,
+        # sonst schlägt die Veröffentlichung mit code 9007 / subcode 2207027 ("Media ID is not
+        # available") fehl, weil der Container noch nicht fertig ist.
+        for attempt in range(10):
+            status_resp = req.get(
+                f"{GRAPH_BASE}/{creation_id}",
+                params={'fields': 'status_code', 'access_token': cfg['access_token']},
+                timeout=30
+            )
+            status_code = status_resp.json().get('status_code')
+            if status_code == 'FINISHED':
+                break
+            if status_code == 'ERROR':
+                return {'success': False, 'error': f'Media-Verarbeitung fehlgeschlagen: {status_resp.json()}'}
+            time.sleep(2)
+
         publish_resp = req.post(
             f"{GRAPH_BASE}/{cfg['ig_user_id']}/media_publish",
             data={'creation_id': creation_id, 'access_token': cfg['access_token']},
@@ -233,7 +250,19 @@ def _publish_image(image_url, caption):
         )
         publish_data = publish_resp.json()
         if not publish_resp.ok or 'id' not in publish_data:
-            return {'success': False, 'error': f'Veröffentlichung fehlgeschlagen: {publish_data}'}
+            # Transienter Fehler (Container trotz FINISHED-Status noch nicht bereit) - einmal
+            # nach kurzer Wartezeit erneut versuchen, bevor final aufgegeben wird.
+            error_subcode = publish_data.get('error', {}).get('error_subcode')
+            if error_subcode == 2207027:
+                time.sleep(5)
+                publish_resp = req.post(
+                    f"{GRAPH_BASE}/{cfg['ig_user_id']}/media_publish",
+                    data={'creation_id': creation_id, 'access_token': cfg['access_token']},
+                    timeout=30
+                )
+                publish_data = publish_resp.json()
+            if not publish_resp.ok or 'id' not in publish_data:
+                return {'success': False, 'error': f'Veröffentlichung fehlgeschlagen: {publish_data}'}
 
         return {'success': True, 'media_id': publish_data['id']}
     except Exception as e:
