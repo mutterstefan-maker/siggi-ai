@@ -16,6 +16,7 @@ import re
 import sqlite3
 import time
 from datetime import datetime
+from urllib.parse import quote
 
 import requests as req
 
@@ -334,7 +335,7 @@ def post_next_in_queue(public_base_url):
     filename = queue[0]
     s = _ig_settings()
     caption = _generate_caption_from_filename(filename, s.get('default_caption', ''))
-    image_url = f"{public_base_url.rstrip('/')}/api/instagram/media/{filename}"
+    image_url = f"{public_base_url.rstrip('/')}/api/instagram/media/{quote(filename)}"
 
     result = _publish_image(image_url, caption)
 
