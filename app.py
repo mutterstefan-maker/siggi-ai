@@ -802,7 +802,7 @@ def voice_speak():
         pitch = settings.get('tts_pitch', '+0Hz')
         rate = settings.get('tts_rate', '+0%')
         output_file = f'/tmp/tts_{int(time.time())}.mp3'
-        cmd = ['edge-tts', '--voice', voice, '--pitch', pitch, '--rate', rate,
+        cmd = ['edge-tts', '--voice', voice, f'--pitch={pitch}', f'--rate={rate}',
                '--text', text, '--write-media', output_file]
         result = subprocess.run(cmd, shell=False, capture_output=True, text=True)
         
