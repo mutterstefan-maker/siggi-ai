@@ -886,7 +886,7 @@ def jarvis_chat():
                 'https://api.anthropic.com/v1/messages',
                 headers=headers,
                 json={
-                    'model': 'claude-opus-4-1-20250805',
+                    'model': 'claude-opus-5',
                     'max_tokens': 1500,
                     'system': system_prompt,
                     'tools': SIGGI_TOOLS,
@@ -896,6 +896,7 @@ def jarvis_chat():
             )
 
             if response.status_code != 200:
+                app.logger.error(f'Anthropic API error {response.status_code}: {response.text[:500]}')
                 return jsonify({'reply': 'Interessante Frage!'})
 
             result = response.json()
