@@ -31,6 +31,7 @@ load_dotenv('/opt/stean/config/.env')
 DB_PATH = '/opt/stean/mails.db'
 SETTINGS_PATH = '/opt/stean/settings.json'
 LOGO_PATH = '/opt/stean/cowork/Chefblick/SocialMedia/ChefBlick Logo Quer.png'
+UNICORN_REF_PATH = '/opt/stean/cowork/Chefblick/SocialMedia/ChefBlick_Einhorn_Referenz.png'
 PENDING_DIR = '/opt/stean/flyer_pending'
 FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
@@ -364,14 +365,27 @@ def _parse_plan(raw_text):
     return json.loads(cleaned)
 
 
-def _generate_image(image_prompt, openai_api_key):
+def _generate_image(image_prompt, openai_api_key, use_unicorn=False):
     with open(LOGO_PATH, 'rb') as f:
         logo_bytes = f.read()
+
+    files = [('image[]', ('logo.png', logo_bytes, 'image/png'))]
+
+    if use_unicorn and os.path.exists(UNICORN_REF_PATH):
+        with open(UNICORN_REF_PATH, 'rb') as f:
+            unicorn_bytes = f.read()
+        files.append(('image[]', ('einhorn_referenz.png', unicorn_bytes, 'image/png')))
+        image_prompt = (
+            'Das zweite mitgeschickte Referenzbild zeigt das ChefBlick-Einhorn-Maskottchen aus '
+            'einem frueheren Bild - uebernimm sein genaues Aussehen (Fell, Regenbogenmaehne, '
+            'goldenes Horn, Sonnenbrille, Koerperbau) 1:1 identisch, nur die Pose/Situation/der '
+            'Hintergrund aendert sich passend zum neuen Motiv.\n\n' + image_prompt
+        )
 
     response = requests.post(
         'https://api.openai.com/v1/images/edits',
         headers={'Authorization': f'Bearer {openai_api_key}'},
-        files={'image[]': ('logo.png', logo_bytes, 'image/png')},
+        files=files,
         data={
             'model': 'gpt-image-1',
             'prompt': image_prompt,
