@@ -836,6 +836,10 @@ input:checked + .slider:before { transform: translateX(16px); }
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg></span> Selbstverbesserung
       <span class="badge warn" id="badge-improvements" style="display:none">0</span>
     </div>
+    <div class="nav-item" data-view="linkedin_pipeline">
+      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></span> LinkedIn Pipeline
+      <span class="badge warn" id="badge-linkedin_pipeline" style="display:none">0</span>
+    </div>
   </nav>
   <div class="sidebar-bottom">
     <div class="auto-toggle">
@@ -978,6 +982,10 @@ async function showView(view) {
   }
   if (view === 'improvements') {
     renderImprovements();
+    return;
+  }
+  if (view === 'linkedin_pipeline') {
+    renderLinkedinPipeline();
     return;
   }
   // spam handled by renderMailView
@@ -3187,6 +3195,104 @@ async function dismissImprovement(id) {
   loadCounts();
 }
 
+const LINKEDIN_STATUS_META = {
+  pending: { label: 'Wartet auf Freigabe', color: 'var(--warn, #f59e0b)', icon: '⏳' },
+  approved_posted: { label: 'Freigegeben & gepostet', color: 'var(--success, #22c55e)', icon: '✅' },
+  auto_posted: { label: 'Automatisch gepostet', color: 'var(--success, #22c55e)', icon: '🤖' },
+  rejected: { label: 'Abgelehnt', color: 'var(--text3)', icon: '✗' },
+  approve_failed: { label: 'Posten fehlgeschlagen', color: 'var(--danger)', icon: '⚠️' },
+  auto_post_failed: { label: 'Auto-Posten fehlgeschlagen', color: 'var(--danger)', icon: '⚠️' },
+};
+
+async function renderLinkedinPipeline() {
+  const content = document.getElementById('main-content');
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const [all, progress] = await Promise.all([
+    apiFetch('/api/linkedin/pipeline/drafts') || [],
+    apiFetch('/api/linkedin/pipeline/progress'),
+  ]);
+  const drafts = all || [];
+  const pending = drafts.filter(d => d.status === 'pending');
+  const history = drafts.filter(d => d.status !== 'pending');
+  const p = progress || { approved_count: 0, threshold: 50, auto_mode: false };
+
+  const renderCard = (d, showActions) => {
+    const m = LINKEDIN_STATUS_META[d.status] || LINKEDIN_STATUS_META.pending;
+    return `
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${m.color};border-radius:var(--radius);padding:16px;margin-bottom:12px">
+        <div style="white-space:pre-wrap;color:var(--text);font-size:13px;line-height:1.5">${escHtml(d.text)}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px">
+          <div style="color:var(--text3);font-size:11px;font-family:var(--font-mono)">${formatDate(d.created_at)}${d.decided_at ? ' · entschieden: ' + formatDate(d.decided_at) : ''}</div>
+          <div style="display:flex;align-items:center;gap:10px;white-space:nowrap">
+            <span style="color:${m.color};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px">${m.icon} ${m.label}</span>
+            ${showActions ? `
+              <button class="btn btn-ghost" style="font-size:11px" onclick="rejectLinkedinDraft(${d.id})">Ablehnen</button>
+              <button class="btn btn-primary" style="font-size:11px" onclick="approveLinkedinDraft(${d.id})">Freigeben & Posten</button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">💼 LinkedIn Content-Pipeline (Chefblick)</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">
+            Taeglich ein neuer Entwurf im Stil deiner bisherigen Posts.
+            Freigaben: <strong>${p.approved_count} / ${p.threshold}</strong>
+            ${p.auto_mode ? ' — <strong style="color:var(--success,#22c55e)">Auto-Modus aktiv, postet ab jetzt ohne Rueckfrage</strong>' : ' bis zum automatischen Modus.'}
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="generateLinkedinDraft()">✍️ Neuen Entwurf erzeugen</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>📋 Offen zur Freigabe${pending.length ? ' (' + pending.length + ')' : ''}</h3>
+        ${pending.length ? pending.map(d => renderCard(d, true)).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Entwuerfe.</div>'}
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
+        <h3>🕓 Verlauf</h3>
+        ${history.length ? history.map(d => renderCard(d, false)).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+async function generateLinkedinDraft() {
+  showToast('Erzeuge Entwurf...');
+  const res = await apiFetch('/api/linkedin/pipeline/generate', 'POST');
+  if (res?.success) {
+    showToast('Neuer Entwurf erstellt', 'success');
+    renderLinkedinPipeline();
+    loadCounts();
+  } else {
+    showToast(res?.error || 'Fehler bei der Erzeugung', 'error');
+  }
+}
+
+async function approveLinkedinDraft(id) {
+  const res = await apiFetch(`/api/linkedin/pipeline/drafts/${id}/approve`, 'POST');
+  if (res?.success) {
+    showToast('Auf LinkedIn veröffentlicht', 'success');
+  } else {
+    showToast(res?.message || res?.error || 'Fehlgeschlagen', 'error');
+  }
+  renderLinkedinPipeline();
+  loadCounts();
+}
+
+async function rejectLinkedinDraft(id) {
+  await apiFetch(`/api/linkedin/pipeline/drafts/${id}/reject`, 'POST');
+  showToast('Abgelehnt', 'success');
+  renderLinkedinPipeline();
+  loadCounts();
+}
+
 function statCard(icon, label, value, color) {
   return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center">
     <div style="font-size:28px;margin-bottom:8px">${icon}</div>
@@ -3526,7 +3632,7 @@ async function loadSettings() {
 async function loadCounts() {
   const counts = await apiFetch('/api/counts');
   if (counts) {
-    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash', 'improvements'].forEach(cat => {
+    ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash', 'improvements', 'linkedin_pipeline'].forEach(cat => {
       const el = document.getElementById(`badge-${cat}`);
       if (el) {
         el.textContent = counts[cat] || 0;

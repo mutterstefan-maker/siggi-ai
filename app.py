@@ -150,6 +150,13 @@ except:
     LINKEDIN_AVAILABLE = False
 
 try:
+    import linkedin_pipeline_engine
+    linkedin_pipeline_engine.init_table()
+    LINKEDIN_PIPELINE_AVAILABLE = True
+except:
+    LINKEDIN_PIPELINE_AVAILABLE = False
+
+try:
     import instagram_engine
     INSTAGRAM_AVAILABLE = True
 except:
@@ -1166,6 +1173,41 @@ def delete_sent(mail_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/linkedin/pipeline/drafts')
+def linkedin_pipeline_drafts():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    status = request.args.get('status')
+    return jsonify(linkedin_pipeline_engine.get_drafts(status))
+
+@app.route('/api/linkedin/pipeline/progress')
+def linkedin_pipeline_progress():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.get_progress())
+
+@app.route('/api/linkedin/pipeline/generate', methods=['POST'])
+def linkedin_pipeline_generate():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    try:
+        draft_id = linkedin_pipeline_engine.generate_draft()
+        return jsonify({'success': True, 'id': draft_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/linkedin/pipeline/drafts/<int:draft_id>/approve', methods=['POST'])
+def linkedin_pipeline_approve(draft_id):
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.approve_draft(draft_id))
+
+@app.route('/api/linkedin/pipeline/drafts/<int:draft_id>/reject', methods=['POST'])
+def linkedin_pipeline_reject(draft_id):
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.reject_draft(draft_id))
+
 @app.route('/api/mail/<mail_id>/move', methods=['POST'])
 def move_mail(mail_id):
     try:
@@ -1222,6 +1264,10 @@ def get_counts():
         ])
     except Exception:
         stats['improvements'] = 0
+    try:
+        stats['linkedin_pipeline'] = len(linkedin_pipeline_engine.get_drafts('pending'))
+    except Exception:
+        stats['linkedin_pipeline'] = 0
     return jsonify(stats)
 
 @app.route('/api/improvements')
