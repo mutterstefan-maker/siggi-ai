@@ -237,7 +237,7 @@ def _call_claude(prompt, api_key):
         },
         json={
             'model': 'claude-sonnet-5',
-            'max_tokens': 1000,
+            'max_tokens': 2000,
             'messages': [{'role': 'user', 'content': prompt}]
         },
         timeout=60
