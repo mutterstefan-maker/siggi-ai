@@ -157,6 +157,12 @@ except:
     LINKEDIN_PIPELINE_AVAILABLE = False
 
 try:
+    import cowork_engine
+    COWORK_AVAILABLE = True
+except:
+    COWORK_AVAILABLE = False
+
+try:
     import instagram_engine
     INSTAGRAM_AVAILABLE = True
 except:
@@ -422,6 +428,32 @@ SIGGI_TOOLS = [
         }
     },
     {
+        'name': 'cowork_datei_suchen',
+        'description': (
+            'Durchsucht Stefans D:\\COWORK-Ordner (auf den Server gespiegelt, funktioniert auch wenn '
+            'sein PC gerade aus ist) nach Dateien anhand des Dateinamens. Nutzen, wenn Stefan nach einer '
+            'Datei fragt, z.B. "such mir die PDF ..." oder "hast du das Dokument über ...". '
+            'Durchsucht NICHT den GRAVEDA-Unterordner (der wird bewusst nicht gespiegelt).'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {'suchbegriff': {'type': 'string', 'description': 'Ganzer oder teilweiser Dateiname, nach dem gesucht wird.'}},
+            'required': ['suchbegriff']
+        }
+    },
+    {
+        'name': 'cowork_datei_anzeigen',
+        'description': (
+            'Zeigt den Textinhalt einer Datei aus dem COWORK-Ordner an (unterstuetzt PDF, Markdown, Text, Python, JSON, CSV). '
+            'Erst cowork_datei_suchen aufrufen, um den genauen Pfad zu bekommen, dann diesen Pfad hier verwenden.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {'pfad': {'type': 'string', 'description': 'Relativer Pfad der Datei, wie von cowork_datei_suchen zurückgegeben.'}},
+            'required': ['pfad']
+        }
+    },
+    {
         'name': 'websuche',
         'description': (
             'Sucht im Internet nach aktuellen Informationen (Google-Suche), Nachrichten zu einem Thema oder dem aktuellen Wetter. '
@@ -609,6 +641,23 @@ def _run_siggi_tool_inner(name, tool_input):
                 f"Entwurf #{draft_id} an {tool_input['empfaenger']} erstellt und wartet auf deine Freigabe im Dashboard "
                 f"(noch {max(trust['threshold'] - trust['count'], 0)} Freigaben bis der Autopilot scharf geschaltet wird)."
             )
+
+        if name == 'cowork_datei_suchen':
+            if not COWORK_AVAILABLE:
+                return 'COWORK-Ordner ist nicht verfügbar.'
+            results = cowork_engine.search_files(tool_input['suchbegriff'])
+            if not results:
+                return f"Keine Datei gefunden für '{tool_input['suchbegriff']}'."
+            return json.dumps(results, ensure_ascii=False)
+
+        if name == 'cowork_datei_anzeigen':
+            if not COWORK_AVAILABLE:
+                return 'COWORK-Ordner ist nicht verfügbar.'
+            ok, content = cowork_engine.read_file_text(tool_input['pfad'])
+            download_url = f"{os.environ.get('PUBLIC_BASE_URL', 'https://stean.info')}/api/cowork/download/{tool_input['pfad']}"
+            if ok:
+                return f"Inhalt von {tool_input['pfad']}:\n\n{content}\n\n(Download-Link: {download_url})"
+            return f"{content} Download-Link: {download_url}"
 
         if name == 'websuche':
             if not INTERNET_AVAILABLE:
@@ -1172,6 +1221,17 @@ def delete_sent(mail_id):
         return jsonify({'success': True, 'affected': affected})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cowork/download/<path:relpath>')
+def cowork_download(relpath):
+    if not COWORK_AVAILABLE:
+        return jsonify({'error': 'COWORK-Ordner ist nicht verfügbar'}), 404
+    full_path = cowork_engine.get_download_path(relpath)
+    if not full_path:
+        return jsonify({'error': 'Datei nicht gefunden'}), 404
+    directory = os.path.dirname(full_path)
+    filename = os.path.basename(full_path)
+    return send_from_directory(directory, filename, as_attachment=True)
 
 @app.route('/api/linkedin/pipeline/drafts')
 def linkedin_pipeline_drafts():
