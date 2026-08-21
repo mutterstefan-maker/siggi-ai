@@ -62,7 +62,23 @@ das ChefBlick-Einhorn darf Regenbogenhaare haben).
 
 LOGO: Immer das originale ChefBlick-Logo verwenden (wird als Referenzbild
 mitgeschickt) - niemals ein neues/anderes Logo erfinden, keine Kochmuetze,
-kein Auge-Symbol. Logo nicht mehrfach im Bild platzieren.
+kein Auge-Symbol. Logo nicht mehrfach im Bild platzieren. Standardposition:
+oben links (bei manchen Layouts auch oben mittig), direkt darunter/daneben
+klein die Zeile "WEBDESIGN. HOSTING. SOFTWARE." in Grossbuchstaben.
+
+BILDSTIL (Standard, das ist Stefans etablierter Look - unbedingt einhalten):
+Ganz ueberwiegend FOTOREALISTISCHE dunkle Szenen: Schreibtisch/Arbeitsplatz
+von oben/schraeg mit Monitor/Laptop, auf dessen Bildschirm ein glaubwuerdiges
+dunkles Dashboard/UI-Mockup (mit ChefBlick-Branding) zu sehen ist, dazu
+typische Requisiten (schwarze Kaffeetasse mit ChefBlick-Logo, Pflanze,
+Notizbuch, Handy, Tastatur), stimmungsvolles blaues Ambientelicht. Headline
+in einer breiten, fetten, kondensierten Grotesk-Schrift in Grossbuchstaben
+(wie ein Poster/Werbeplakat), farblich gemischt: ein Teil der Woerter weiss,
+ein Teil (die Kernaussage) leuchtend blau. CTA meist als abgerundeter blauer
+Button/Pill mit kurzem Text wie "SCHREIB MICH AN!" und/oder team@chefblick.de
+darunter oder daneben. Comic-Stil, flache Illustration, Isometrie oder
+Magazin-Layout sind erlaubte SELTENE Ausnahmen (max. 1 von 8-10 Bildern),
+nicht der Standard.
 
 KI-KENNZEICHNUNG: wird NICHT von dir gezeichnet, sondern automatisch danach
 per Code als fester blauer Balken mit weissem Text am linken Bildrand
@@ -99,11 +115,12 @@ Hose, Turnschuhe, menschliche Haende mit 5 Fingern, frech/selbstbewusst,
 in humorvoller Alltagssituation. NICHT: Kochmuetze, Hufe, Anzug, nackt.
 Nicht automatisch Laptop/Smartphone/Dashboard dazu.
 
-LAYOUT-ROTATION: nicht das gleiche Layout wie zuletzt (Smartphone-Mockup,
-Tablet-Mockup, Webseiten-Mockup, Dashboard, Vorher/Nachher, Reality-Check-
-Karte, minimalistisch, Comic-Stil, Branchenfoto, Magazin-Cover-Stil,
-Plakat-Stil, cineastisches Motiv, Arbeitsplatz-Szene, symbolische Szene,
-humorvolle Einhorn-Szene).
+LAYOUT-ROTATION: nicht das gleiche Layout wie zuletzt, aber ueberwiegend
+innerhalb des fotorealistischen Arbeitsplatz-/Dashboard-Looks variieren
+(z.B. Laptop-Szene, Monitor-Szene, Smartphone-Szene, Dashboard-Grossaufnahme,
+Split-Screen Vorher/Nachher). Comic-Stil, flache Illustration, Isometrie
+oder Magazin-Plakat-Stil nur gelegentlich als bewusste Abwechslung (selten,
+siehe BILDSTIL oben), humorvolle Einhorn-Szene nur wenn use_unicorn=true.
 
 THEMENROTATION: nicht das gleiche Thema wie zuletzt. Themenbereiche:
 Webseiten-Tipps, Reality Checks, Digitalisierung, Unternehmeralltag,
