@@ -82,7 +82,7 @@ def _call_claude(system_prompt, user_content, api_key):
             'content-type': 'application/json'
         },
         json={
-            'model': 'claude-opus-5',
+            'model': 'claude-sonnet-5',
             'max_tokens': 1200,
             'system': system_prompt,
             'messages': [{'role': 'user', 'content': user_content}]
