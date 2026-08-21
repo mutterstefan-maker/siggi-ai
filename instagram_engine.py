@@ -318,6 +318,8 @@ Vorgaben:
         )
         result = response.json()
         text = result['content'][0]['text'].strip()
+        if text:
+            text = f"{text}\n\n(Hinweis: Dieser Text wurde mit KI-Unterstützung erstellt.)"
         return text or default_caption
     except Exception as e:
         print(f'[Instagram] Caption-Generierung fehlgeschlagen: {e}')

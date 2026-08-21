@@ -211,9 +211,10 @@ Hashtags am Ende: #ChefBlick #Webdesign #Bayern #Business'''},
             },
             timeout=30
         )
-        return response.json()['choices'][0]['message']['content']
+        text = response.json()['choices'][0]['message']['content']
+        return f"{text}\n\n(Hinweis: Dieser Text wurde mit KI-Unterstützung erstellt.)"
     except:
-        return f"Dein Business verdient eine bessere Online-Praesenz! 🚀 ChefBlick baut Webseiten & Dashboards die wirklich funktionieren. Schick 'UPGRADE' per DM! #ChefBlick #Webdesign #Bayern"
+        return f"Dein Business verdient eine bessere Online-Praesenz! 🚀 ChefBlick baut Webseiten & Dashboards die wirklich funktionieren. Schick 'UPGRADE' per DM! #ChefBlick #Webdesign #Bayern\n\n(Hinweis: Dieser Text wurde mit KI-Unterstützung erstellt.)"
 
 
 def upload_video_to_tiktok(filepath, caption):
