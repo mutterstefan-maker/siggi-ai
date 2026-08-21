@@ -3301,6 +3301,8 @@ async function rejectLinkedinDraft(id) {
   loadCounts();
 }
 
+let flyerGenerating = false;
+
 async function renderFlyerPipeline() {
   const content = document.getElementById('main-content');
   content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
@@ -3334,9 +3336,19 @@ async function renderFlyerPipeline() {
         </div>
         <div style="display:flex;gap:10px">
           <button class="btn btn-ghost" onclick="renderFlyerStats()">📊 Statistik</button>
-          <button class="btn btn-primary" onclick="generateFlyer()">🎨 Neues Bild erzeugen</button>
+          <button class="btn btn-primary" onclick="generateFlyer()" ${flyerGenerating ? 'disabled' : ''}>🎨 ${flyerGenerating ? 'Erzeuge...' : 'Neues Bild erzeugen'}</button>
         </div>
       </div>
+
+      ${flyerGenerating ? `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;margin-bottom:20px">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:8px">🎨 Bild wird generiert... (dauert ca. 1-2 Minuten)</div>
+          <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
+            <div style="height:100%;width:40%;border-radius:3px;background:var(--accent, #3b82f6);animation:flyerProgress 1.2s ease-in-out infinite"></div>
+          </div>
+        </div>
+        <style>@keyframes flyerProgress { 0% { margin-left:0% } 50% { margin-left:60% } 100% { margin-left:0% } }</style>
+      ` : ''}
 
       <div class="settings-section">
         <h3>📋 Offen zur Freigabe${pending.length ? ' (' + pending.length + ')' : ''}</h3>
@@ -3473,15 +3485,18 @@ function RATING_LABEL(key) {
 }
 
 async function generateFlyer() {
-  showToast('Erzeuge Bild... (kann bis zu 1-2 Minuten dauern)');
+  if (flyerGenerating) return;
+  flyerGenerating = true;
+  renderFlyerPipeline();
   const res = await apiFetch('/api/instagram/flyer-pipeline/generate', 'POST');
+  flyerGenerating = false;
   if (res?.success) {
     showToast('Neues Bild erstellt: ' + res.topic, 'success');
-    renderFlyerPipeline();
-    loadCounts();
   } else {
     showToast(res?.error || 'Fehler bei der Erzeugung', 'error');
   }
+  renderFlyerPipeline();
+  loadCounts();
 }
 
 function statCard(icon, label, value, color) {
