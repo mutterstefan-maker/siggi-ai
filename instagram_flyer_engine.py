@@ -21,7 +21,7 @@ import sqlite3
 
 import requests
 from dotenv import load_dotenv
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
 import instagram_engine
@@ -32,8 +32,10 @@ DB_PATH = '/opt/stean/mails.db'
 SETTINGS_PATH = '/opt/stean/settings.json'
 LOGO_PATH = '/opt/stean/cowork/Chefblick/SocialMedia/ChefBlick Logo Quer.png'
 PENDING_DIR = '/opt/stean/flyer_pending'
+FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
 TARGET_SIZE = (1080, 1350)  # 4:5, ChefBlick-Standardformat
+KI_LABEL_BAR_WIDTH = 46
 
 FEEDBACK_TAGS = [
     'Zu viel Text', 'Layout langweilig', 'Falsche Farben', 'Logo falsch/verzerrt',
@@ -62,24 +64,26 @@ LOGO: Immer das originale ChefBlick-Logo verwenden (wird als Referenzbild
 mitgeschickt) - niemals ein neues/anderes Logo erfinden, keine Kochmuetze,
 kein Auge-Symbol. Logo nicht mehrfach im Bild platzieren.
 
-KI-KENNZEICHNUNG: exakt der Text "KI-GENERIERT" (genau diese Schreibweise,
-Gross-/Kleinschreibung und Bindestrich exakt so, sorgfaeltig auf korrekte
-Buchstaben achten, keine Rechtschreibfehler) gut lesbar, senkrecht am linken
-Bildrand, weiss oder passend zum Blau-Schwarz-Weiss-Design, nicht winzig,
-nicht unten rechts. Ausreichend Innenabstand zum Bildrand lassen.
+KI-KENNZEICHNUNG: wird NICHT von dir gezeichnet, sondern automatisch danach
+per Code als fester blauer Balken mit weissem Text am linken Bildrand
+aufgesetzt. Lass darum den linken Rand des Bildes (die aeussersten ca. 5%
+der Breite) frei von wichtigen Motiv-Elementen, Text oder Logo, damit dort
+nichts verdeckt wird. Zeichne selbst KEINE eigene KI-Kennzeichnung.
 
 TEXTMENGE: Sehr wenig Text. Kurze Headline (2-4 Woerter pro Zeile, max 3-4
 Zeilen), kurze Unterzeile, keine Textwuesten. Eine starke Aussage + ein
 starkes Motiv + ein CTA. Innerhalb weniger Sekunden verstaendlich.
 
-FESTE FUSSZEILE (immer, unabhaengig vom Layout): am unteren Bildrand eine
-schmale Zeile mit 3-4 kleinen Linien-Icons (kein Emoji) mit Haekchen-Marker,
-je ein kurzes Schlagwort darunter - Auswahl passend zum Thema aus: Moderne
-Webseiten, Online-Terminbuchung, Google-Praesenz, Mehr Kunden, Individuelle
-Software, Support & Wartung, Digitalisierung. Gleiche Bildsprache/Farben wie
-der Rest (blau/weiss auf dunklem Grund). Das ist das wiedererkennbare
-ChefBlick-Markenelement und darf NIE weggelassen werden, unabhaengig davon
-welches Haupt-Layout sonst gewaehlt wird.
+FESTE FUSSZEILE (immer, unabhaengig vom Layout): am unteren Bildrand GENAU
+EINMAL eine schmale Zeile mit 3-4 kleinen Linien-Icons (kein Emoji) mit
+Haekchen-Marker, je ein kurzes Schlagwort darunter - Auswahl passend zum
+Thema aus: Moderne Webseiten, Online-Terminbuchung, Google-Praesenz, Mehr
+Kunden, Individuelle Software, Support & Wartung, Digitalisierung. Gleiche
+Bildsprache/Farben wie der Rest (blau/weiss auf dunklem Grund). Das ist das
+wiedererkennbare ChefBlick-Markenelement und darf NIE weggelassen werden,
+unabhaengig davon welches Haupt-Layout sonst gewaehlt wird - aber eben nur
+EIN EINZIGES MAL im ganzen Bild, niemals zweimal (weder als Wiederholung
+innerhalb des Hauptmotivs noch als zusaetzliche zweite Leiste).
 
 TEXTSTIL: kurz, direkt, modern, praxisnah, teils provokant, selbstbewusst,
 nicht technisch. Beispiele im gewuenschten Ton: "Deine Kunden sind online.
@@ -324,7 +328,7 @@ def _call_claude(prompt, api_key):
         },
         json={
             'model': 'claude-sonnet-5',
-            'max_tokens': 2000,
+            'max_tokens': 4000,
             'messages': [{'role': 'user', 'content': prompt}]
         },
         timeout=60
@@ -380,6 +384,29 @@ def _fit_to_target(image_bytes):
     return canvas
 
 
+def _draw_ki_label(img):
+    """Zeichnet die KI-GENERIERT-Kennzeichnung fest und immer identisch als
+    blauen Balken mit senkrechtem weissem Text am linken Rand - nicht der
+    Bildgenerierung ueberlassen, damit Position/Optik nie variiert."""
+    draw = ImageDraw.Draw(img)
+    bar_h = img.height
+    draw.rectangle([0, 0, KI_LABEL_BAR_WIDTH, bar_h], fill=(20, 90, 220))
+
+    text = 'KI-GENERIERT'
+    font = ImageFont.truetype(FONT_PATH, 26)
+    label = Image.new('RGBA', (bar_h, KI_LABEL_BAR_WIDTH), (0, 0, 0, 0))
+    label_draw = ImageDraw.Draw(label)
+    bbox = label_draw.textbbox((0, 0), text, font=font)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    label_draw.text(
+        ((bar_h - text_w) / 2 - bbox[0], (KI_LABEL_BAR_WIDTH - text_h) / 2 - bbox[1]),
+        text, font=font, fill=(255, 255, 255, 255)
+    )
+    label = label.rotate(90, expand=True)
+    img.paste(label, (0, 0), label)
+    return img
+
+
 def _safe_filename(name):
     name = re.sub(r'[^A-Za-z0-9]', '', name) or 'ChefBlickBild'
     return name[:60]
@@ -395,12 +422,18 @@ def generate_flyer():
         return {'success': False, 'error': f'Logo-Datei nicht gefunden: {LOGO_PATH}'}
 
     prompt = MASTER_PROMPT.format(history=_recent_history())
-    raw_plan = _call_claude(prompt, anthropic_key)
 
-    try:
-        plan = _parse_plan(raw_plan)
-    except Exception as e:
-        return {'success': False, 'error': f'Konnte Themenplan nicht lesen: {e} | Antwort: {raw_plan[:300]}'}
+    plan = None
+    last_error = None
+    for attempt in range(2):
+        raw_plan = _call_claude(prompt, anthropic_key)
+        try:
+            plan = _parse_plan(raw_plan)
+            break
+        except Exception as e:
+            last_error = f'{e} | Antwort: {raw_plan[:300]}'
+    if plan is None:
+        return {'success': False, 'error': f'Konnte Themenplan nicht lesen (auch nach Wiederholung): {last_error}'}
 
     filename_base = _safe_filename(plan.get('filename', plan.get('topic', 'ChefBlickBild')))
     filename = f'{filename_base}.png'
@@ -408,6 +441,7 @@ def generate_flyer():
     try:
         image_bytes = _generate_image(plan['image_prompt'], openai_key)
         final_img = _fit_to_target(image_bytes)
+        final_img = _draw_ki_label(final_img)
     except Exception as e:
         _save_history(plan.get('topic', ''), plan.get('headline', ''), plan.get('layout', ''),
                        plan.get('use_unicorn', False), filename, status='failed')
