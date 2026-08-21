@@ -1283,11 +1283,32 @@ async function renderJarvis() {
   micHint.textContent = 'TIPPEN ZUM SPRECHEN';
   controls.appendChild(micHint);
 
-  // Verstecktes Input für Quick-Commands (kein sichtbares Textfeld)
-  const hiddenInput = document.createElement('input');
-  hiddenInput.id = 'jarvis-input';
-  hiddenInput.style.display = 'none';
-  controls.appendChild(hiddenInput);
+  // Text-Eingabe als Alternative zur Sprachsteuerung
+  const textForm = document.createElement('form');
+  textForm.id = 'jarvis-text-form';
+  textForm.style.cssText = 'display:flex;gap:8px;width:100%;max-width:420px;margin-top:6px';
+  textForm.onsubmit = function(ev) {
+    ev.preventDefault();
+    const input = document.getElementById('jarvis-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addJarvisMessage(text, 'user');
+    sendJarvisMessageDirect(text);
+  };
+  const textInput = document.createElement('input');
+  textInput.id = 'jarvis-input';
+  textInput.type = 'text';
+  textInput.placeholder = 'Nachricht an Siggi tippen …';
+  textInput.autocomplete = 'off';
+  textInput.style.cssText = 'flex:1;background:rgba(0,180,255,0.08);border:1px solid rgba(0,180,255,0.35);border-radius:8px;padding:10px 12px;color:#e8f6ff;font-family:Courier New,monospace;font-size:13px;outline:none';
+  const sendBtn = document.createElement('button');
+  sendBtn.type = 'submit';
+  sendBtn.textContent = 'Senden';
+  sendBtn.style.cssText = 'background:rgba(0,180,255,0.15);border:1px solid #00b4ff;border-radius:8px;color:#00b4ff;padding:10px 16px;font-family:Courier New,monospace;font-size:12px;letter-spacing:1px;cursor:pointer';
+  textForm.appendChild(textInput);
+  textForm.appendChild(sendBtn);
+  controls.appendChild(textForm);
 
   container.appendChild(controls);
 
