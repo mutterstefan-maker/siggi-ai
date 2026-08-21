@@ -92,7 +92,10 @@ def _call_claude(system_prompt, user_content, api_key):
     result = response.json()
     if 'content' not in result:
         raise Exception(f'Claude-API-Fehler: {result}')
-    return result['content'][0]['text'].strip()
+    for block in result['content']:
+        if block.get('type') == 'text':
+            return block['text'].strip()
+    raise Exception(f'Claude-API-Antwort ohne Text-Block: {result}')
 
 
 def _build_system_prompt(examples):
