@@ -169,6 +169,13 @@ except:
     INSTAGRAM_AVAILABLE = False
 
 try:
+    import instagram_flyer_engine
+    instagram_flyer_engine.init_table()
+    FLYER_PIPELINE_AVAILABLE = True
+except:
+    FLYER_PIPELINE_AVAILABLE = False
+
+try:
     from flask_socketio import SocketIO
     import desktop_engine
     socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
@@ -1268,6 +1275,40 @@ def linkedin_pipeline_reject(draft_id):
         return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
     return jsonify(linkedin_pipeline_engine.reject_draft(draft_id))
 
+@app.route('/api/instagram/flyer-pipeline/pending')
+def flyer_pipeline_pending():
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
+    return jsonify(instagram_flyer_engine.get_pending())
+
+@app.route('/api/instagram/flyer-pipeline/image/<path:filename>')
+def flyer_pipeline_image(filename):
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
+    return send_from_directory(instagram_flyer_engine.PENDING_DIR, os.path.basename(filename))
+
+@app.route('/api/instagram/flyer-pipeline/generate', methods=['POST'])
+def flyer_pipeline_generate():
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
+    try:
+        result = instagram_flyer_engine.generate_flyer()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/instagram/flyer-pipeline/<int:entry_id>/approve', methods=['POST'])
+def flyer_pipeline_approve(entry_id):
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
+    return jsonify(instagram_flyer_engine.approve_flyer(entry_id))
+
+@app.route('/api/instagram/flyer-pipeline/<int:entry_id>/reject', methods=['POST'])
+def flyer_pipeline_reject(entry_id):
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
+    return jsonify(instagram_flyer_engine.reject_flyer(entry_id))
+
 @app.route('/api/mail/<mail_id>/move', methods=['POST'])
 def move_mail(mail_id):
     try:
@@ -1328,6 +1369,10 @@ def get_counts():
         stats['linkedin_pipeline'] = len(linkedin_pipeline_engine.get_drafts('pending'))
     except Exception:
         stats['linkedin_pipeline'] = 0
+    try:
+        stats['flyer_pipeline'] = len(instagram_flyer_engine.get_pending())
+    except Exception:
+        stats['flyer_pipeline'] = 0
     return jsonify(stats)
 
 @app.route('/api/improvements')
