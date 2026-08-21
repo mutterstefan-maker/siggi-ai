@@ -3410,7 +3410,11 @@ async function toggleGlobal(checked) {
 }
 
 async function deleteMail(id) {
-  await apiFetch(`/api/mail/${id}/delete`, 'POST');
+  const res = await apiFetch(`/api/mail/${id}/delete`, 'POST');
+  if (!res || res.error || !res.success) {
+    showToast('Löschen fehlgeschlagen – bitte Seite neu laden und erneut versuchen', 'error');
+    return;
+  }
   showToast('In Papierkorb verschoben', 'success');
   loadCounts();
   renderMailView(currentView);
