@@ -43,7 +43,10 @@ ZIEL: Aufmerksamkeit, Vertrauen, Follower, Anfragen, ChefBlick als
 Digitalisierungspartner positionieren - NICHT wie eine klassische
 Webdesign-Agentur wirken, NICHT wie eine SEO-Agentur.
 
-FORMAT: 1080x1350 (4:5), Standard fuer Instagram/Facebook-Feed.
+FORMAT: 1080x1350 (4:5), Standard fuer Instagram/Facebook-Feed. Logo, Headline
+und CTA brauchen grosszuegigen Abstand zum Bildrand (mind. 5% der Bildhoehe/
+-breite) - nichts darf am aeussersten Rand kleben, da sonst beim finalen
+Zuschnitt Inhalte verloren gehen koennten.
 
 FARBEN: Blau, Schwarz, Weiss dominant. Keine dominanten Fremdfarben (Ausnahme:
 das ChefBlick-Einhorn darf Regenbogenhaare haben).
@@ -52,9 +55,11 @@ LOGO: Immer das originale ChefBlick-Logo verwenden (wird als Referenzbild
 mitgeschickt) - niemals ein neues/anderes Logo erfinden, keine Kochmuetze,
 kein Auge-Symbol. Logo nicht mehrfach im Bild platzieren.
 
-KI-KENNZEICHNUNG: "KI-GENERIERT" gut lesbar, senkrecht am linken Bildrand,
-weiss oder passend zum Blau-Schwarz-Weiss-Design, nicht winzig, nicht unten
-rechts.
+KI-KENNZEICHNUNG: exakt der Text "KI-GENERIERT" (genau diese Schreibweise,
+Gross-/Kleinschreibung und Bindestrich exakt so, sorgfaeltig auf korrekte
+Buchstaben achten, keine Rechtschreibfehler) gut lesbar, senkrecht am linken
+Bildrand, weiss oder passend zum Blau-Schwarz-Weiss-Design, nicht winzig,
+nicht unten rechts. Ausreichend Innenabstand zum Bildrand lassen.
 
 TEXTMENGE: Sehr wenig Text. Kurze Headline (2-4 Woerter pro Zeile, max 3-4
 Zeilen), kurze Unterzeile, keine Textwuesten. Eine starke Aussage + ein
@@ -279,21 +284,18 @@ def _generate_image(image_prompt, openai_api_key):
 
 
 def _fit_to_target(image_bytes):
+    """Skaliert das Bild verlustfrei INS Zielformat (kein Zuschnitt), damit Logo/Text
+    an den Raendern nicht abgeschnitten werden. Rand wird schwarz aufgefuellt, was zur
+    ChefBlick-Farbwelt (ueberwiegend dunkler Hintergrund) passt."""
     img = Image.open(BytesIO(image_bytes)).convert('RGB')
     target_w, target_h = TARGET_SIZE
-    src_ratio = img.width / img.height
-    target_ratio = target_w / target_h
+    scale = min(target_w / img.width, target_h / img.height)
+    new_w, new_h = round(img.width * scale), round(img.height * scale)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
 
-    if src_ratio > target_ratio:
-        new_w = int(img.height * target_ratio)
-        left = (img.width - new_w) // 2
-        img = img.crop((left, 0, left + new_w, img.height))
-    else:
-        new_h = int(img.width / target_ratio)
-        top = (img.height - new_h) // 2
-        img = img.crop((0, top, img.width, top + new_h))
-
-    return img.resize(TARGET_SIZE, Image.LANCZOS)
+    canvas = Image.new('RGB', TARGET_SIZE, (5, 8, 15))
+    canvas.paste(img, ((target_w - new_w) // 2, (target_h - new_h) // 2))
+    return canvas
 
 
 def _safe_filename(name):
