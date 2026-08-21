@@ -1,0 +1,53 @@
+SIGGI-AI - MEMO
+================
+(siehe README.md fuer Tech-Stack/Feature-Uebersicht)
+
+STAND (aktualisiert 2026-08-21)
+--------------------------------
+Server: 31.70.70.66, SSH-Key d:/GitHubSyn/siggi-ai/deploy_key
+Deploy: git push auf main -> Auto-Deploy-Cron holt es sich innerhalb von
+  2 Minuten (/opt/deploy_siggi.sh), Repo liegt auf dem Server unter
+  /opt/stean-repo, Live-Code unter /opt/stean (rsync, nie geloescht).
+
+HEUTE ERLEDIGT (2026-08-21)
+----------------------------
+- COWORK-Ordner-Zugriff fuer Siggi: D:\COWORK wird per Windows-Taskplaner
+  (Siggi-COWORK-Sync) periodisch nach /opt/stean/cowork gespiegelt (GRAVEDA
+  bewusst ausgeschlossen). Neue Chat-Tools cowork_datei_suchen und
+  cowork_datei_anzeigen (inkl. PDF-Text via pypdf). Live getestet, funktioniert.
+- Pflicht-KI-Kennzeichnung ("Dieser Text wurde mit KI-Unterstuetzung erstellt.")
+  in allen automatisch generierten Social-Media-Texten (LinkedIn, Instagram,
+  TikTok) ergaenzt - gesetzliche Vorgabe.
+- LinkedIn-Pipeline von Opus 5 auf Sonnet 5 umgestellt (Kostensenkung, gleiche
+  Qualitaet fuer kurze Social-Posts). Chat-Hauptfunktion bleibt bei Opus 5.
+- NEU: Automatische Bild-Pipeline fuer Instagram/Facebook
+  (instagram_flyer_engine.py), ersetzt den bisherigen manuellen ChatGPT-
+  Workflow ("Sarkastische Bilderserie"-Projekt). Ablauf:
+    1. Claude (Sonnet) waehlt taeglich Thema/Headline/Layout nach dem
+       kompletten ChefBlick-Vorgaben-Dokument (Farben, Logo-Pflicht,
+       KI-GENERIERT-Kennzeichnung senkrecht links, Einhorn max. jedes
+       10. Bild, Themen-/Layout-Rotation mit Wiederholungs-Vermeidung
+       ueber flyer_history-Tabelle in mails.db)
+    2. OpenAI gpt-image-1 generiert das Bild, echtes ChefBlick-Logo
+       (/opt/stean/cowork/Chefblick/SocialMedia/ChefBlick Logo Quer.png)
+       wird als Referenzbild mitgeschickt
+    3. Bild wird verlustfrei (kein Zuschnitt, schwarzes Letterboxing) auf
+       1080x1350 (4:5) skaliert
+    4. Landet in /opt/stean/flyer_pending (NICHT live) - neuer Dashboard-Tab
+       "Bild-Pipeline" zeigt es mit Vorschau, erst nach manueller Freigabe
+       wandert es in den echten flyer_pool (Instagram-Auto-Post-Queue).
+       Dateiname ist themenbasiert, damit die bestehende Caption-Generierung
+       (liest Thema aus Dateinamen) passende Captions erzeugt.
+  Cron: taeglich 9 Uhr. Zwei Live-Tests erfolgreich (Logo/CTA-Zuschnitt-Bug
+  gefixt, KI-GENERIERT-Schreibweise geschaerft).
+
+OFFEN / BEKANNTE BUGS
+----------------------
+- /api/improvements/<id>/approve Route hat Backslashes statt Forward-Slashes
+  im @app.route(...)-Pfad - "Uebernehmen"-Button im Selbstverbesserung-Tab
+  ist dadurch kaputt. Noch nicht gefixt.
+- tiktok_engine.py importiert OPENAI_API_KEY aus instagram_engine, das dort
+  aber nicht (mehr) definiert ist - TikTok-Caption-Generierung darum
+  vermutlich kaputt (ImportError). Noch nicht untersucht/gefixt.
+- Google Search Console fuer deals.stean.info nie eingerichtet (braucht
+  Stefans eigenen Google-Login).
