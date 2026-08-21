@@ -14,8 +14,11 @@ import datetime
 import os
 
 import requests
+from dotenv import load_dotenv
 
 import linkedin_engine
+
+load_dotenv('/opt/stean/config/.env')
 
 DB_PATH = '/opt/stean/mails.db'
 SETTINGS_PATH = '/opt/stean/settings.json'
@@ -120,7 +123,9 @@ keine Erklaerung, keine Anfuehrungszeichen drumherum."""
 
 def generate_draft():
     settings = load_settings()
-    api_key = settings.get('anthropic_api_key', '')
+    # env-Key (funktionierendes Hauptkonto) hat Vorrang vor settings.json,
+    # falls dort ein separater/veralteter Key hinterlegt ist
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or settings.get('anthropic_api_key', '')
     if not api_key or api_key == 'HIER_API_KEY_EINTRAGEN':
         return None
 
