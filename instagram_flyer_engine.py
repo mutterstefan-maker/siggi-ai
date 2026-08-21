@@ -65,6 +65,15 @@ TEXTMENGE: Sehr wenig Text. Kurze Headline (2-4 Woerter pro Zeile, max 3-4
 Zeilen), kurze Unterzeile, keine Textwuesten. Eine starke Aussage + ein
 starkes Motiv + ein CTA. Innerhalb weniger Sekunden verstaendlich.
 
+FESTE FUSSZEILE (immer, unabhaengig vom Layout): am unteren Bildrand eine
+schmale Zeile mit 3-4 kleinen Linien-Icons (kein Emoji) mit Haekchen-Marker,
+je ein kurzes Schlagwort darunter - Auswahl passend zum Thema aus: Moderne
+Webseiten, Online-Terminbuchung, Google-Praesenz, Mehr Kunden, Individuelle
+Software, Support & Wartung, Digitalisierung. Gleiche Bildsprache/Farben wie
+der Rest (blau/weiss auf dunklem Grund). Das ist das wiedererkennbare
+ChefBlick-Markenelement und darf NIE weggelassen werden, unabhaengig davon
+welches Haupt-Layout sonst gewaehlt wird.
+
 TEXTSTIL: kurz, direkt, modern, praxisnah, teils provokant, selbstbewusst,
 nicht technisch. Beispiele im gewuenschten Ton: "Deine Kunden sind online.
 Bist du es auch?", "Excel ist kein CRM.", "Dein Business. Dein Weg.",
