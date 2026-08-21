@@ -3316,8 +3316,8 @@ async function renderFlyerPipeline() {
         <div style="color:var(--text3);font-size:11px;margin-top:6px">Layout: ${escHtml(f.layout || '-')}${f.use_unicorn ? ' · 🦄 Einhorn' : ''}</div>
         <div style="color:var(--text3);font-size:11px;font-family:var(--font-mono);margin-top:4px">${formatDate(f.created_at)} · ${escHtml(f.filename)}</div>
         <div style="display:flex;gap:10px;margin-top:12px">
-          <button class="btn btn-ghost" style="font-size:11px" onclick="rejectFlyer(${f.id})">Ablehnen</button>
-          <button class="btn btn-primary" style="font-size:11px" onclick="approveFlyer(${f.id})">Freigeben → Warteschlange</button>
+          <button class="btn btn-ghost" style="font-size:11px" onclick="openFlyerFeedback(${f.id}, 'reject')">Ablehnen</button>
+          <button class="btn btn-primary" style="font-size:11px" onclick="openFlyerFeedback(${f.id}, 'approve')">Freigeben → Warteschlange</button>
         </div>
       </div>
     </div>
@@ -3332,7 +3332,10 @@ async function renderFlyerPipeline() {
             Taeglich ein neues Bild nach den ChefBlick-Vorgaben. Erst nach Freigabe wandert es in die Instagram-Warteschlange.
           </div>
         </div>
-        <button class="btn btn-primary" onclick="generateFlyer()">🎨 Neues Bild erzeugen</button>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-ghost" onclick="renderFlyerStats()">📊 Statistik</button>
+          <button class="btn btn-primary" onclick="generateFlyer()">🎨 Neues Bild erzeugen</button>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -3340,7 +3343,133 @@ async function renderFlyerPipeline() {
         ${pending.length ? pending.map(renderCard).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Bilder.</div>'}
       </div>
     </div>
+    <div id="flyer-feedback-modal"></div>
   `;
+}
+
+const FLYER_RATINGS = [
+  { key: 'gut', label: 'Gut', emoji: '👍' },
+  { key: 'okay', label: 'Okay', emoji: '🤏' },
+  { key: 'schlecht', label: 'Schlecht', emoji: '👎' },
+  { key: 'quatsch', label: 'Quatsch', emoji: '🚫' },
+];
+const FLYER_TAGS = ['Zu viel Text', 'Layout langweilig', 'Falsche Farben', 'Logo falsch/verzerrt', 'Motiv passt nicht', 'Fusszeile fehlt/falsch', 'KI-Kennzeichnung falsch', 'Abgeschnitten/Rand', 'Einhorn falsch dargestellt', 'Thema wiederholt sich'];
+let flyerFeedbackState = { id: null, action: null, rating: null, tags: [] };
+
+function openFlyerFeedback(id, action) {
+  flyerFeedbackState = { id, action, rating: null, tags: [] };
+  renderFlyerFeedbackModal();
+}
+
+function renderFlyerFeedbackModal() {
+  const modal = document.getElementById('flyer-feedback-modal');
+  if (!modal) return;
+  const s = flyerFeedbackState;
+  if (s.id === null) { modal.innerHTML = ''; return; }
+
+  modal.innerHTML = `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000" onclick="if(event.target===this) closeFlyerFeedback()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;width:420px;max-width:92vw">
+        <div style="font-weight:700;color:var(--text);margin-bottom:12px">Wie ist dieses Bild?</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          ${FLYER_RATINGS.map(r => `
+            <button class="btn ${s.rating === r.key ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px" onclick="setFlyerRating('${r.key}')">${r.emoji} ${r.label}</button>
+          `).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Optional: Was soll sich verbessern?</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          ${FLYER_TAGS.map(t => `
+            <button class="btn ${s.tags.includes(t) ? 'btn-primary' : 'btn-ghost'}" style="font-size:11px;padding:4px 10px" onclick="toggleFlyerTag('${t.replace(/'/g, "\\'")}')">${t}</button>
+          `).join('')}
+        </div>
+        <textarea id="flyer-feedback-comment" placeholder="Kurzer Kommentar (optional)" style="width:100%;min-height:60px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:12px;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="closeFlyerFeedback()">Abbrechen</button>
+          <button class="btn btn-primary" onclick="submitFlyerFeedback()">${s.action === 'approve' ? 'Freigeben' : 'Ablehnen'} & Feedback senden</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function setFlyerRating(key) {
+  flyerFeedbackState.rating = key;
+  renderFlyerFeedbackModal();
+}
+
+function toggleFlyerTag(tag) {
+  const i = flyerFeedbackState.tags.indexOf(tag);
+  if (i === -1) flyerFeedbackState.tags.push(tag); else flyerFeedbackState.tags.splice(i, 1);
+  renderFlyerFeedbackModal();
+}
+
+function closeFlyerFeedback() {
+  flyerFeedbackState = { id: null, action: null, rating: null, tags: [] };
+  const modal = document.getElementById('flyer-feedback-modal');
+  if (modal) modal.innerHTML = '';
+}
+
+async function submitFlyerFeedback() {
+  const s = flyerFeedbackState;
+  const comment = document.getElementById('flyer-feedback-comment')?.value || '';
+  const endpoint = s.action === 'approve' ? 'approve' : 'reject';
+  const res = await apiFetch(`/api/instagram/flyer-pipeline/${s.id}/${endpoint}`, 'POST', {
+    rating: s.rating, tags: s.tags, comment
+  });
+  closeFlyerFeedback();
+  if (res?.success) {
+    showToast(res.message || (s.action === 'approve' ? 'Freigegeben' : 'Abgelehnt'), 'success');
+  } else {
+    showToast(res?.error || 'Fehlgeschlagen', 'error');
+  }
+  renderFlyerPipeline();
+  loadCounts();
+}
+
+async function renderFlyerStats() {
+  const content = document.getElementById('main-content');
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+  const stats = await apiFetch('/api/instagram/flyer-pipeline/stats') || { counts: {}, recent: [] };
+
+  const ratingRow = FLYER_RATINGS.map(r => `
+    <div style="text-align:center;flex:1">
+      <div style="font-size:22px">${r.emoji}</div>
+      <div style="font-size:20px;font-weight:800;color:var(--text)">${stats.counts[r.key] || 0}</div>
+      <div style="font-size:11px;color:var(--text3)">${r.label}</div>
+    </div>
+  `).join('');
+
+  const recentRows = (stats.recent || []).map(f => `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="font-weight:700;color:var(--text);font-size:13px">${escHtml(f.topic || '')}</div>
+        <div style="font-size:11px;color:var(--text3)">${formatDate(f.decided_at)}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">Bewertung: <strong>${escHtml(RATING_LABEL(f.rating))}</strong>${f.tags?.length ? ' · ' + f.tags.map(escHtml).join(', ') : ''}</div>
+      ${f.comment ? `<div style="font-size:12px;color:var(--text3);margin-top:4px;font-style:italic">"${escHtml(f.comment)}"</div>` : ''}
+    </div>
+  `).join('');
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:16px;font-weight:800;color:var(--text)">📊 Bild-Feedback-Statistik</div>
+          <button class="btn btn-ghost" onclick="renderFlyerPipeline()">← Zurück</button>
+        </div>
+        <div style="display:flex;gap:12px">${ratingRow}</div>
+      </div>
+      <div class="settings-section">
+        <h3>🕓 Letztes Feedback</h3>
+        ${recentRows || '<div style="color:var(--text3);font-size:12px">Noch kein Feedback abgegeben.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+function RATING_LABEL(key) {
+  const found = FLYER_RATINGS.find(r => r.key === key);
+  return found ? found.label : (key || '-');
 }
 
 async function generateFlyer() {
@@ -3353,24 +3482,6 @@ async function generateFlyer() {
   } else {
     showToast(res?.error || 'Fehler bei der Erzeugung', 'error');
   }
-}
-
-async function approveFlyer(id) {
-  const res = await apiFetch(`/api/instagram/flyer-pipeline/${id}/approve`, 'POST');
-  if (res?.success) {
-    showToast(res.message || 'In Warteschlange verschoben', 'success');
-  } else {
-    showToast(res?.error || 'Fehlgeschlagen', 'error');
-  }
-  renderFlyerPipeline();
-  loadCounts();
-}
-
-async function rejectFlyer(id) {
-  await apiFetch(`/api/instagram/flyer-pipeline/${id}/reject`, 'POST');
-  showToast('Abgelehnt', 'success');
-  renderFlyerPipeline();
-  loadCounts();
 }
 
 function statCard(icon, label, value, color) {

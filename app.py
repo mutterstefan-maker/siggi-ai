@@ -1301,13 +1301,27 @@ def flyer_pipeline_generate():
 def flyer_pipeline_approve(entry_id):
     if not FLYER_PIPELINE_AVAILABLE:
         return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
-    return jsonify(instagram_flyer_engine.approve_flyer(entry_id))
+    data = request.json or {}
+    return jsonify(instagram_flyer_engine.approve_flyer(
+        entry_id, rating=data.get('rating'), tags=data.get('tags'), comment=data.get('comment')
+    ))
 
 @app.route('/api/instagram/flyer-pipeline/<int:entry_id>/reject', methods=['POST'])
 def flyer_pipeline_reject(entry_id):
     if not FLYER_PIPELINE_AVAILABLE:
         return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
-    return jsonify(instagram_flyer_engine.reject_flyer(entry_id))
+    data = request.json or {}
+    return jsonify(instagram_flyer_engine.reject_flyer(
+        entry_id, rating=data.get('rating'), tags=data.get('tags'), comment=data.get('comment')
+    ))
+
+@app.route('/api/instagram/flyer-pipeline/stats')
+def flyer_pipeline_stats():
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Bild-Pipeline nicht verfügbar'}), 500
+    stats = instagram_flyer_engine.get_feedback_stats()
+    stats['tags'] = instagram_flyer_engine.FEEDBACK_TAGS
+    return jsonify(stats)
 
 @app.route('/api/mail/<mail_id>/move', methods=['POST'])
 def move_mail(mail_id):

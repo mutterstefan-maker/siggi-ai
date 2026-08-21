@@ -35,6 +35,13 @@ PENDING_DIR = '/opt/stean/flyer_pending'
 
 TARGET_SIZE = (1080, 1350)  # 4:5, ChefBlick-Standardformat
 
+FEEDBACK_TAGS = [
+    'Zu viel Text', 'Layout langweilig', 'Falsche Farben', 'Logo falsch/verzerrt',
+    'Motiv passt nicht', 'Fusszeile fehlt/falsch', 'KI-Kennzeichnung falsch',
+    'Abgeschnitten/Rand', 'Einhorn falsch dargestellt', 'Thema wiederholt sich',
+]
+RATING_LABELS = {'gut': 'Gut', 'okay': 'Okay', 'schlecht': 'Schlecht', 'quatsch': 'Quatsch'}
+
 MASTER_PROMPT = """Du bist der Bild-Kreativdirektor fuer ChefBlick.de (Webdesign, Software,
 Digitalisierung fuer kleine/mittelstaendische Unternehmen). Du planst EIN neues
 Social-Media-Bild (Instagram/Facebook-Feed) nach folgenden festen Vorgaben:
@@ -142,6 +149,11 @@ def init_table():
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         decided_at DATETIME
     )''')
+    existing_cols = {row[1] for row in conn.execute('PRAGMA table_info(flyer_history)').fetchall()}
+    for col_def in ('rating TEXT', 'feedback_tags TEXT', 'feedback_comment TEXT'):
+        col_name = col_def.split()[0]
+        if col_name not in existing_cols:
+            conn.execute(f'ALTER TABLE flyer_history ADD COLUMN {col_def}')
     conn.commit()
     conn.close()
 
@@ -162,14 +174,40 @@ def _recent_history(limit=8):
         "WHERE status IN ('pending', 'approved') ORDER BY created_at DESC LIMIT ?", (limit,)
     )
     rows = c.fetchall()
+
+    c.execute(
+        "SELECT topic, rating, feedback_tags, feedback_comment FROM flyer_history "
+        "WHERE rating IN ('schlecht', 'quatsch') ORDER BY decided_at DESC LIMIT 6"
+    )
+    feedback_rows = c.fetchall()
     conn.close()
+
     if not rows:
-        return '(noch keine Historie vorhanden)'
-    lines = []
-    for topic, layout, use_unicorn, created_at in rows:
-        einhorn = 'mit Einhorn' if use_unicorn else 'ohne Einhorn'
-        lines.append(f"- {created_at}: Thema '{topic}', Layout '{layout}', {einhorn}")
-    return '\n'.join(lines)
+        history_block = '(noch keine Historie vorhanden)'
+    else:
+        lines = []
+        for topic, layout, use_unicorn, created_at in rows:
+            einhorn = 'mit Einhorn' if use_unicorn else 'ohne Einhorn'
+            lines.append(f"- {created_at}: Thema '{topic}', Layout '{layout}', {einhorn}")
+        history_block = '\n'.join(lines)
+
+    if feedback_rows:
+        fb_lines = []
+        for topic, rating, tags_json, comment in feedback_rows:
+            try:
+                tags = json.loads(tags_json) if tags_json else []
+            except Exception:
+                tags = []
+            detail = ', '.join(tags) if tags else ''
+            if comment:
+                detail = f'{detail} - Kommentar: {comment}' if detail else f'Kommentar: {comment}'
+            fb_lines.append(f"- Thema '{topic}' wurde als '{rating}' bewertet. {detail}".strip())
+        history_block += (
+            "\n\nNEGATIVES FEEDBACK VON STEFAN ZU FRUEHEREN BILDERN (unbedingt beruecksichtigen "
+            "und diese Fehler bei diesem neuen Bild vermeiden):\n" + '\n'.join(fb_lines)
+        )
+
+    return history_block
 
 
 def _save_history(topic, headline, layout, use_unicorn, filename, status='pending'):
@@ -195,7 +233,15 @@ def get_pending(limit=30):
     return rows
 
 
-def approve_flyer(entry_id):
+def _store_feedback(c, entry_id, rating, tags, comment):
+    if rating or tags or comment:
+        c.execute(
+            "UPDATE flyer_history SET rating=?, feedback_tags=?, feedback_comment=? WHERE id=?",
+            (rating, json.dumps(tags or [], ensure_ascii=False), comment or '', entry_id)
+        )
+
+
+def approve_flyer(entry_id, rating=None, tags=None, comment=None):
     """Verschiebt das Bild aus dem Pruef-Ordner in die echte Instagram-Warteschlange
     (flyer_pool) - von dort holt der bestehende Auto-Post-Mechanismus es sich."""
     conn = sqlite3.connect(DB_PATH)
@@ -216,12 +262,13 @@ def approve_flyer(entry_id):
     os.rename(src, dest)
 
     c.execute("UPDATE flyer_history SET status='approved', decided_at=CURRENT_TIMESTAMP WHERE id=?", (entry_id,))
+    _store_feedback(c, entry_id, rating, tags, comment)
     conn.commit()
     conn.close()
     return {'success': True, 'message': f'{filename} in die Instagram-Warteschlange verschoben.'}
 
 
-def reject_flyer(entry_id):
+def reject_flyer(entry_id, rating=None, tags=None, comment=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT filename FROM flyer_history WHERE id=? AND status='pending'", (entry_id,))
@@ -236,9 +283,35 @@ def reject_flyer(entry_id):
         os.remove(src)
 
     c.execute("UPDATE flyer_history SET status='rejected', decided_at=CURRENT_TIMESTAMP WHERE id=?", (entry_id,))
+    _store_feedback(c, entry_id, rating, tags, comment)
     conn.commit()
     conn.close()
     return {'success': True}
+
+
+def get_feedback_stats(limit=40):
+    """Fuer den Statistik-Bereich im Dashboard: Verteilung der Bewertungen +
+    die letzten Kommentare/Tags, damit Stefan sieht, was der KI zurueckgemeldet wurde."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT rating, COUNT(*) FROM flyer_history WHERE rating IS NOT NULL AND rating != '' GROUP BY rating")
+    counts = {r: n for r, n in c.fetchall()}
+    c.execute(
+        "SELECT topic, filename, rating, feedback_tags, feedback_comment, decided_at FROM flyer_history "
+        "WHERE rating IS NOT NULL AND rating != '' ORDER BY decided_at DESC LIMIT ?", (limit,)
+    )
+    recent = []
+    for topic, filename, rating, tags_json, comment, decided_at in c.fetchall():
+        try:
+            tags = json.loads(tags_json) if tags_json else []
+        except Exception:
+            tags = []
+        recent.append({
+            'topic': topic, 'filename': filename, 'rating': rating,
+            'tags': tags, 'comment': comment, 'decided_at': decided_at
+        })
+    conn.close()
+    return {'counts': counts, 'recent': recent}
 
 
 def _call_claude(prompt, api_key):
