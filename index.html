@@ -110,6 +110,65 @@ body {
 .badge.warn { background: var(--warning); }
 .badge.danger { background: var(--danger); }
 
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text3);
+  user-select: none;
+}
+.nav-group-header:hover { color: var(--text2); }
+.nav-group-header .chevron { margin-left: auto; transition: transform 0.15s; opacity: 0.7; }
+.nav-group.collapsed .nav-group-header .chevron { transform: rotate(-90deg); }
+.nav-group-items { display: flex; flex-direction: column; }
+.nav-group.collapsed .nav-group-items { display: none; }
+.dash-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.dash-stat .value { font-size: 26px; font-weight: 800; font-family: var(--font-mono); }
+.dash-stat .label { font-size: 12px; color: var(--text3); margin-top: 4px; }
+.dash-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.dash-tile:hover { background: var(--surface2); border-color: var(--accent); transform: translateY(-2px); }
+.dash-tile .icon-wrap {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 10px;
+}
+.dash-tile .label { font-size: 12px; font-weight: 700; color: var(--text); }
+.dash-tile .tile-badge {
+  display: inline-block; margin-top: 4px;
+  background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
+  padding: 1px 7px; border-radius: 20px; font-family: var(--font-mono);
+}
+.nav-group-count {
+  background: var(--surface2);
+  color: var(--text3);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+}
+
 .sidebar-bottom {
   padding: 12px 10px;
   border-top: 1px solid var(--border);
@@ -778,71 +837,105 @@ input:checked + .slider:before { transform: translateX(16px); }
     <button class="btn btn-primary" style="margin-top:12px;width:100%;font-size:12px" onclick="openCompose()">✉️ Neue E-Mail</button>
   </div>
   <nav class="nav">
-    <div class="nav-item active" data-view="inbox">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg></span> Posteingang
-      <span class="badge" id="badge-inbox">0</span>
-    </div>
-    <div class="nav-item" data-view="callbacks">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.72A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.18 6.18l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></span> Rückrufe
-      <span class="badge warn" id="badge-callbacks">0</span>
-    </div>
-    <div class="nav-item" data-view="invoices">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span> Rechnungen
-      <span class="badge" id="badge-invoices" style="background:var(--accent2)">0</span>
-    </div>
-    <div class="nav-item" data-view="knowledge_gap">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> Wissenslücken
-      <span class="badge danger" id="badge-knowledge_gap">0</span>
-    </div>
-    <div class="nav-item" data-view="sent">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></span> Gesendet
-    </div>
-    <div class="nav-item" data-view="spam">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span> Spam
-      <span class="badge danger" id="badge-spam" style="display:none">0</span>
-    </div>
-    <div class="nav-item" data-view="trash">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></span> Papierkorb
-      <span class="badge" id="badge-trash" style="background:var(--text3)">0</span>
-    </div>
-    <div class="nav-item" data-view="instagram">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg></span> Instagram
+    <div class="nav-item" data-view="dashboard">
+      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span> Dashboard
     </div>
     <div class="nav-item" data-view="jarvis">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/><path d="M3.6 9h.01M3.6 15h.01M20.4 9h.01M20.4 15h.01"/></svg></span> SIGGI
     </div>
-    <div class="nav-item" data-view="mail_drafts">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg></span> Mail-Entwürfe
-      <span class="badge warn" id="badge-mail_drafts" style="display:none">0</span>
+
+    <div class="nav-group" id="nav-group-mail">
+      <div class="nav-group-header" onclick="toggleNavGroup('mail')">
+        <span>Mail</span>
+        <span class="nav-group-count" id="group-count-mail" style="display:none">0</span>
+        <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="nav-group-items">
+        <div class="nav-item active" data-view="inbox">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg></span> Posteingang
+          <span class="badge" id="badge-inbox">0</span>
+        </div>
+        <div class="nav-item" data-view="callbacks">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.72A2 2 0 012 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.18 6.18l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></span> Rückrufe
+          <span class="badge warn" id="badge-callbacks">0</span>
+        </div>
+        <div class="nav-item" data-view="invoices">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span> Rechnungen
+          <span class="badge" id="badge-invoices" style="background:var(--accent2)">0</span>
+        </div>
+        <div class="nav-item" data-view="knowledge_gap">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> Wissenslücken
+          <span class="badge danger" id="badge-knowledge_gap">0</span>
+        </div>
+        <div class="nav-item" data-view="mail_drafts">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg></span> Mail-Entwürfe
+          <span class="badge warn" id="badge-mail_drafts" style="display:none">0</span>
+        </div>
+        <div class="nav-item" data-view="sent">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></span> Gesendet
+        </div>
+        <div class="nav-item" data-view="spam">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span> Spam
+          <span class="badge danger" id="badge-spam" style="display:none">0</span>
+        </div>
+        <div class="nav-item" data-view="trash">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></span> Papierkorb
+          <span class="badge" id="badge-trash" style="background:var(--text3)">0</span>
+        </div>
+        <div class="nav-item" data-view="contacts">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span> Kontakte
+          <span class="badge" id="badge-contacts" style="background:var(--accent2)"></span>
+        </div>
+      </div>
     </div>
-    <div class="nav-item" data-view="contacts">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span> Kontakte
-      <span class="badge" id="badge-contacts" style="background:var(--accent2)"></span>
+
+    <div class="nav-group collapsed" id="nav-group-social">
+      <div class="nav-group-header" onclick="toggleNavGroup('social')">
+        <span>Social</span>
+        <span class="nav-group-count" id="group-count-social" style="display:none">0</span>
+        <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="nav-group-items">
+        <div class="nav-item" data-view="instagram">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg></span> Instagram
+        </div>
+        <div class="nav-item" data-view="linkedin_pipeline">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></span> LinkedIn Pipeline
+          <span class="badge warn" id="badge-linkedin_pipeline" style="display:none">0</span>
+        </div>
+        <div class="nav-item" data-view="flyer_pipeline">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span> Bild-Pipeline
+          <span class="badge warn" id="badge-flyer_pipeline" style="display:none">0</span>
+        </div>
+      </div>
     </div>
-    <div class="nav-item" data-view="audit">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></span> Website Audit
+
+    <div class="nav-group collapsed" id="nav-group-tools">
+      <div class="nav-group-header" onclick="toggleNavGroup('tools')">
+        <span>Tools</span>
+        <span class="nav-group-count" id="group-count-tools" style="display:none">0</span>
+        <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="nav-group-items">
+        <div class="nav-item" data-view="audit">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></span> Website Audit
+        </div>
+        <div class="nav-item" data-view="stats">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Statistik
+        </div>
+        <div class="nav-item" data-view="security">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg></span> Sicherheit
+          <span class="badge danger" id="badge-security" style="display:none">!</span>
+        </div>
+        <div class="nav-item" data-view="improvements">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg></span> Selbstverbesserung
+          <span class="badge warn" id="badge-improvements" style="display:none">0</span>
+        </div>
+      </div>
     </div>
-    <div class="nav-item" data-view="stats">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span> Statistik
-    </div>
-    <div class="nav-item" data-view="security">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg></span> Sicherheit
-      <span class="badge danger" id="badge-security" style="display:none">!</span>
-    </div>
-    <div class="nav-item" data-view="settings">
+
+    <div class="nav-item" data-view="settings" style="margin-top:10px">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span> Einstellungen
-    </div>
-    <div class="nav-item" data-view="improvements">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg></span> Selbstverbesserung
-      <span class="badge warn" id="badge-improvements" style="display:none">0</span>
-    </div>
-    <div class="nav-item" data-view="linkedin_pipeline">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></span> LinkedIn Pipeline
-      <span class="badge warn" id="badge-linkedin_pipeline" style="display:none">0</span>
-    </div>
-    <div class="nav-item" data-view="flyer_pipeline">
-      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span> Bild-Pipeline
-      <span class="badge warn" id="badge-flyer_pipeline" style="display:none">0</span>
     </div>
   </nav>
   <div class="sidebar-bottom">
@@ -907,6 +1000,7 @@ let currentMailId = null;
 let settings = {};
 
 const VIEW_TITLES = {
+  dashboard: 'Dashboard',
   inbox: 'Posteingang',
   callbacks: 'Rückrufe',
   invoices: 'Rechnungen',
@@ -930,8 +1024,9 @@ const VIEW_TITLES = {
 async function init() {
   await loadSettings();
   applyTheme();
-  loadCounts();
-  showView('inbox');
+  restoreNavGroupState();
+  await loadCounts();
+  showView('dashboard');
   setInterval(loadCounts, 30000);
 
   document.querySelectorAll('.nav-item[data-view]').forEach(item => {
@@ -947,11 +1042,16 @@ async function showView(view) {
 
   document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
   document.querySelector(`.nav-item[data-view="${view}"]`)?.classList.add('active');
+  expandNavGroupFor(view);
   document.getElementById('view-title').textContent = VIEW_TITLES[view] || view;
   document.getElementById('trash-btn').style.display = view === 'trash' ? 'flex' : 'none';
   const showClear = ['sent','inbox','callbacks','invoices','knowledge_gap','spam'].includes(view);
   document.getElementById('clear-btn').style.display = showClear ? 'flex' : 'none';
 
+  if (view === 'dashboard') {
+    renderDashboard();
+    return;
+  }
   if (view === 'settings') {
     renderSettings();
     return;
@@ -3969,6 +4069,120 @@ async function loadCounts() {
     const needsAttention = secData.overall === 'critical' || secData.overall === 'warning';
     secBadge.style.display = needsAttention ? 'inline-block' : 'none';
   }
+
+  updateNavGroupCounts();
+}
+
+// ── Sidebar-Gruppen (auf-/zuklappbar) ───────────────────────────────────────
+
+const NAV_GROUPS = {
+  mail: ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'mail_drafts'],
+  social: ['linkedin_pipeline', 'flyer_pipeline'],
+  tools: ['improvements'],
+};
+
+function toggleNavGroup(name) {
+  const el = document.getElementById(`nav-group-${name}`);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  const collapsed = JSON.parse(localStorage.getItem('nav_groups_collapsed') || '{}');
+  collapsed[name] = el.classList.contains('collapsed');
+  localStorage.setItem('nav_groups_collapsed', JSON.stringify(collapsed));
+}
+
+function restoreNavGroupState() {
+  const collapsed = JSON.parse(localStorage.getItem('nav_groups_collapsed') || '{}');
+  Object.entries(collapsed).forEach(([name, isCollapsed]) => {
+    document.getElementById(`nav-group-${name}`)?.classList.toggle('collapsed', isCollapsed);
+  });
+}
+
+function expandNavGroupFor(view) {
+  const groupName = Object.entries(NAV_GROUPS).find(([, views]) => views.includes(view))?.[0];
+  if (!groupName) return;
+  const el = document.getElementById(`nav-group-${groupName}`);
+  if (!el) return;
+  el.classList.remove('collapsed');
+  const collapsed = JSON.parse(localStorage.getItem('nav_groups_collapsed') || '{}');
+  collapsed[groupName] = false;
+  localStorage.setItem('nav_groups_collapsed', JSON.stringify(collapsed));
+}
+
+function updateNavGroupCounts() {
+  Object.entries(NAV_GROUPS).forEach(([name, views]) => {
+    const total = views.reduce((sum, v) => {
+      const el = document.getElementById(`badge-${v}`);
+      return sum + (el && el.style.display !== 'none' ? (parseInt(el.textContent, 10) || 0) : 0);
+    }, 0);
+    const countEl = document.getElementById(`group-count-${name}`);
+    if (countEl) {
+      countEl.textContent = total;
+      countEl.style.display = total ? 'inline-block' : 'none';
+    }
+  });
+}
+
+// ── Dashboard (Startseite mit Kacheln) ──────────────────────────────────────
+
+const DASH_TILES = [
+  { view: 'inbox', label: 'Posteingang', icon: '📬', color: 'var(--accent)' },
+  { view: 'contacts', label: 'Kontakte', icon: '👥', color: 'var(--accent2)' },
+  { view: 'mail_drafts', label: 'Mail-Freigabe', icon: '✅', color: 'var(--success)' },
+  { view: 'instagram', label: 'Instagram', icon: '📷', color: '#e1306c' },
+  { view: 'linkedin_pipeline', label: 'LinkedIn', icon: '💼', color: '#0a66c2' },
+  { view: 'flyer_pipeline', label: 'Bild-Pipeline', icon: '🖼️', color: 'var(--accent)' },
+  { view: 'audit', label: 'Website Audit', icon: '🔍', color: 'var(--warning)' },
+  { view: 'stats', label: 'Statistik', icon: '📊', color: 'var(--success)' },
+  { view: 'security', label: 'Sicherheit', icon: '🛡️', color: 'var(--danger)' },
+  { view: 'improvements', label: 'Selbstverbesserung', icon: '💡', color: 'var(--warning)' },
+  { view: 'jarvis', label: 'SIGGI Chat', icon: '🤖', color: 'var(--accent)' },
+  { view: 'settings', label: 'Einstellungen', icon: '⚙️', color: 'var(--text3)' },
+];
+
+async function renderDashboard() {
+  const content = document.getElementById('main-content');
+  content.style.cssText = 'display:block;overflow-y:auto;flex:1;height:calc(100vh - 56px);padding:0';
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const counts = await apiFetch('/api/counts') || {};
+  const draftData = await apiFetch('/api/mail-drafts');
+  const draftCount = draftData?.drafts?.length || 0;
+  const hour = new Date().getHours();
+  const greeting = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Hallo' : 'Guten Abend';
+
+  const badgeFor = (view) => {
+    if (view === 'mail_drafts') return draftCount;
+    return counts[view] || 0;
+  };
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div style="margin-bottom:24px">
+        <div style="font-size:20px;font-weight:800;color:var(--text)">${greeting}, Stefan 👋</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:2px">Alles Wichtige auf einen Blick</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:28px">
+        <div class="dash-stat"><div class="value" style="color:var(--accent)">${counts.inbox || 0}</div><div class="label">Posteingang</div></div>
+        <div class="dash-stat"><div class="value" style="color:var(--warning)">${counts.callbacks || 0}</div><div class="label">Rückrufe</div></div>
+        <div class="dash-stat"><div class="value" style="color:var(--success)">${draftCount}</div><div class="label">Mails zur Freigabe</div></div>
+        <div class="dash-stat"><div class="value" style="color:var(--accent2)">${counts.improvements || 0}</div><div class="label">Verbesserungsvorschläge</div></div>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Schnellzugriff</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px">
+        ${DASH_TILES.map(t => `
+          <div class="dash-tile" onclick="showView('${t.view}')">
+            <div class="icon-wrap" style="background:color-mix(in srgb, ${t.color} 18%, transparent)">
+              <span style="font-size:20px">${t.icon}</span>
+            </div>
+            <div class="label">${t.label}</div>
+            ${badgeFor(t.view) ? `<div class="tile-badge">${badgeFor(t.view)}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 // ── Mail-Entwürfe (Freigabe-Workflow) ───────────────────────────────────────
