@@ -307,15 +307,16 @@ def generate_reel_from_images(image_paths=None):
     out_path = os.path.join(pool_dir(), filename)
 
     # Instagram lehnt REELS-Videos ohne Audiospur beim Verarbeiten ab (status_code
-    # ERROR) - daher eine stille Tonspur mitgeben statt komplett ohne Audio (-an).
+    # ERROR, Fehlercode 2207076) - eine stille Tonspur mit "normaler" Bitrate/Samplerate
+    # mitgeben (eine quasi-leere ~2kbit/s-Spur wurde ebenfalls als ungültig abgelehnt).
     silent_audio_idx = n + 1
-    inputs += ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100']
+    inputs += ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000']
 
     cmd = [_ffmpeg_binary(), '-y', *inputs,
            '-filter_complex', filter_complex,
            '-map', '[outv]', '-map', f'{silent_audio_idx}:a',
-           '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
-           '-c:a', 'aac', '-shortest',
+           '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+           '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-shortest',
            '-movflags', '+faststart',
            out_path]
 
