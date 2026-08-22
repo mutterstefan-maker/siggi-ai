@@ -2215,7 +2215,6 @@ async function renderReels(container) {
   const postBtn = document.createElement('button');
   postBtn.className = 'btn btn-primary';
   postBtn.textContent = '▶ Nächstes Reel jetzt posten';
-  postBtn.disabled = !(queue && queue.length);
   postBtn.onclick = postReelNow;
   qBtns.appendChild(uploadLabel);
   qBtns.appendChild(postBtn);
