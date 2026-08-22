@@ -2321,7 +2321,8 @@ async function renderReels(container) {
     btn.className = 'btn btn-ghost';
     btn.style.cssText = 'padding:7px 10px;font-size:16px;flex-shrink:0';
     btn.textContent = '📂';
-    btn.onclick = () => { const p = prompt('Ordnerpfad:', inp.value); if (p) inp.value = p; };
+    btn.title = 'Ordner auswählen';
+    btn.onclick = () => selectFolder(id);
     inputRow.appendChild(inp);
     inputRow.appendChild(btn);
     row.appendChild(inputRow);
