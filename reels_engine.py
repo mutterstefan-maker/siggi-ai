@@ -189,9 +189,53 @@ def _get_ki_label_png():
     return KI_LABEL_PNG_PATH
 
 
+def _pick_themed_group(files, count):
+    """Lässt Claude (Haiku, wenige Tokens) aus den Dateinamen eine inhaltlich
+    zusammenpassende Gruppe auswählen, statt rein zufällig zu mischen. Gibt None
+    zurück, wenn kein API-Key vorhanden ist oder die Auswahl fehlschlägt."""
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or len(files) <= count:
+        return None
+
+    names = [os.path.basename(f) for f in files]
+    prompt = (
+        "Hier sind Dateinamen von Marketing-Flyer-Bildern (der Dateiname deutet meist "
+        "auf Thema/Headline hin):\n" + "\n".join(names) +
+        f"\n\nWähle genau {count} davon aus, die inhaltlich am besten zueinander passen "
+        "(gleiches Thema, gleiche Zielgruppe oder ähnliche Botschaft), damit sie zusammen "
+        "ein stimmiges Instagram-Reel ergeben. Antworte NUR mit den exakten Dateinamen, "
+        "durch Kommas getrennt, keine Erklärung."
+    )
+    try:
+        resp = req.post(
+            instagram_engine.ANTHROPIC_API_URL,
+            headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json'
+            },
+            json={
+                'model': instagram_engine.ANTHROPIC_MODEL,
+                'max_tokens': 200,
+                'messages': [{'role': 'user', 'content': prompt}]
+            },
+            timeout=20
+        )
+        text = resp.json()['content'][0]['text']
+        picked_names = {p.strip() for p in text.split(',') if p.strip()}
+        picked_paths = [f for f in files if os.path.basename(f) in picked_names]
+        if len(picked_paths) >= 2:
+            return picked_paths[:count]
+    except Exception as e:
+        print(f'[Reels] Themen-Auswahl fehlgeschlagen, nutze Zufallsauswahl: {e}')
+    return None
+
+
 def _source_images_for_reel(count):
     """Nimmt die zuletzt geposteten Flyer-Bilder als Quelle - die wurden bereits als
-    Bild-Post verwendet, stehen also nicht mehr in Konkurrenz zur Bild-Warteschlange."""
+    Bild-Post verwendet, stehen also nicht mehr in Konkurrenz zur Bild-Warteschlange.
+    Bevorzugt eine thematisch passende Gruppe (per KI), fällt sonst auf eine
+    Zufallsauswahl aus den zuletzt geposteten Bildern zurück."""
     d = instagram_engine.posted_dir()
     files = [
         os.path.join(d, f) for f in os.listdir(d)
@@ -200,7 +244,13 @@ def _source_images_for_reel(count):
     files.sort(key=os.path.getmtime, reverse=True)
     if len(files) < MIN_SOURCE_IMAGES:
         return []
-    pick = files[:max(count, MIN_SOURCE_IMAGES) * 2]
+
+    candidate_pool = files[:max(count, MIN_SOURCE_IMAGES) * 4]
+    themed = _pick_themed_group(candidate_pool, count)
+    if themed:
+        return themed
+
+    pick = candidate_pool[:max(count, MIN_SOURCE_IMAGES) * 2]
     random.shuffle(pick)
     return pick[:count]
 
@@ -256,11 +306,17 @@ def generate_reel_from_images(image_paths=None):
     filename = f"reel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     out_path = os.path.join(pool_dir(), filename)
 
+    # Instagram lehnt REELS-Videos ohne Audiospur beim Verarbeiten ab (status_code
+    # ERROR) - daher eine stille Tonspur mitgeben statt komplett ohne Audio (-an).
+    silent_audio_idx = n + 1
+    inputs += ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100']
+
     cmd = [_ffmpeg_binary(), '-y', *inputs,
            '-filter_complex', filter_complex,
-           '-map', '[outv]',
-           '-an',
-           '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+           '-map', '[outv]', '-map', f'{silent_audio_idx}:a',
+           '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+           '-c:a', 'aac', '-shortest',
+           '-movflags', '+faststart',
            out_path]
 
     try:
