@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../theme.dart';
 import 'login_screen.dart';
+import 'improvements_screen.dart';
+import 'audit_screen.dart';
+import 'stats_screen.dart';
+import 'desktop_agent_screen.dart';
 
-class SettingsTab extends StatefulWidget {
+class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});
-  @override
-  State<SettingsTab> createState() => _SettingsTabState();
-}
 
-class _SettingsTabState extends State<SettingsTab> {
+  Future<void> _open(BuildContext context, Widget screen) {
+    return Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -18,6 +22,21 @@ class _SettingsTabState extends State<SettingsTab> {
       children: [
         Text('Mehr', style: TextStyle(color: c.text, fontSize: 24, fontWeight: FontWeight.w800)),
         const SizedBox(height: 20),
+        GridView.count(
+          crossAxisCount: 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 0.95,
+          children: [
+            IconTile(icon: Icons.psychology_outlined, label: 'Verbesserung', color: warn, onTap: () => _open(context, const ImprovementsScreen())),
+            IconTile(icon: Icons.travel_explore_outlined, label: 'Website-Audit', color: accent, onTap: () => _open(context, const AuditScreen())),
+            IconTile(icon: Icons.bar_chart_outlined, label: 'Statistiken', color: good, onTap: () => _open(context, const StatsScreen())),
+            IconTile(icon: Icons.desktop_windows_outlined, label: 'Desktop-Agent', color: accent2, onTap: () => _open(context, const DesktopAgentScreen())),
+          ],
+        ),
+        const SizedBox(height: 24),
         Text('Darstellung', style: TextStyle(color: c.dim, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1)),
         const SizedBox(height: 8),
         ValueListenableBuilder<ThemeMode>(
