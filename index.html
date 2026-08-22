@@ -2412,9 +2412,9 @@ function closeReelLightbox(e) {
 }
 
 async function postReelNow() {
-  showToast('Reel wird gepostet... (kann 1-2 Min. dauern)', 'success');
+  showToast('Reel wird erzeugt (falls Pool leer) und gepostet... (kann 1-2 Min. dauern)', 'success');
   const result = await apiFetch('/api/instagram/reels/post_now', 'POST');
-  if (result && result.success) showToast('Reel erfolgreich gepostet!', 'success');
+  if (result && result.success) showToast('Reel erfolgreich als Story gepostet!', 'success');
   else showToast('Fehler: ' + (result && result.error || 'Unbekannt'), 'error');
   renderInstagram();
 }
