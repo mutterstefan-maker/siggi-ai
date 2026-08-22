@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Reels Engine für SIGGI
-Erstellt automatisch stille Slideshow-Reels aus bereits geposteten Flyer-Bildern
-(instagram_engine.posted_dir()) und postet sie über die Meta Graph API als Instagram-Reel.
+Erstellt automatisch stille Slideshow-Videos aus bereits geposteten Flyer-Bildern
+(instagram_engine.posted_dir()) und postet sie über die Meta Graph API als Instagram-Story
+(24h, kein dauerhafter Feed-Eintrag).
 
 Ablauf:
   1. generate_reel_from_images(): baut per ffmpeg ein 9:16-Slideshow-Video (Crossfades,
      kein Ton) aus den zuletzt geposteten Flyer-Bildern und legt es im Reels-Pool ab.
   2. post_next_reel_in_queue(): lädt das erste Video aus dem Pool, stellt es unter einer
-     öffentlichen URL bereit, erstellt einen Reels-Media-Container (media_type=REELS)
+     öffentlichen URL bereit, erstellt einen Story-Media-Container (media_type=STORIES)
      und veröffentlicht ihn, sobald die Verarbeitung abgeschlossen ist.
   3. Datei wird nach erfolgreichem Post ins Archiv verschoben, Ergebnis wird protokolliert.
 """
@@ -348,6 +349,8 @@ def is_configured():
 
 
 def _publish_reel(video_url, caption):
+    """Postet als Instagram-Story (24h, kein Feed-Eintrag) statt als dauerhaftes Feed-Reel -
+    Stories zeigen keine Caption an, daher wird sie nur für die Historie generiert/geloggt."""
     cfg = instagram_engine._graph_config()
     if not is_configured():
         return {'success': False, 'error': 'Instagram Access-Token oder Business-Account-ID fehlt in den Einstellungen.'}
@@ -356,9 +359,8 @@ def _publish_reel(video_url, caption):
         create_resp = req.post(
             f"{GRAPH_BASE}/{cfg['ig_user_id']}/media",
             data={
-                'media_type': 'REELS',
+                'media_type': 'STORIES',
                 'video_url': video_url,
-                'caption': caption,
                 'access_token': cfg['access_token'],
             },
             timeout=30
