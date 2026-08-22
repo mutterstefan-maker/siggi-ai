@@ -189,6 +189,22 @@ def _load_settings():
         return {}
 
 
+def get_topic_history(limit=100):
+    """Alle bisher verwendeten/geplanten Themen (nicht nur die mit Feedback wie
+    get_feedback_stats) - damit Stefan sieht, was schon dran war, bevor er neue
+    Themen-Ideen einträgt."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT topic, layout, use_unicorn, status, created_at FROM flyer_history "
+        "WHERE topic IS NOT NULL AND topic != '' ORDER BY created_at DESC LIMIT ?", (limit,)
+    )
+    return [
+        {'topic': topic, 'layout': layout, 'use_unicorn': bool(use_unicorn), 'status': status, 'created_at': created_at}
+        for topic, layout, use_unicorn, status, created_at in c.fetchall()
+    ]
+
+
 def _recent_history(limit=8):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

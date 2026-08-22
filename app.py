@@ -1329,6 +1329,12 @@ def flyer_pipeline_stats():
     stats['tags'] = instagram_flyer_engine.FEEDBACK_TAGS
     return jsonify(stats)
 
+@app.route('/api/instagram/flyer-pipeline/topic-history')
+def flyer_pipeline_topic_history():
+    if not FLYER_PIPELINE_AVAILABLE:
+        return jsonify([])
+    return jsonify(instagram_flyer_engine.get_topic_history())
+
 @app.route('/api/mail/<mail_id>/move', methods=['POST'])
 def move_mail(mail_id):
     try:

@@ -12,8 +12,11 @@ class TopicsScreen extends StatefulWidget {
   State<TopicsScreen> createState() => _TopicsScreenState();
 }
 
+const _statusLabel = {'pending': 'Wartet auf Freigabe', 'approved': 'Gepostet', 'rejected': 'Abgelehnt'};
+
 class _TopicsScreenState extends State<TopicsScreen> {
   List _topics = [];
+  List _history = [];
   bool _loading = true;
   final _newTopic = TextEditingController();
   bool _adding = false;
@@ -27,7 +30,12 @@ class _TopicsScreenState extends State<TopicsScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      _topics = (await Api.instance.get('/api/topics') as List?) ?? [];
+      final results = await Future.wait([
+        Api.instance.get('/api/topics'),
+        Api.instance.get('/api/instagram/flyer-pipeline/topic-history'),
+      ]);
+      _topics = (results[0] as List?) ?? [];
+      _history = (results[1] as List?) ?? [];
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
   }
@@ -93,27 +101,45 @@ class _TopicsScreenState extends State<TopicsScreen> {
               onRefresh: _load,
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
-                  : _topics.isEmpty
-                      ? Center(child: Text('Noch keine eigenen Themen-Ideen.', style: TextStyle(color: c.dim)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          itemCount: _topics.length,
-                          itemBuilder: (context, i) {
-                            final t = _topics[i];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: GlassCard(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      children: [
+                        if (_topics.isEmpty)
+                          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('Noch keine eigenen Themen-Ideen.', style: TextStyle(color: c.dim)))
+                        else
+                          ..._topics.map((t) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: GlassCard(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  child: Row(children: [
+                                    const Icon(Icons.lightbulb_outline, color: warn, size: 18),
+                                    const SizedBox(width: 10),
+                                    Expanded(child: Text(t['text']?.toString() ?? '', style: TextStyle(color: c.text, fontSize: 13))),
+                                    IconButton(icon: Icon(Icons.close, color: c.dim, size: 18), onPressed: () => _delete(t['id'])),
+                                  ]),
+                                ),
+                              )),
+                        const SizedBox(height: 16),
+                        Text('Bereits verwendete Themen (${_history.length})', style: TextStyle(color: c.text, fontSize: 15, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        if (_history.isEmpty)
+                          Text('Noch keine Themen erzeugt.', style: TextStyle(color: c.dim, fontSize: 12))
+                        else
+                          ..._history.map((h) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
                                 child: Row(children: [
-                                  const Icon(Icons.lightbulb_outline, color: warn, size: 18),
-                                  const SizedBox(width: 10),
-                                  Expanded(child: Text(t['text']?.toString() ?? '', style: TextStyle(color: c.text, fontSize: 13))),
-                                  IconButton(icon: Icon(Icons.close, color: c.dim, size: 18), onPressed: () => _delete(t['id'])),
+                                  Expanded(
+                                    child: Text(
+                                      '${h['topic'] ?? ''}${h['use_unicorn'] == true ? ' 🦄' : ''}',
+                                      style: TextStyle(color: c.text, fontSize: 12),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(_statusLabel[h['status']] ?? h['status']?.toString() ?? '', style: TextStyle(color: c.dim, fontSize: 10)),
                                 ]),
-                              ),
-                            );
-                          },
-                        ),
+                              )),
+                      ],
+                    ),
             ),
           ),
         ],
