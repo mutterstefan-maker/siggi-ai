@@ -407,6 +407,7 @@ def _generate_image(image_prompt, openai_api_key, use_unicorn=False):
             'model': 'gpt-image-1',
             'prompt': image_prompt,
             'size': '1024x1536',
+            'quality': 'medium',
         },
         timeout=180
     )
