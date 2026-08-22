@@ -70,8 +70,16 @@ def _ig_settings():
     return _load_settings().get('instagram_settings', {})
 
 
-def _resolve_dir(rel_path, create=True):
-    """Löst pool_path/posted_path relativ zu BASE_DIR auf (oder nutzt absoluten Pfad)."""
+_WINDOWS_PATH_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _resolve_dir(rel_path, default, create=True):
+    """Löst pool_path/posted_path relativ zu BASE_DIR auf. Der Server läuft unter Linux -
+    eine leere Einstellung ODER ein versehentlich eingegebener Windows-Pfad (z.B. C:\\...)
+    würden sonst zu einem falschen/kaputten Ordner führen (os.path.isabs erkennt
+    Windows-Pfade unter Linux nicht als absolut), daher Fallback auf den Standardwert."""
+    if not rel_path or _WINDOWS_PATH_RE.match(rel_path):
+        rel_path = default
     path = rel_path if os.path.isabs(rel_path) else os.path.join(BASE_DIR, rel_path)
     if create:
         os.makedirs(path, exist_ok=True)
@@ -80,12 +88,12 @@ def _resolve_dir(rel_path, create=True):
 
 def pool_dir():
     s = _ig_settings()
-    return _resolve_dir(s.get('pool_path', 'flyer_pool'))
+    return _resolve_dir(s.get('pool_path', ''), 'flyer_pool')
 
 
 def posted_dir():
     s = _ig_settings()
-    return _resolve_dir(s.get('posted_path', 'flyer_pool/gepostet'))
+    return _resolve_dir(s.get('posted_path', ''), 'flyer_pool/gepostet')
 
 
 def _safe_filename(filename):

@@ -2184,9 +2184,18 @@ function renderAuditResult(data) {
 
 let reelsDays = ['mon','tue','wed','thu','fri','sat','sun'];
 
+function _reelVideoCard(f, { onDelete, onClickBadge } = {}) {
+  const card = document.createElement('div');
+  card.className = 'ig-card';
+  const videoSrc = '/api/instagram/reels/media/' + encodeURIComponent(f);
+  card.innerHTML = '<div style="aspect-ratio:9/16;background:#000;border-radius:6px;overflow:hidden;position:relative;cursor:zoom-in" onclick="openReelLightbox(\'' + f.replace(/'/g, "\\'") + '\')"><video src="' + videoSrc + '#t=0.5" preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;display:block;pointer-events:none"></video><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><svg width="36" height="36" viewBox="0 0 24 24" fill="rgba(255,255,255,0.85)"><polygon points="6 3 20 12 6 21 6 3"/></svg></div></div><div class="ig-card-label">' + escHtml(f) + '</div>';
+  return card;
+}
+
 async function renderReels(container) {
-  const [queue, history, settings] = await Promise.all([
+  const [queue, pending, history, settings] = await Promise.all([
     apiFetch('/api/instagram/reels/queue'),
+    apiFetch('/api/instagram/reels/pending'),
     apiFetch('/api/instagram/reels/history'),
     apiFetch('/api/instagram/reels/settings')
   ]);
@@ -2195,7 +2204,48 @@ async function renderReels(container) {
 
   const wrapper = document.createElement('div');
 
-  // Warteschlange
+  // Zur Freigabe wartende, automatisch erzeugte Reels
+  const pendingDiv = document.createElement('div');
+  pendingDiv.className = 'settings-section';
+  const pHeader = document.createElement('div');
+  pHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px';
+  pHeader.innerHTML = '<h3 style="margin:0">📋 ZUR FREIGABE' + ((pending||[]).length ? ' (' + pending.length + ')' : '') + '</h3>';
+  const genBtn = document.createElement('button');
+  genBtn.className = 'btn btn-primary';
+  genBtn.textContent = '🎬 Reel erzeugen';
+  genBtn.onclick = generateReel;
+  pHeader.appendChild(genBtn);
+  pendingDiv.appendChild(pHeader);
+
+  const pendingGallery = document.createElement('div');
+  pendingGallery.className = 'ig-gallery';
+  if (pending && pending.length) {
+    pending.forEach(f => {
+      const card = _reelVideoCard(f);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:4px;padding:6px 8px';
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'btn btn-danger';
+      rejectBtn.style.cssText = 'flex:1;font-size:10px;padding:4px';
+      rejectBtn.textContent = 'Ablehnen';
+      rejectBtn.onclick = () => rejectReel(f);
+      const approveBtn = document.createElement('button');
+      approveBtn.className = 'btn btn-primary';
+      approveBtn.style.cssText = 'flex:1;font-size:10px;padding:4px';
+      approveBtn.textContent = 'Freigeben';
+      approveBtn.onclick = () => approveReel(f);
+      btnRow.appendChild(rejectBtn);
+      btnRow.appendChild(approveBtn);
+      card.appendChild(btnRow);
+      pendingGallery.appendChild(card);
+    });
+  } else {
+    pendingGallery.innerHTML = '<div style="color:var(--text3);font-size:13px">Nichts zur Freigabe. Auf "Reel erzeugen" klicken, um einen Kandidaten aus den zuletzt geposteten Bildern zu bauen.</div>';
+  }
+  pendingDiv.appendChild(pendingGallery);
+  wrapper.appendChild(pendingDiv);
+
+  // Warteschlange (bereits freigegeben, postbar)
   const queueDiv = document.createElement('div');
   queueDiv.className = 'settings-section';
   const totalCount = (queue||[]).length;
@@ -2214,7 +2264,8 @@ async function renderReels(container) {
   uploadLabel.innerHTML = '📁 Video hochladen<input type="file" accept="video/mp4,video/mov" style="display:none" onchange="uploadReel(this)">';
   const postBtn = document.createElement('button');
   postBtn.className = 'btn btn-primary';
-  postBtn.textContent = '▶ Nächstes Reel jetzt posten';
+  postBtn.textContent = '▶ Nächstes freigegebenes Reel posten';
+  postBtn.disabled = !(queue && queue.length);
   postBtn.onclick = postReelNow;
   qBtns.appendChild(uploadLabel);
   qBtns.appendChild(postBtn);
@@ -2225,10 +2276,8 @@ async function renderReels(container) {
   gallery.className = 'ig-gallery';
   if (queue && queue.length) {
     displayQueue.forEach((f, i) => {
-      const card = document.createElement('div');
-      card.className = 'ig-card' + (i === 0 ? ' first' : '');
-      const videoSrc = '/api/instagram/reels/media/' + encodeURIComponent(f);
-      card.innerHTML = '<div style="aspect-ratio:9/16;background:#000;border-radius:6px;overflow:hidden;position:relative;cursor:zoom-in" onclick="openReelLightbox(\'' + f.replace(/'/g, "\\'") + '\')"><video src="' + videoSrc + '#t=0.5" preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;display:block;pointer-events:none"></video><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><svg width="36" height="36" viewBox="0 0 24 24" fill="rgba(255,255,255,0.85)"><polygon points="6 3 20 12 6 21 6 3"/></svg></div></div><div class="ig-card-label">' + escHtml(f) + '</div>';
+      const card = _reelVideoCard(f);
+      if (i === 0) card.classList.add('first');
       const delBtn = document.createElement('button');
       delBtn.className = 'btn btn-danger';
       delBtn.style.cssText = 'width:calc(100% - 16px);margin:0 8px 8px;font-size:10px;padding:4px';
@@ -2279,6 +2328,10 @@ async function renderReels(container) {
     pathGrid.appendChild(row);
   });
   settingsDiv.appendChild(pathGrid);
+  const pathHint = document.createElement('div');
+  pathHint.style.cssText = 'font-size:11px;color:var(--text3);margin:-10px 0 16px';
+  pathHint.textContent = 'Hinweis: Pfad auf dem Server, nicht auf deinem PC. Leer lassen für den Standardordner.';
+  settingsDiv.appendChild(pathHint);
 
   // Auto Toggle
   const autoRow = document.createElement('div');
@@ -2411,8 +2464,28 @@ function closeReelLightbox(e) {
   if (box) box.innerHTML = '';
 }
 
+async function generateReel() {
+  showToast('Reel wird erzeugt... (kann 1-2 Min. dauern)', 'success');
+  const result = await apiFetch('/api/instagram/reels/generate', 'POST');
+  if (result && result.success) showToast('Reel erzeugt - liegt jetzt zur Freigabe bereit', 'success');
+  else showToast('Fehler: ' + (result && result.error || 'Unbekannt'), 'error');
+  renderInstagram();
+}
+
+async function approveReel(filename) {
+  const result = await apiFetch('/api/instagram/reels/approve', 'POST', { filename });
+  if (result && result.success) { showToast('Freigegeben - in Warteschlange verschoben', 'success'); renderInstagram(); }
+  else showToast('Fehler: ' + (result && result.error || 'Unbekannt'), 'error');
+}
+
+async function rejectReel(filename) {
+  if (!confirm('Reel "' + filename + '" ablehnen und löschen?')) return;
+  const result = await apiFetch('/api/instagram/reels/reject', 'POST', { filename });
+  if (result && result.success) { showToast('Abgelehnt', 'success'); renderInstagram(); }
+}
+
 async function postReelNow() {
-  showToast('Reel wird erzeugt (falls Pool leer) und gepostet... (kann 1-2 Min. dauern)', 'success');
+  showToast('Freigegebenes Reel wird gepostet... (kann 1-2 Min. dauern)', 'success');
   const result = await apiFetch('/api/instagram/reels/post_now', 'POST');
   if (result && result.success) showToast('Reel erfolgreich als Story gepostet!', 'success');
   else showToast('Fehler: ' + (result && result.error || 'Unbekannt'), 'error');

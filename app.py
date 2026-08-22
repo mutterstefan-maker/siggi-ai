@@ -1814,6 +1814,35 @@ def reels_post_now_route():
     result = reels_engine.post_next_reel_in_queue(public_base_url)
     return jsonify(result)
 
+@app.route('/api/instagram/reels/generate', methods=['POST'])
+def reels_generate_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    result = reels_engine.generate_reel_from_images()
+    return jsonify(result)
+
+@app.route('/api/instagram/reels/pending')
+def reels_pending_route():
+    if not REELS_AVAILABLE:
+        return jsonify([])
+    return jsonify(reels_engine.get_pending_reels())
+
+@app.route('/api/instagram/reels/approve', methods=['POST'])
+def reels_approve_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    data = request.get_json() or {}
+    result = reels_engine.approve_reel(data.get('filename', ''))
+    return jsonify(result)
+
+@app.route('/api/instagram/reels/reject', methods=['POST'])
+def reels_reject_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    data = request.get_json() or {}
+    result = reels_engine.reject_reel(data.get('filename', ''))
+    return jsonify(result)
+
 @app.route('/api/desktop/status')
 def desktop_status():
     if not DESKTOP_AVAILABLE:

@@ -16,6 +16,7 @@ Ablauf:
 import glob
 import os
 import random
+import re
 import sqlite3
 import subprocess
 import time
@@ -80,7 +81,17 @@ def _reels_settings():
     return _load_settings().get('reels_settings', {})
 
 
-def _resolve_dir(rel_path, create=True):
+_WINDOWS_PATH_RE = re.compile(r'^[A-Za-z]:[\\/]')
+
+
+def _resolve_dir(rel_path, default, create=True):
+    """Löst einen konfigurierten Ordnerpfad relativ zu BASE_DIR auf. Der Server läuft
+    unter Linux - eine leere Einstellung ODER ein vom Nutzer versehentlich eingegebener
+    Windows-Pfad (z.B. C:\\...) würden sonst zu einem falschen/kaputten Ordner führen
+    (os.path.isabs erkennt Windows-Pfade unter Linux nicht als absolut), daher Fallback
+    auf den Standardwert in beiden Fällen."""
+    if not rel_path or _WINDOWS_PATH_RE.match(rel_path):
+        rel_path = default
     path = rel_path if os.path.isabs(rel_path) else os.path.join(BASE_DIR, rel_path)
     if create:
         os.makedirs(path, exist_ok=True)
@@ -89,21 +100,30 @@ def _resolve_dir(rel_path, create=True):
 
 def pool_dir():
     s = _reels_settings()
-    return _resolve_dir(s.get('pool_path', 'reels_pool'))
+    return _resolve_dir(s.get('pool_path', ''), 'reels_pool')
 
 
 def posted_dir():
     s = _reels_settings()
-    return _resolve_dir(s.get('posted_path', 'reels_pool/gepostet'))
+    return _resolve_dir(s.get('posted_path', ''), 'reels_pool/gepostet')
 
 
 def _safe_filename(filename):
     return os.path.basename(filename)
 
 
+def pending_dir():
+    """Ablage für automatisch erzeugte, aber noch nicht freigegebene Reels - liegt als
+    Unterordner im Pool, damit get_reels_queue() (nicht rekursiv) sie nicht mitzählt."""
+    d = os.path.join(pool_dir(), '_pending')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 # ─── Queue-Verwaltung ───────────────────────────────────────────────
 
 def get_reels_queue():
+    """Freigegebene, postbare Videos (nicht die zur Freigabe wartenden)."""
     d = pool_dir()
     try:
         return [
@@ -115,7 +135,43 @@ def get_reels_queue():
         return []
 
 
+def get_pending_reels():
+    """Automatisch erzeugte Reels, die noch auf Freigabe warten."""
+    d = pending_dir()
+    try:
+        return [
+            f for f in sorted(os.listdir(d))
+            if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in VIDEO_EXTENSIONS
+        ]
+    except Exception as e:
+        print(f'[Reels] Pending-Fehler: {e}')
+        return []
+
+
+def approve_reel(filename):
+    """Verschiebt ein zur Freigabe wartendes Reel in die postbare Warteschlange."""
+    filename = _safe_filename(filename)
+    src = os.path.join(pending_dir(), filename)
+    if not os.path.exists(src):
+        return {'success': False, 'error': 'Datei nicht gefunden.'}
+    dst = os.path.join(pool_dir(), filename)
+    os.replace(src, dst)
+    return {'success': True}
+
+
+def reject_reel(filename):
+    """Löscht ein zur Freigabe wartendes Reel wieder."""
+    filename = _safe_filename(filename)
+    path = os.path.join(pending_dir(), filename)
+    if os.path.exists(path):
+        os.remove(path)
+        return {'success': True}
+    return {'success': False, 'error': 'Datei nicht gefunden.'}
+
+
 def save_uploaded_reel(filename, raw_bytes):
+    """Manuell hochgeladene Videos landen direkt in der postbaren Warteschlange -
+    der Nutzer hat die Auswahl durch das Hochladen bereits selbst getroffen."""
     filename = _safe_filename(filename)
     if os.path.splitext(filename)[1].lower() not in VIDEO_EXTENSIONS:
         return {'success': False, 'error': 'Nur Videodateien erlaubt (mp4, mov).'}
@@ -135,9 +191,14 @@ def delete_reel(filename):
 
 
 def media_file_path(filename):
+    """Sucht sowohl in der postbaren Warteschlange als auch bei den zur Freigabe
+    wartenden Reels, damit die Vorschau in beiden Ansichten funktioniert."""
     filename = _safe_filename(filename)
-    path = os.path.join(pool_dir(), filename)
-    return path if os.path.exists(path) else None
+    for d in (pool_dir(), pending_dir()):
+        path = os.path.join(d, filename)
+        if os.path.exists(path):
+            return path
+    return None
 
 
 # ─── History ─────────────────────────────────────────────────────────
@@ -305,7 +366,8 @@ def generate_reel_from_images(image_paths=None):
 
     filter_complex = ';'.join(filters)
     filename = f"reel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-    out_path = os.path.join(pool_dir(), filename)
+    # Landet zunächst zur Freigabe wartend, nicht direkt in der postbaren Warteschlange.
+    out_path = os.path.join(pending_dir(), filename)
 
     # Instagram lehnt REELS-Videos ohne Audiospur beim Verarbeiten ab (status_code
     # ERROR, Fehlercode 2207076) - eine stille Tonspur mit "normaler" Bitrate/Samplerate
@@ -330,14 +392,15 @@ def generate_reel_from_images(image_paths=None):
         return {'success': False, 'error': str(e)}
 
 
-def maybe_auto_refill_pool(minimum=1):
-    """Legt automatisch ein neues Reel an, wenn der Pool leer/knapp ist und genug
-    Quellbilder vorhanden sind."""
-    if len(get_reels_queue()) >= minimum:
+def maybe_auto_refill_pending(minimum=1):
+    """Legt automatisch ein neues Reel zur Freigabe an, wenn dort nichts (mehr) wartet
+    und genug Quellbilder vorhanden sind. Postet NICHT selbst - landet in pending_dir(),
+    muss erst per approve_reel() freigegeben werden."""
+    if len(get_pending_reels()) >= minimum:
         return
     result = generate_reel_from_images()
     if result['success']:
-        print(f"[Reels] Neues Reel automatisch erstellt: {result['filename']}")
+        print(f"[Reels] Neues Reel zur Freigabe erstellt: {result['filename']}")
     elif 'Nicht genug' not in result.get('error', ''):
         print(f"[Reels] Auto-Generierung fehlgeschlagen: {result.get('error')}")
 
@@ -401,10 +464,11 @@ def _publish_reel(video_url, caption):
 
 
 def post_next_reel_in_queue(public_base_url):
-    maybe_auto_refill_pool()
+    """Postet nur bereits freigegebene Videos - erzeugt NICHT automatisch neue (dafür
+    generate_reel_from_images() + approve_reel() nutzen, siehe pending_dir())."""
     queue = get_reels_queue()
     if not queue:
-        return {'success': False, 'error': 'Keine Videos in der Reels-Warteschlange.'}
+        return {'success': False, 'error': 'Keine freigegebenen Videos in der Reels-Warteschlange. Bitte zuerst ein Reel erzeugen und freigeben.'}
 
     filename = queue[0]
     s = _reels_settings()
@@ -459,6 +523,8 @@ def maybe_auto_post(public_base_url):
     settings.setdefault('reels_settings', {})['auto_post_last_slot'] = slot_key
     _save_settings(settings)
 
-    maybe_auto_refill_pool()
+    # Nur bereits freigegebene Videos posten - für den nächsten Slot bei Bedarf schon
+    # mal einen neuen Kandidaten zur Freigabe vorbereiten (postet ihn aber nicht selbst).
+    maybe_auto_refill_pending()
     if get_reels_queue():
         post_next_reel_in_queue(public_base_url)
