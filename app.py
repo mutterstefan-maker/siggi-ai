@@ -99,8 +99,8 @@ def require_login():
     allowed = ('/login', '/api/login')
     if request.path in allowed:
         return None
-    if request.path.startswith('/api/instagram/media/'):
-        return None  # muss öffentlich erreichbar sein, damit Meta das Bild abrufen kann
+    if request.path.startswith('/api/instagram/media/') or request.path.startswith('/api/instagram/reels/media/'):
+        return None  # muss öffentlich erreichbar sein, damit Meta das Bild/Video abrufen kann
     if not session.get('logged_in'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'unauthorized'}), 401
