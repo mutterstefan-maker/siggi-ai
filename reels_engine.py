@@ -22,6 +22,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 import requests as req
+from PIL import Image, ImageDraw, ImageFont
 
 import instagram_engine
 
@@ -37,6 +38,7 @@ CROSSFADE_SECONDS = 0.6
 MIN_SOURCE_IMAGES = 3
 FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 KI_LABEL_TEXT = 'KI-GENERIERT'
+KI_LABEL_PNG_PATH = os.path.join(BASE_DIR, '_reels_ki_label.png')
 
 
 def init_reels_db():
@@ -171,6 +173,22 @@ def _ffmpeg_binary():
         return 'ffmpeg'
 
 
+def _get_ki_label_png():
+    """Rendert die 'KI-GENERIERT'-Kennzeichnung einmalig als PNG mit halbtransparentem
+    Balken (per PIL statt ffmpeg drawtext, da der von imageio-ffmpeg mitgelieferte
+    ffmpeg-Build ohne Freetype/drawtext-Unterstützung gebaut ist)."""
+    if os.path.exists(KI_LABEL_PNG_PATH):
+        return KI_LABEL_PNG_PATH
+    img = Image.new('RGBA', (1080, 64), (0, 0, 0, 140))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype(FONT_PATH, 30) if os.path.exists(FONT_PATH) else ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), KI_LABEL_TEXT, font=font)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((1080 - text_w) / 2 - bbox[0], (64 - text_h) / 2 - bbox[1]), KI_LABEL_TEXT, font=font, fill=(255, 255, 255, 255))
+    img.save(KI_LABEL_PNG_PATH)
+    return KI_LABEL_PNG_PATH
+
+
 def _source_images_for_reel(count):
     """Nimmt die zuletzt geposteten Flyer-Bilder als Quelle - die wurden bereits als
     Bild-Post verwendet, stehen also nicht mehr in Konkurrenz zur Bild-Warteschlange."""
@@ -198,6 +216,8 @@ def generate_reel_from_images(image_paths=None):
     inputs = []
     for img in images:
         inputs += ['-loop', '1', '-t', str(SECONDS_PER_IMAGE + CROSSFADE_SECONDS), '-i', img]
+    label_png = _get_ki_label_png()
+    inputs += ['-loop', '1', '-i', label_png]
 
     # Flyer-Bilder sind 4:5, Reels brauchen 9:16 - ein reiner Crop auf 9:16 würde
     # Text am linken/rechten Rand abschneiden. Stattdessen: unscharfer, abgedunkelter
@@ -230,13 +250,7 @@ def generate_reel_from_images(image_paths=None):
 
     # KI-Kennzeichnung fest über die gesamte Videolaufzeit einblenden (dieselbe
     # Pflichtangabe wie bei den Bild-Posts, die Quellbilder hier tragen sie noch nicht).
-    label_font = FONT_PATH if os.path.exists(FONT_PATH) else None
-    fontfile_arg = f":fontfile='{label_font}'" if label_font else ''
-    filters.append(
-        f"[{cur}]drawbox=x=0:y=ih-64:w=iw:h=64:color=black@0.55:t=fill,"
-        f"drawtext=text='{KI_LABEL_TEXT}'{fontfile_arg}:fontcolor=white:fontsize=30:"
-        f"x=(w-text_w)/2:y=h-46[outv]"
-    )
+    filters.append(f'[{cur}][{n}:v]overlay=0:H-h:shortest=1[outv]')
 
     filter_complex = ';'.join(filters)
     filename = f"reel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"

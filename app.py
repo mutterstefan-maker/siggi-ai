@@ -955,9 +955,9 @@ def jarvis_chat():
                 'https://api.anthropic.com/v1/messages',
                 headers=headers,
                 json={
-                    'model': 'claude-opus-5',
+                    'model': 'claude-sonnet-5',
                     'max_tokens': 1500,
-                    'system': system_prompt,
+                    'system': [{'type': 'text', 'text': system_prompt, 'cache_control': {'type': 'ephemeral'}}],
                     'tools': SIGGI_TOOLS,
                     'messages': messages
                 },

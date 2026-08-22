@@ -136,7 +136,6 @@ def generate_draft():
     system_prompt = _build_system_prompt(examples)
     text = _call_claude(system_prompt, 'Schreibe jetzt den Post.', api_key)
     text = re.sub(r'^["\']|["\']$', '', text.strip())
-    text = f"{text}\n\n(Hinweis: Dieser Text wurde mit KI-Unterstützung erstellt.)"
 
     approved_count = settings.get('linkedin_approved_count', 0)
 
