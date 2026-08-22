@@ -35,6 +35,8 @@ IMAGES_PER_REEL = 5
 SECONDS_PER_IMAGE = 3
 CROSSFADE_SECONDS = 0.6
 MIN_SOURCE_IMAGES = 3
+FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+KI_LABEL_TEXT = 'KI-GENERIERT'
 
 
 def init_reels_db():
@@ -197,12 +199,22 @@ def generate_reel_from_images(image_paths=None):
     for img in images:
         inputs += ['-loop', '1', '-t', str(SECONDS_PER_IMAGE + CROSSFADE_SECONDS), '-i', img]
 
+    # Flyer-Bilder sind 4:5, Reels brauchen 9:16 - ein reiner Crop auf 9:16 würde
+    # Text am linken/rechten Rand abschneiden. Stattdessen: unscharfer, abgedunkelter
+    # Hintergrund (bildfüllend zugeschnitten) plus das komplette Originalbild zentriert
+    # darüber (bildschirmfüllend eingepasst, nichts abgeschnitten).
     n = len(images)
     labels = []
     for i in range(n):
         filters.append(
             f'[{i}:v]scale=1080:1920:force_original_aspect_ratio=increase,'
-            f'crop=1080:1920,setsar=1,fps=30[v{i}]'
+            f'crop=1080:1920,gblur=sigma=25,eq=brightness=-0.15[bg{i}]'
+        )
+        filters.append(
+            f'[{i}:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg{i}]'
+        )
+        filters.append(
+            f'[bg{i}][fg{i}]overlay=(W-w)/2:(H-h)/2:shortest=1,setsar=1,fps=30[v{i}]'
         )
         labels.append(f'v{i}')
 
@@ -216,13 +228,23 @@ def generate_reel_from_images(image_paths=None):
         cur = nxt
         offset += SECONDS_PER_IMAGE
 
+    # KI-Kennzeichnung fest über die gesamte Videolaufzeit einblenden (dieselbe
+    # Pflichtangabe wie bei den Bild-Posts, die Quellbilder hier tragen sie noch nicht).
+    label_font = FONT_PATH if os.path.exists(FONT_PATH) else None
+    fontfile_arg = f":fontfile='{label_font}'" if label_font else ''
+    filters.append(
+        f"[{cur}]drawbox=x=0:y=ih-64:w=iw:h=64:color=black@0.55:t=fill,"
+        f"drawtext=text='{KI_LABEL_TEXT}'{fontfile_arg}:fontcolor=white:fontsize=30:"
+        f"x=(w-text_w)/2:y=h-46[outv]"
+    )
+
     filter_complex = ';'.join(filters)
     filename = f"reel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     out_path = os.path.join(pool_dir(), filename)
 
     cmd = [_ffmpeg_binary(), '-y', *inputs,
            '-filter_complex', filter_complex,
-           '-map', f'[{cur}]',
+           '-map', '[outv]',
            '-an',
            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
            out_path]
