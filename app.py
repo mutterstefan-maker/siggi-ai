@@ -169,6 +169,12 @@ except:
     INSTAGRAM_AVAILABLE = False
 
 try:
+    import reels_engine
+    REELS_AVAILABLE = True
+except:
+    REELS_AVAILABLE = False
+
+try:
     import instagram_flyer_engine
     instagram_flyer_engine.init_table()
     FLYER_PIPELINE_AVAILABLE = True
@@ -1735,6 +1741,79 @@ def instagram_post_now():
     result = instagram_engine.post_next_in_queue(public_base_url)
     return jsonify(result)
 
+# ─── Instagram Reels ────────────────────────────────────────────────────────
+
+@app.route('/api/instagram/reels/settings', methods=['GET', 'POST'])
+def reels_settings_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    if request.method == 'POST':
+        data = request.json or {}
+        try:
+            settings = load_settings()
+            existing = settings.get('reels_settings', {})
+            existing.update(data)
+            settings['reels_settings'] = existing
+            save_settings(settings)
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    return jsonify(load_settings().get('reels_settings', {}))
+
+@app.route('/api/instagram/reels/queue')
+def reels_queue_route():
+    if not REELS_AVAILABLE:
+        return jsonify([])
+    return jsonify(reels_engine.get_reels_queue())
+
+@app.route('/api/instagram/reels/history')
+def reels_history_route():
+    if not REELS_AVAILABLE:
+        return jsonify([])
+    return jsonify(reels_engine.get_reels_history())
+
+@app.route('/api/instagram/reels/upload', methods=['POST'])
+def reels_upload_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    try:
+        data = request.get_json() or {}
+        filename = data.get('filename', '')
+        b64 = data.get('data', '')
+        if not filename or not b64:
+            return jsonify({'success': False, 'error': 'Dateiname oder Daten fehlen.'}), 400
+        raw = base64.b64decode(b64)
+        result = reels_engine.save_uploaded_reel(filename, raw)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/instagram/reels/delete', methods=['POST'])
+def reels_delete_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    data = request.get_json() or {}
+    result = reels_engine.delete_reel(data.get('filename', ''))
+    return jsonify(result)
+
+@app.route('/api/instagram/reels/media/<path:filename>')
+def reels_media_route(filename):
+    """Öffentliche Route (kein Login nötig), damit Meta das Video per Graph-API abrufen kann."""
+    if not REELS_AVAILABLE:
+        return jsonify({'error': 'Nicht verfügbar'}), 404
+    path = reels_engine.media_file_path(filename)
+    if not path:
+        return jsonify({'error': 'Nicht gefunden'}), 404
+    return send_from_directory(os.path.dirname(path), os.path.basename(path))
+
+@app.route('/api/instagram/reels/post_now', methods=['POST'])
+def reels_post_now_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    public_base_url = os.environ.get('PUBLIC_BASE_URL') or request.url_root
+    result = reels_engine.post_next_reel_in_queue(public_base_url)
+    return jsonify(result)
+
 @app.route('/api/desktop/status')
 def desktop_status():
     if not DESKTOP_AVAILABLE:
@@ -2069,6 +2148,28 @@ def _instagram_auto_post_loop():
         time.sleep(60)
 
 threading.Thread(target=_instagram_auto_post_loop, daemon=True).start()
+
+# ─── Reels: Auto-Post-Loop ──────────────────────────────────────────────────
+
+def _reels_auto_post_loop():
+    if not REELS_AVAILABLE:
+        return
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_reels_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return  # anderer Worker hält den Lock bereits
+
+    public_base_url = os.environ.get('PUBLIC_BASE_URL', 'https://www.stean.info')
+    while True:
+        try:
+            reels_engine.maybe_auto_post(public_base_url)
+        except Exception as e:
+            print(f'[Reels] Auto-Post-Loop-Fehler: {e}')
+        time.sleep(60)
+
+threading.Thread(target=_reels_auto_post_loop, daemon=True).start()
 
 if __name__ == '__main__':
     if socketio:
