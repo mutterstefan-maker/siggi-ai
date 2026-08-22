@@ -941,6 +941,9 @@ input:checked + .slider:before { transform: translateX(16px); }
           <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span> Bild-Pipeline
           <span class="badge warn" id="badge-flyer_pipeline" style="display:none">0</span>
         </div>
+        <div class="nav-item" data-view="topics">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> Themen
+        </div>
       </div>
     </div>
 
@@ -1035,6 +1038,7 @@ let settings = {};
 
 const VIEW_TITLES = {
   dashboard: 'Dashboard',
+  topics: 'Themen-Ideen',
   inbox: 'Posteingang',
   callbacks: 'Rückrufe',
   invoices: 'Rechnungen',
@@ -1128,6 +1132,10 @@ async function showView(view) {
   }
   if (view === 'flyer_pipeline') {
     renderFlyerPipeline();
+    return;
+  }
+  if (view === 'topics') {
+    renderTopics();
     return;
   }
   // spam handled by renderMailView
@@ -4174,6 +4182,7 @@ const DASH_SECTIONS = [
       { view: 'instagram', label: 'Instagram', icon: '📷', color: '#e1306c' },
       { view: 'linkedin_pipeline', label: 'LinkedIn', icon: '💼', color: '#0a66c2' },
       { view: 'flyer_pipeline', label: 'Bild-Pipeline', icon: '🖼️', color: 'var(--accent)' },
+      { view: 'topics', label: 'Themen', icon: '💭', color: 'var(--warning)' },
     ],
   },
   {
@@ -4245,6 +4254,58 @@ async function renderDashboard() {
       `).join('')}
     </div>
   `;
+}
+
+// ── Themen-Ideen ─────────────────────────────────────────────────────────────
+
+async function renderTopics() {
+  const content = document.getElementById('main-content');
+  content.style.cssText = 'display:block;overflow-y:auto;flex:1;height:calc(100vh - 56px);padding:0';
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const topics = await apiFetch('/api/topics') || [];
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div class="settings-section">
+        <h3>💭 EIGENE THEMEN-IDEEN</h3>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
+          Siggi bevorzugt diese Themen bei der nächsten Bild-/Reel-Erzeugung, statt nur aus der festen Rotation zu wählen.
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:20px">
+          <input class="form-input" type="text" id="new-topic-input" placeholder="z.B. Neue DSGVO-Pflichten für KMU" style="flex:1" onkeydown="if(event.key==='Enter') addTopic()">
+          <button class="btn btn-primary" onclick="addTopic()">➕ Hinzufügen</button>
+        </div>
+        <div id="topics-list">
+          ${topics.length ? topics.map(t => `
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border-radius:8px;margin-bottom:8px">
+              <span>💡</span>
+              <span style="flex:1;font-size:13px;color:var(--text)">${escHtml(t.text)}</span>
+              <button class="btn btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteTopic(${t.id})">✕</button>
+            </div>
+          `).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine eigenen Themen-Ideen.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function addTopic() {
+  const input = document.getElementById('new-topic-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const result = await apiFetch('/api/topics', 'POST', { text });
+  if (result && result.success) {
+    input.value = '';
+    renderTopics();
+  } else {
+    showToast(result?.error || 'Fehler beim Speichern', 'error');
+  }
+}
+
+async function deleteTopic(id) {
+  await apiFetch(`/api/topics/${id}/delete`, 'POST');
+  renderTopics();
 }
 
 // ── Mail-Entwürfe (Freigabe-Workflow) ───────────────────────────────────────
