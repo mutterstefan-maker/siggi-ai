@@ -372,7 +372,7 @@ def _publish_reel(video_url, caption):
         for attempt in range(30):
             status_resp = req.get(
                 f"{GRAPH_BASE}/{creation_id}",
-                params={'fields': 'status_code', 'access_token': cfg['access_token']},
+                params={'fields': 'status_code,status', 'access_token': cfg['access_token']},
                 timeout=30
             )
             status_code = status_resp.json().get('status_code')
