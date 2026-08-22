@@ -4,6 +4,7 @@ import '../theme.dart';
 import 'reels_screen.dart';
 import 'flyer_screen.dart';
 import 'linkedin_screen.dart';
+import 'topics_screen.dart';
 
 /// Landing screen for the "Social" tab - a small icon grid that opens into
 /// each content pipeline, instead of stacking everything on one screen.
@@ -71,6 +72,8 @@ class _SocialHubState extends State<SocialHub> {
                   onTap: () => _open(const FlyerScreen())),
               IconTile(icon: Icons.business_center_outlined, label: 'LinkedIn', color: accent2, badge: _linkedinPending,
                   onTap: () => _open(const LinkedinScreen())),
+              IconTile(icon: Icons.lightbulb_outline, label: 'Themen', color: warn,
+                  onTap: () => _open(const TopicsScreen())),
             ],
           ),
         ],

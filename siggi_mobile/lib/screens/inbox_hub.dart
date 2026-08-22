@@ -4,6 +4,7 @@ import '../theme.dart';
 import 'mail_list_screen.dart';
 import 'calendar_screen.dart';
 import 'mail_approval_screen.dart';
+import 'contacts_screen.dart';
 
 class InboxHub extends StatefulWidget {
   const InboxHub({super.key});
@@ -66,6 +67,8 @@ class _InboxHubState extends State<InboxHub> {
                   onTap: () => _open(const CalendarScreen())),
               IconTile(icon: Icons.rate_review_outlined, label: 'Mail-Freigabe', color: good, badge: _draftCount,
                   onTap: () => _open(const MailApprovalScreen())),
+              IconTile(icon: Icons.contacts_outlined, label: 'Kontakte', color: accent2,
+                  onTap: () => _open(const ContactsScreen())),
             ],
           ),
         ],

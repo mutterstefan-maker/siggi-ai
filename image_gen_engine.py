@@ -25,11 +25,16 @@ def load_settings():
 
 # ── STATE TRACKING (letztes Thema/Layout/Einhorn-Zähler) ──────────────────────
 
+TOPIC_HISTORY_SIZE = 8  # so viele zuletzt genutzte Themen werden bei der Auswahl ausgeschlossen
+
+
 def load_state():
     if os.path.exists(STATE_PATH):
         with open(STATE_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {'last_topic': '', 'last_layout': '', 'total_count': 0, 'last_unicorn': -20}
+            state = json.load(f)
+            state.setdefault('recent_topics', [])
+            return state
+    return {'last_topic': '', 'last_layout': '', 'total_count': 0, 'last_unicorn': -20, 'recent_topics': []}
 
 
 def save_state(state):
@@ -97,19 +102,24 @@ def build_dynamic_prompt(settings):
     Einhorn-Regel (max jedes 10. Bild) und CTA.
     Returns: (prompt_str, filename_slug)
     """
-    topics   = settings.get('flyer_topics', ['Webdesign'])
+    # Eigene Themen-Ideen (aus der App/dem Dashboard eingetragen) fließen mit in den
+    # Themen-Pool ein, damit Stefan gezielt Themen vorgeben kann statt nur die feste
+    # Rotation zu bekommen.
+    custom_topics = [t['text'] for t in settings.get('custom_topics', []) if t.get('text')]
+    topics   = settings.get('flyer_topics', ['Webdesign']) + custom_topics
     layouts  = settings.get('flyer_layouts', ['Smartphone Mockup'])
     texts    = settings.get('flyer_text_examples', [])
     ctas     = settings.get('flyer_ctas', ['Folge uns auf Instagram'])
 
     state = load_state()
     total = state.get('total_count', 0)
-    last_topic   = state.get('last_topic', '')
+    recent_topics = state.get('recent_topics', [])
     last_layout  = state.get('last_layout', '')
     last_unicorn = state.get('last_unicorn', -20)
 
-    # Thema wählen — nie dasselbe wie zuletzt
-    available_topics = [t for t in topics if t != last_topic]
+    # Thema wählen — keins der letzten TOPIC_HISTORY_SIZE Themen wiederholen, nicht nur
+    # das allerletzte, damit sich Inhalte nicht in kurzen Zyklen wiederholen.
+    available_topics = [t for t in topics if t not in recent_topics]
     topic = random.choice(available_topics) if available_topics else random.choice(topics)
 
     # Layout wählen — nie dasselbe wie zuletzt, Einhorn-Regel beachten
@@ -164,6 +174,7 @@ STYLE: Ultra-bold typography, high contrast, premium German tech marketing aesth
 
     # State speichern
     state['last_topic'] = topic
+    state['recent_topics'] = (recent_topics + [topic])[-TOPIC_HISTORY_SIZE:]
     state['last_layout'] = layout
     state['total_count'] = total + 1
     save_state(state)

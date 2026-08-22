@@ -1980,6 +1980,34 @@ def delete_contact(contact_id):
         return jsonify({'error': 'Kontakt nicht gefunden'}), 404
     return jsonify({'success': True})
 
+@app.route('/api/topics', methods=['GET', 'POST'])
+def topics_collection():
+    """Eigene Themen-Ideen für die Bild-/Reels-Generierung, damit Stefan gezielt
+    Themen vorgeben kann statt nur die feste flyer_topics-Rotation zu nutzen."""
+    settings = load_settings()
+    if request.method == 'POST':
+        data = request.json or {}
+        text = (data.get('text') or '').strip()
+        if not text:
+            return jsonify({'error': 'Text ist Pflichtfeld'}), 400
+        topics = settings.setdefault('custom_topics', [])
+        next_id = (max([t.get('id', 0) for t in topics], default=0)) + 1
+        topics.append({'id': next_id, 'text': text, 'created_at': datetime.now().isoformat()})
+        save_settings(settings)
+        return jsonify({'success': True, 'id': next_id})
+    return jsonify(settings.get('custom_topics', []))
+
+@app.route('/api/topics/<int:topic_id>/delete', methods=['POST'])
+def topics_delete(topic_id):
+    settings = load_settings()
+    topics = settings.get('custom_topics', [])
+    remaining = [t for t in topics if t.get('id') != topic_id]
+    if len(remaining) == len(topics):
+        return jsonify({'error': 'Thema nicht gefunden'}), 404
+    settings['custom_topics'] = remaining
+    save_settings(settings)
+    return jsonify({'success': True})
+
 @app.route('/api/trash/empty', methods=['POST'])
 def empty_trash():
     try:

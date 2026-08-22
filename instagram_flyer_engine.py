@@ -134,6 +134,7 @@ Automatisierung. Content-Serien: "Kennst du das?" (Unternehmerprobleme),
 (Domain/Hosting/Zugangsdaten gehoeren dem Unternehmer, nicht dem Dienstleister).
 NICHT ueberstrapazieren: Kontaktformular, Webseite-24-7, Google-Bewertungen,
 alte/mobile Webseite - diese Themen wurden schon sehr oft verwendet.
+{custom_topics}
 
 CTA: abwechselnd, z.B. "Folge uns", "Schreib uns", "Kommentiere deine
 Meinung", "Kostenlos testen", "Wir beraten dich gerne". WhatsApp-Kanal
@@ -452,7 +453,12 @@ def generate_flyer():
     if not os.path.exists(LOGO_PATH):
         return {'success': False, 'error': f'Logo-Datei nicht gefunden: {LOGO_PATH}'}
 
-    prompt = MASTER_PROMPT.format(history=_recent_history())
+    custom_topics = [t['text'] for t in settings.get('custom_topics', []) if t.get('text')]
+    custom_topics_text = (
+        'VOM NUTZER VORGESCHLAGENE THEMEN-IDEEN (bevorzugt EINS davon verwenden, '
+        'sofern nicht in BISHER VERWENDET schon kuerzlich behandelt):\n- ' + '\n- '.join(custom_topics)
+    ) if custom_topics else ''
+    prompt = MASTER_PROMPT.format(history=_recent_history(), custom_topics=custom_topics_text)
 
     plan = None
     last_error = None
