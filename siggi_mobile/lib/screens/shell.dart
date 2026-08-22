@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import 'home_tab.dart';
 import 'chat_tab.dart';
-import 'social_tab.dart';
-import 'inbox_tab.dart';
+import 'social_hub.dart';
+import 'inbox_hub.dart';
 import 'settings_tab.dart';
 
 /// The whole app lives behind one bottom nav bar - deliberately not the long
 /// side menu of the web dashboard, per request ("nicht mit einem ewig langen
-/// Menü an der Seite"). Each tab is a single, glanceable screen.
+/// Menü an der Seite"). Social/Inbox open their own icon-grid sub-menu
+/// (see social_hub.dart / inbox_hub.dart) instead of cramming everything
+/// into one screen.
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
   @override
@@ -18,23 +20,28 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _index = 0;
 
-  final _tabs = const [
-    HomeTab(),
-    ChatTab(),
-    SocialTab(),
-    InboxTab(),
-    SettingsTab(),
+  void _goTo(int i) => setState(() => _index = i);
+
+  late final _tabs = [
+    HomeTab(onNavigate: _goTo),
+    const ChatTab(),
+    const SocialHub(),
+    const InboxHub(),
+    const SettingsTab(),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Scaffold(
-      body: SafeArea(child: IndexedStack(index: _index, children: _tabs)),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: surface,
-          border: Border(top: BorderSide(color: Color(0x22FFFFFF))),
+      body: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: KeyedSubtree(key: ValueKey(_index), child: _tabs[_index]),
         ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(color: c.surface, border: const Border(top: BorderSide(color: Color(0x22808080)))),
         child: SafeArea(
           top: false,
           child: SizedBox(
@@ -56,15 +63,25 @@ class _AppShellState extends State<AppShell> {
 
   Widget _navItem(IconData icon, String label, int i) {
     final active = _index == i;
+    final c = context.colors;
     return Expanded(
       child: InkWell(
-        onTap: () => setState(() => _index = i),
+        onTap: () => _goTo(i),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: active ? accent : textDim, size: 24),
+            AnimatedScale(
+              scale: active ? 1.15 : 1.0,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              child: Icon(icon, color: active ? accent : c.dim, size: 24),
+            ),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: active ? accent : textDim, fontSize: 11, fontWeight: active ? FontWeight.w700 : FontWeight.w400)),
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 180),
+              style: TextStyle(color: active ? accent : c.dim, fontSize: 11, fontWeight: active ? FontWeight.w700 : FontWeight.w400),
+              child: Text(label),
+            ),
           ],
         ),
       ),

@@ -50,6 +50,7 @@ class _ChatTabState extends State<ChatTab> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Column(
       children: [
         Padding(
@@ -61,7 +62,7 @@ class _ChatTabState extends State<ChatTab> {
               child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 12),
-            const Text('Siggi', style: TextStyle(color: textMain, fontSize: 20, fontWeight: FontWeight.w800)),
+            Text('Siggi', style: TextStyle(color: c.text, fontSize: 20, fontWeight: FontWeight.w800)),
           ]),
         ),
         Expanded(
@@ -73,24 +74,25 @@ class _ChatTabState extends State<ChatTab> {
               final m = _messages[i];
               return Align(
                 alignment: m.fromUser ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                   decoration: BoxDecoration(
                     gradient: m.fromUser ? accentGradient : null,
-                    color: m.fromUser ? null : surface,
+                    color: m.fromUser ? null : c.surface,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(m.text, style: const TextStyle(color: textMain)),
+                  child: Text(m.text, style: TextStyle(color: m.fromUser ? Colors.white : c.text)),
                 ),
               );
             },
           ),
         ),
-        if (_sending) const Padding(
-          padding: EdgeInsets.only(bottom: 8),
-          child: Text('Siggi tippt...', style: TextStyle(color: textDim, fontSize: 12)),
+        if (_sending) Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text('Siggi tippt...', style: TextStyle(color: c.dim, fontSize: 12)),
         ),
         Padding(
           padding: const EdgeInsets.all(16),
@@ -98,7 +100,7 @@ class _ChatTabState extends State<ChatTab> {
             Expanded(
               child: TextField(
                 controller: _controller,
-                style: const TextStyle(color: textMain),
+                style: TextStyle(color: c.text),
                 onSubmitted: (_) => _send(),
                 decoration: const InputDecoration(hintText: 'Nachricht an Siggi...'),
               ),

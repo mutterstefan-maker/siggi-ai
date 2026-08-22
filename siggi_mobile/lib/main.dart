@@ -13,11 +13,18 @@ class SiggiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Siggi',
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
-      home: const _AuthGate(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.instance.mode,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          title: 'Siggi',
+          debugShowCheckedModeBanner: false,
+          themeMode: mode,
+          theme: buildLightTheme(),
+          darkTheme: buildDarkTheme(),
+          home: const _AuthGate(),
+        );
+      },
     );
   }
 }
@@ -34,7 +41,8 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   void initState() {
     super.initState();
-    Api.instance.loadPrefs().then((_) => setState(() => _ready = true));
+    Future.wait([Api.instance.loadPrefs(), ThemeController.instance.load()])
+        .then((_) => setState(() => _ready = true));
   }
 
   @override

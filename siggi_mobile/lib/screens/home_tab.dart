@@ -3,7 +3,8 @@ import '../api.dart';
 import '../theme.dart';
 
 class HomeTab extends StatefulWidget {
-  const HomeTab({super.key});
+  final void Function(int tabIndex) onNavigate;
+  const HomeTab({super.key, required this.onNavigate});
   @override
   State<HomeTab> createState() => _HomeTabState();
 }
@@ -37,6 +38,7 @@ class _HomeTabState extends State<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return RefreshIndicator(
       onRefresh: _load,
       child: _loading
@@ -44,9 +46,9 @@ class _HomeTabState extends State<HomeTab> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const Text('Übersicht', style: TextStyle(color: textMain, fontSize: 24, fontWeight: FontWeight.w800)),
+                Text('Übersicht', style: TextStyle(color: c.text, fontSize: 24, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
-                const Text('Alles Wichtige auf einen Blick', style: TextStyle(color: textDim, fontSize: 13)),
+                Text('Alles Wichtige auf einen Blick', style: TextStyle(color: c.dim, fontSize: 13)),
                 const SizedBox(height: 20),
                 GridView.count(
                   crossAxisCount: 2,
@@ -56,35 +58,46 @@ class _HomeTabState extends State<HomeTab> {
                   crossAxisSpacing: 12,
                   childAspectRatio: 1.3,
                   children: [
-                    _statTile('📬', 'Posteingang', '${_counts['inbox'] ?? 0}', warn),
-                    _statTile('📞', 'Callbacks', '${_counts['callbacks'] ?? 0}', accent),
-                    _statTile('🎬', 'Reels-Freigabe', '${_pending.length}', good),
-                    _statTile('💡', 'Verbesserungen', '${_counts['improvements'] ?? 0}', accent2),
+                    _statTile('📬', 'Posteingang', '${_counts['inbox'] ?? 0}', warn, () => widget.onNavigate(3)),
+                    _statTile('📞', 'Callbacks', '${_counts['callbacks'] ?? 0}', accent, () => widget.onNavigate(3)),
+                    _statTile('🎬', 'Reels-Freigabe', '${_pending.length}', good, () => widget.onNavigate(2)),
+                    _statTile('💡', 'Verbesserungen', '${_counts['improvements'] ?? 0}', accent2, null),
                   ],
                 ),
                 const SizedBox(height: 20),
                 if (_upcoming.isNotEmpty) ...[
-                  const Text('Nächster Termin', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w700)),
+                  Text('Nächster Termin', style: TextStyle(color: c.text, fontSize: 16, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 10),
                   GlassCard(
+                    onTap: () => widget.onNavigate(3),
                     child: Row(children: [
                       const Icon(Icons.event, color: accent),
                       const SizedBox(width: 12),
                       Expanded(child: Text(_upcoming.first['summary']?.toString() ?? 'Termin',
-                          style: const TextStyle(color: textMain, fontWeight: FontWeight.w600))),
+                          style: TextStyle(color: c.text, fontWeight: FontWeight.w600))),
                     ]),
                   ),
                   const SizedBox(height: 20),
                 ],
-                const Text('Schnellzugriff', style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.w700)),
+                Text('Schnellzugriff', style: TextStyle(color: c.text, fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 10),
                 GlassCard(
-                  onTap: () {},
-                  child: const Row(children: [
-                    Icon(Icons.auto_awesome, color: accent2),
-                    SizedBox(width: 12),
-                    Expanded(child: Text('Mit Siggi chatten', style: TextStyle(color: textMain, fontWeight: FontWeight.w600))),
-                    Icon(Icons.chevron_right, color: textDim),
+                  onTap: () => widget.onNavigate(1),
+                  child: Row(children: [
+                    const Icon(Icons.auto_awesome, color: accent2),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Mit Siggi chatten', style: TextStyle(color: c.text, fontWeight: FontWeight.w600))),
+                    Icon(Icons.chevron_right, color: c.dim),
+                  ]),
+                ),
+                const SizedBox(height: 10),
+                GlassCard(
+                  onTap: () => widget.onNavigate(2),
+                  child: Row(children: [
+                    const Icon(Icons.movie_creation_outlined, color: good),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Reels & Bilder freigeben', style: TextStyle(color: c.text, fontWeight: FontWeight.w600))),
+                    Icon(Icons.chevron_right, color: c.dim),
                   ]),
                 ),
               ],
@@ -92,18 +105,17 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  Widget _statTile(String emoji, String label, String value, Color color) {
+  Widget _statTile(String emoji, String label, String value, Color color, VoidCallback? onTap) {
+    final c = context.colors;
     return GlassCard(
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(children: [
-            Text(emoji, style: const TextStyle(fontSize: 20)),
-            const Spacer(),
-          ]),
+          Text(emoji, style: const TextStyle(fontSize: 20)),
           Text(value, style: TextStyle(color: color, fontSize: 26, fontWeight: FontWeight.w800)),
-          Text(label, style: const TextStyle(color: textDim, fontSize: 12)),
+          Text(label, style: TextStyle(color: c.dim, fontSize: 12)),
         ],
       ),
     );
