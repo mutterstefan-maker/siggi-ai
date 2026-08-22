@@ -567,6 +567,15 @@ SIGGI_TOOLS = [
         }
     },
     {
+        'name': 'instagram_kommentieren',
+        'description': 'Antwortet auf den zuletzt per Mail gemeldeten neuen Instagram-Kommentar (siehe "Neuer Instagram-Kommentar"-Mails).',
+        'input_schema': {
+            'type': 'object',
+            'properties': {'text': {'type': 'string', 'description': 'Der Antworttext.'}},
+            'required': ['text']
+        }
+    },
+    {
         'name': 'desktop_agent_action',
         'description': (
             'Führt eine Aktion auf Stefans lokalem Windows-Desktop über den verbundenen Desktop-Agenten aus. '
@@ -740,6 +749,17 @@ def _run_siggi_tool_inner(name, tool_input):
             if not LINKEDIN_AVAILABLE:
                 return 'LinkedIn-Integration ist auf diesem Server nicht verfügbar.'
             return linkedin_engine.reply_to_comment(tool_input['text'])
+
+        if name == 'instagram_kommentieren':
+            if not INSTAGRAM_AVAILABLE:
+                return 'Instagram-Integration ist auf diesem Server nicht verfügbar.'
+            pending = _load_json_file(IG_PENDING_REPLY_PATH)
+            comment_id = pending.get('comment_id') if pending else None
+            if not comment_id:
+                return 'Kein offener Instagram-Kommentar zum Beantworten gefunden.'
+            result = instagram_engine.reply_to_comment(comment_id, tool_input['text'])
+            _save_json_file(IG_PENDING_REPLY_PATH, {})
+            return result
 
         if name == 'desktop_agent_action':
             if not DESKTOP_AVAILABLE:
@@ -1739,6 +1759,12 @@ def instagram_media(filename):
         return jsonify({'error': 'Nicht gefunden'}), 404
     return send_from_directory(os.path.dirname(path), os.path.basename(path))
 
+@app.route('/api/instagram/insights')
+def instagram_insights():
+    if not INSTAGRAM_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Instagram-Integration nicht verfügbar.'})
+    return jsonify(instagram_engine.get_posts_with_insights())
+
 @app.route('/api/instagram/post_now', methods=['POST'])
 def instagram_post_now():
     if not INSTAGRAM_AVAILABLE:
@@ -2189,6 +2215,106 @@ def _linkedin_comment_loop():
 
 
 threading.Thread(target=_linkedin_comment_loop, daemon=True).start()
+
+# ─── Instagram: neue Kommentare erkennen & Antwortvorschlag mailen ─────────
+# Gleiches Muster wie LinkedIn oben: kein Auto-Post (öffentlich sichtbar), stattdessen
+# Mail mit KI-Antwortvorschlag; Freigabe per Chat-Tool 'instagram_kommentieren'.
+
+IG_SEEN_COMMENTS_PATH = '/opt/stean/instagram_seen_comments.json'
+IG_PENDING_REPLY_PATH = '/opt/stean/instagram_pending_reply.json'
+
+
+def _load_json_file(path):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_json_file(path, data):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+
+def _suggest_instagram_reply(comment_text, settings):
+    api_key = settings.get('anthropic_api_key', '')
+    if not api_key:
+        return '(Kein API-Key konfiguriert - kein Vorschlag möglich.)'
+    try:
+        resp = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            json={
+                'model': 'claude-haiku-4-5-20251001',
+                'max_tokens': 200,
+                'system': 'Du bist SIGGI, der Assistent von Stefan Mutter (ChefBlick). Schreib eine kurze, freundliche, lockere Antwort auf einen Instagram-Kommentar. Max 2-3 Sätze, gerne 1 Emoji, keine Signatur.',
+                'messages': [{'role': 'user', 'content': f'Kommentar: {comment_text}'}]
+            },
+            timeout=20
+        )
+        return resp.json()['content'][0]['text'].strip()
+    except Exception as e:
+        return f'(Vorschlag fehlgeschlagen: {e})'
+
+
+def _check_instagram_comments():
+    if not INSTAGRAM_AVAILABLE or not instagram_engine.is_configured():
+        return
+    settings = load_settings()
+    seen_data = _load_json_file(IG_SEEN_COMMENTS_PATH)
+    seen = set(seen_data.get('ids', []))
+    new_seen = set(seen)
+
+    for media in instagram_engine.get_recent_media(5):
+        try:
+            comments = instagram_engine.fetch_comments_raw(media['id'])
+        except Exception as e:
+            print(f'[Instagram] Fehler beim Lesen der Kommentare: {e}')
+            continue
+
+        for c in comments:
+            cid = c.get('id')
+            if not cid or cid in seen:
+                continue
+            new_seen.add(cid)
+
+            suggestion = _suggest_instagram_reply(c.get('text', ''), settings)
+            body = (
+                f"Neuer Kommentar zu deinem Instagram-Post:\n\n"
+                f"\"{c.get('text', '')}\" — {c.get('username', 'jemand')}\n\n"
+                f"KI-Antwortvorschlag:\n\"{suggestion}\"\n\n"
+                f"Wenn dir der Vorschlag gefällt, sag mir im Chat einfach \"antworte auf Instagram mit: [Text]\"."
+            )
+            try:
+                send_new_mail(SIGGI_SEND_ACCOUNT, '💬 Neuer Instagram-Kommentar', body)
+                _save_json_file(IG_PENDING_REPLY_PATH, {'comment_id': cid, 'media_id': media['id']})
+            except Exception as e:
+                print(f'[Instagram] Mail-Fehler: {e}')
+
+    if new_seen != seen:
+        _save_json_file(IG_SEEN_COMMENTS_PATH, {'ids': list(new_seen)})
+
+
+def _instagram_comment_loop():
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_instagram_comment_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return
+
+    while True:
+        try:
+            _check_instagram_comments()
+        except Exception as e:
+            print(f'[Instagram] Kommentar-Loop-Fehler: {e}')
+        time.sleep(300)  # alle 5 Minuten
+
+
+threading.Thread(target=_instagram_comment_loop, daemon=True).start()
 
 # ─── Instagram: Auto-Post-Loop ─────────────────────────────────────────────
 

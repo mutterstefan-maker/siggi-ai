@@ -944,6 +944,9 @@ input:checked + .slider:before { transform: translateX(16px); }
         <div class="nav-item" data-view="topics">
           <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> Themen
         </div>
+        <div class="nav-item" data-view="reach">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span> Reichweite
+        </div>
       </div>
     </div>
 
@@ -1039,6 +1042,7 @@ let settings = {};
 const VIEW_TITLES = {
   dashboard: 'Dashboard',
   topics: 'Themen-Ideen',
+  reach: 'Reichweite',
   inbox: 'Posteingang',
   callbacks: 'Rückrufe',
   invoices: 'Rechnungen',
@@ -1136,6 +1140,10 @@ async function showView(view) {
   }
   if (view === 'topics') {
     renderTopics();
+    return;
+  }
+  if (view === 'reach') {
+    renderReach();
     return;
   }
   // spam handled by renderMailView
@@ -4183,6 +4191,7 @@ const DASH_SECTIONS = [
       { view: 'linkedin_pipeline', label: 'LinkedIn', icon: '💼', color: '#0a66c2' },
       { view: 'flyer_pipeline', label: 'Bild-Pipeline', icon: '🖼️', color: 'var(--accent)' },
       { view: 'topics', label: 'Themen', icon: '💭', color: 'var(--warning)' },
+      { view: 'reach', label: 'Reichweite', icon: '📈', color: '#e1306c' },
     ],
   },
   {
@@ -4325,6 +4334,55 @@ async function addTopic() {
 async function deleteTopic(id) {
   await apiFetch(`/api/topics/${id}/delete`, 'POST');
   renderTopics();
+}
+
+// ── Reichweite (Instagram Insights) ─────────────────────────────────────────
+
+async function renderReach() {
+  const content = document.getElementById('main-content');
+  content.style.cssText = 'display:block;overflow-y:auto;flex:1;height:calc(100vh - 56px);padding:0';
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const data = await apiFetch('/api/instagram/insights');
+  const posts = data?.posts || [];
+  const missingPermission = posts.some(p => p.insights_permission_missing);
+
+  const metricLabel = { reach: 'Reichweite', saved: 'Gespeichert', shares: 'Geteilt', total_interactions: 'Interaktionen', plays: 'Aufrufe', video_views: 'Video-Views' };
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      ${missingPermission ? `
+        <div class="settings-section" style="border-color:var(--warning)">
+          <h3>⚠️ Eingeschränkte Daten</h3>
+          <div style="font-size:12px;color:var(--text2)">
+            Likes und Kommentare werden angezeigt, aber echte Reichweite/Impressions/Gespeichert-Zahlen fehlen -
+            dafür braucht der Instagram-Token die zusätzliche Berechtigung <strong>instagram_manage_insights</strong>.
+            Diese muss einmalig über den Graph API Explorer neu autorisiert werden (wie beim ursprünglichen
+            Token-Setup), danach erscheinen die Zahlen hier automatisch.
+          </div>
+        </div>
+      ` : ''}
+      <div class="settings-section">
+        <h3>📈 REICHWEITE DER LETZTEN POSTS</h3>
+        ${posts.length ? posts.map(p => `
+          <div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+              <div style="font-weight:700;color:var(--text);font-size:13px">${escHtml(p.filename || '')}</div>
+              <div style="font-size:11px;color:var(--text3)">${formatDate(p.posted_at)}</div>
+            </div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap">
+              <div><span style="color:var(--danger);font-weight:800">${p.like_count ?? '–'}</span> <span style="color:var(--text3);font-size:11px">❤️ Likes</span></div>
+              <div><span style="color:var(--accent);font-weight:800">${p.comments_count ?? '–'}</span> <span style="color:var(--text3);font-size:11px">💬 Kommentare</span></div>
+              ${Object.entries(p.insights || {}).map(([k, v]) => `
+                <div><span style="color:var(--success);font-weight:800">${v}</span> <span style="color:var(--text3);font-size:11px">${escHtml(metricLabel[k] || k)}</span></div>
+              `).join('')}
+            </div>
+            ${p.permalink ? `<a href="${p.permalink}" target="_blank" style="font-size:11px;color:var(--accent);margin-top:8px;display:inline-block">Auf Instagram ansehen →</a>` : ''}
+          </div>
+        `).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Posts mit gespeicherter Media-ID (nur neue Posts ab jetzt werden erfasst).</div>'}
+      </div>
+    </div>
+  `;
 }
 
 // ── Mail-Entwürfe (Freigabe-Workflow) ───────────────────────────────────────

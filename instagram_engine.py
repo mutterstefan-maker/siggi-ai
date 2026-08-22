@@ -40,8 +40,12 @@ def init_ig_db():
         caption TEXT,
         status TEXT,
         error TEXT,
-        posted_at TEXT
+        posted_at TEXT,
+        media_id TEXT
     )''')
+    existing_cols = {row[1] for row in conn.execute('PRAGMA table_info(ig_posts)').fetchall()}
+    if 'media_id' not in existing_cols:
+        conn.execute('ALTER TABLE ig_posts ADD COLUMN media_id TEXT')
     conn.commit()
     conn.close()
 
@@ -163,11 +167,11 @@ def media_file_path(filename):
 
 # ─── History ─────────────────────────────────────────────────────────
 
-def _log_post(filename, caption, status, error=None):
+def _log_post(filename, caption, status, error=None, media_id=None):
     conn = sqlite3.connect(IG_DB_PATH)
     conn.execute(
-        'INSERT INTO ig_posts (filename, caption, status, error, posted_at) VALUES (?, ?, ?, ?, ?)',
-        (filename, caption, status, error, datetime.now().isoformat())
+        'INSERT INTO ig_posts (filename, caption, status, error, posted_at, media_id) VALUES (?, ?, ?, ?, ?, ?)',
+        (filename, caption, status, error, datetime.now().isoformat(), media_id)
     )
     conn.commit()
     conn.close()
@@ -181,6 +185,119 @@ def get_ig_history(limit=30):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ─── Insights / Reichweite ────────────────────────────────────────────
+
+INSIGHTS_METRICS = ['reach', 'saved', 'shares', 'total_interactions', 'plays', 'video_views']
+
+
+def _fetch_media_insight(media_id, access_token):
+    """Best-effort: die tieferen Insights-Metriken (Reichweite etc.) brauchen die
+    Meta-Berechtigung 'instagram_manage_insights', die der aktuelle Token evtl. nicht
+    hat (Fehlercode #10). like_count/comments_count funktionieren immer schon mit dem
+    Basis-Content-Publish-Token."""
+    result = {}
+    try:
+        basic = req.get(
+            f'{GRAPH_BASE}/{media_id}',
+            params={'fields': 'like_count,comments_count,permalink,media_type,timestamp', 'access_token': access_token},
+            timeout=15
+        ).json()
+        result.update({k: v for k, v in basic.items() if k != 'id'})
+    except Exception as e:
+        result['basic_error'] = str(e)
+
+    insights = {}
+    missing_permission = False
+    for metric in INSIGHTS_METRICS:
+        try:
+            resp = req.get(
+                f'{GRAPH_BASE}/{media_id}/insights',
+                params={'metric': metric, 'access_token': access_token},
+                timeout=15
+            )
+            data = resp.json()
+            if resp.ok and data.get('data'):
+                insights[metric] = data['data'][0]['values'][0]['value']
+            elif data.get('error', {}).get('code') == 10:
+                missing_permission = True
+        except Exception:
+            pass
+    result['insights'] = insights
+    result['insights_permission_missing'] = missing_permission and not insights
+    return result
+
+
+def get_recent_media(limit=5):
+    """Zuletzt geposteten Bild-/Reel-Media-IDs (für die Kommentar-Überwachung)."""
+    cfg = _graph_config()
+    if not is_configured():
+        return []
+    try:
+        resp = req.get(
+            f'{GRAPH_BASE}/{cfg["ig_user_id"]}/media',
+            params={'fields': 'id,timestamp,permalink', 'limit': limit, 'access_token': cfg['access_token']},
+            timeout=15
+        )
+        return resp.json().get('data', [])
+    except Exception as e:
+        print(f'[Instagram] Konnte letzte Medien nicht laden: {e}')
+        return []
+
+
+def fetch_comments_raw(media_id):
+    """Rohe Kommentarliste eines Posts (id, text, timestamp, username)."""
+    cfg = _graph_config()
+    resp = req.get(
+        f'{GRAPH_BASE}/{media_id}/comments',
+        params={'fields': 'id,text,timestamp,username', 'access_token': cfg['access_token']},
+        timeout=15
+    )
+    resp.raise_for_status()
+    return resp.json().get('data', [])
+
+
+def reply_to_comment(comment_id, text):
+    """Antwortet als Kommentar-Reply auf einen bestehenden Instagram-Kommentar."""
+    cfg = _graph_config()
+    if not is_configured():
+        return 'Instagram ist nicht konfiguriert.'
+    try:
+        resp = req.post(
+            f'{GRAPH_BASE}/{comment_id}/replies',
+            data={'message': text, 'access_token': cfg['access_token']},
+            timeout=20
+        )
+        data = resp.json()
+        if resp.ok and 'id' in data:
+            return 'Antwort auf Instagram gepostet.'
+        return f'Antwort fehlgeschlagen: {data}'
+    except Exception as e:
+        return f'Antwort fehlgeschlagen: {e}'
+
+
+def get_posts_with_insights(limit=10):
+    """Reichweiten-Übersicht für die zuletzt geposteten Bilder - kombiniert aus
+    ig_posts (Bild-Feed) und reels_engine.reels_posts (Reels/Stories)."""
+    cfg = _graph_config()
+    if not is_configured():
+        return {'success': False, 'error': 'Instagram nicht konfiguriert.'}
+
+    conn = sqlite3.connect(IG_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT filename, media_id, posted_at, 'image' AS kind FROM ig_posts "
+        "WHERE status='posted' AND media_id IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+
+    posts = []
+    for row in rows:
+        item = dict(row)
+        item.update(_fetch_media_insight(row['media_id'], cfg['access_token']))
+        posts.append(item)
+    return {'success': True, 'posts': posts}
 
 
 # ─── Graph API ──────────────────────────────────────────────────────
@@ -306,7 +423,13 @@ def _generate_caption_from_filename(filename, default_caption=''):
 
 Vorgaben:
 - 2-4 Saetze, locker und direkt, kein Marketing-Geschwaetz
-- Am Ende 3-5 passende Hashtags
+- Letzter Satz vor den Hashtags ist eine kurze Frage oder Aufforderung, die zum Kommentieren
+  anregt (z.B. "Kennst du das auch?", "Was ist dein groesster Zeitfresser im Business?") -
+  Kommentare erhoehen die Reichweite im Instagram-Algorithmus
+- Danach 8-12 Hashtags auf einer eigenen Zeile: Mischung aus 2-3 sehr breiten/reichweitenstarken
+  (z.B. #Unternehmer, #Digitalisierung), einigen mittelgrossen themenbezogenen und 2-3 kleinen/
+  lokalen bzw. markenspezifischen (z.B. #Oberbayern, #ChefblickDe) - nicht nur generische
+  Mega-Hashtags, die in der Masse untergehen
 - Antworte NUR mit dem fertigen Text, keine Erklaerungen, keine Anfuehrungszeichen drumherum"""
 
     try:
@@ -350,7 +473,7 @@ def post_next_in_queue(public_base_url):
     result = _publish_image(image_url, caption)
 
     if result['success']:
-        _log_post(filename, caption, 'posted')
+        _log_post(filename, caption, 'posted', media_id=result.get('media_id'))
 
         fb_result = _publish_to_facebook_page(image_url, caption)
         if not fb_result['success']:

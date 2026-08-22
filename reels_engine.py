@@ -51,8 +51,12 @@ def init_reels_db():
         caption TEXT,
         status TEXT,
         error TEXT,
-        posted_at TEXT
+        posted_at TEXT,
+        media_id TEXT
     )''')
+    existing_cols = {row[1] for row in conn.execute('PRAGMA table_info(reels_posts)').fetchall()}
+    if 'media_id' not in existing_cols:
+        conn.execute('ALTER TABLE reels_posts ADD COLUMN media_id TEXT')
     conn.commit()
     conn.close()
 
@@ -203,11 +207,11 @@ def media_file_path(filename):
 
 # ─── History ─────────────────────────────────────────────────────────
 
-def _log_post(filename, caption, status, error=None):
+def _log_post(filename, caption, status, error=None, media_id=None):
     conn = sqlite3.connect(REELS_DB_PATH)
     conn.execute(
-        'INSERT INTO reels_posts (filename, caption, status, error, posted_at) VALUES (?, ?, ?, ?, ?)',
-        (filename, caption, status, error, datetime.now().isoformat())
+        'INSERT INTO reels_posts (filename, caption, status, error, posted_at, media_id) VALUES (?, ?, ?, ?, ?, ?)',
+        (filename, caption, status, error, datetime.now().isoformat(), media_id)
     )
     conn.commit()
     conn.close()
@@ -478,7 +482,7 @@ def post_next_reel_in_queue(public_base_url):
     result = _publish_reel(video_url, caption)
 
     if result['success']:
-        _log_post(filename, caption, 'posted')
+        _log_post(filename, caption, 'posted', media_id=result.get('media_id'))
         src = os.path.join(pool_dir(), filename)
         dst = os.path.join(posted_dir(), filename)
         try:
