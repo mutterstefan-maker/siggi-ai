@@ -132,32 +132,66 @@ body {
 .dash-stat {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px;
+  border-radius: 16px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
-.dash-stat .value { font-size: 26px; font-weight: 800; font-family: var(--font-mono); }
-.dash-stat .label { font-size: 12px; color: var(--text3); margin-top: 4px; }
+.dash-stat .stat-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.dash-stat .value { font-size: 22px; font-weight: 800; font-family: var(--font-mono); line-height: 1.1; }
+.dash-stat .label { font-size: 11px; color: var(--text3); margin-top: 2px; }
+
+.dash-section { margin-bottom: 26px; }
+.dash-section-title {
+  font-size: 12px; font-weight: 700; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.dash-section-title .line { flex: 1; height: 1px; background: var(--border); }
+.dash-row { display: flex; flex-wrap: wrap; gap: 12px; }
+
 .dash-tile {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 14px;
+  border-radius: 16px;
+  padding: 16px 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.18s;
   text-align: center;
+  width: 118px;
+  flex-shrink: 0;
+  position: relative;
 }
-.dash-tile:hover { background: var(--surface2); border-color: var(--accent); transform: translateY(-2px); }
+.dash-tile:hover { background: var(--surface2); border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+.dash-tile.attention { border-color: var(--danger); }
 .dash-tile .icon-wrap {
-  width: 44px; height: 44px;
-  border-radius: 12px;
+  width: 46px; height: 46px;
+  border-radius: 13px;
   display: flex; align-items: center; justify-content: center;
   margin: 0 auto 10px;
+  position: relative;
 }
+.dash-tile.attention .icon-wrap { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 35%, transparent); }
 .dash-tile .label { font-size: 12px; font-weight: 700; color: var(--text); }
 .dash-tile .tile-badge {
-  display: inline-block; margin-top: 4px;
-  background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
-  padding: 1px 7px; border-radius: 20px; font-family: var(--font-mono);
+  position: absolute; top: 8px; right: 8px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  background: var(--danger); color: #fff; font-size: 10px; font-weight: 800;
+  border-radius: 20px; font-family: var(--font-mono);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 0 2px var(--surface);
+  animation: dashPulse 2s ease-in-out infinite;
+}
+@keyframes dashPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
 }
 .nav-group-count {
   background: var(--surface2);
@@ -4124,19 +4158,40 @@ function updateNavGroupCounts() {
 
 // ── Dashboard (Startseite mit Kacheln) ──────────────────────────────────────
 
-const DASH_TILES = [
-  { view: 'inbox', label: 'Posteingang', icon: '📬', color: 'var(--accent)' },
-  { view: 'contacts', label: 'Kontakte', icon: '👥', color: 'var(--accent2)' },
-  { view: 'mail_drafts', label: 'Mail-Freigabe', icon: '✅', color: 'var(--success)' },
-  { view: 'instagram', label: 'Instagram', icon: '📷', color: '#e1306c' },
-  { view: 'linkedin_pipeline', label: 'LinkedIn', icon: '💼', color: '#0a66c2' },
-  { view: 'flyer_pipeline', label: 'Bild-Pipeline', icon: '🖼️', color: 'var(--accent)' },
-  { view: 'audit', label: 'Website Audit', icon: '🔍', color: 'var(--warning)' },
-  { view: 'stats', label: 'Statistik', icon: '📊', color: 'var(--success)' },
-  { view: 'security', label: 'Sicherheit', icon: '🛡️', color: 'var(--danger)' },
-  { view: 'improvements', label: 'Selbstverbesserung', icon: '💡', color: 'var(--warning)' },
-  { view: 'jarvis', label: 'SIGGI Chat', icon: '🤖', color: 'var(--accent)' },
-  { view: 'settings', label: 'Einstellungen', icon: '⚙️', color: 'var(--text3)' },
+const DASH_SECTIONS = [
+  {
+    title: 'Mail',
+    tiles: [
+      { view: 'inbox', label: 'Posteingang', icon: '📬', color: 'var(--accent)' },
+      { view: 'mail_drafts', label: 'Mail-Freigabe', icon: '✅', color: 'var(--success)' },
+      { view: 'callbacks', label: 'Rückrufe', icon: '📞', color: 'var(--warning)' },
+      { view: 'contacts', label: 'Kontakte', icon: '👥', color: 'var(--accent2)' },
+    ],
+  },
+  {
+    title: 'Social',
+    tiles: [
+      { view: 'instagram', label: 'Instagram', icon: '📷', color: '#e1306c' },
+      { view: 'linkedin_pipeline', label: 'LinkedIn', icon: '💼', color: '#0a66c2' },
+      { view: 'flyer_pipeline', label: 'Bild-Pipeline', icon: '🖼️', color: 'var(--accent)' },
+    ],
+  },
+  {
+    title: 'Tools',
+    tiles: [
+      { view: 'audit', label: 'Website Audit', icon: '🔍', color: 'var(--warning)' },
+      { view: 'stats', label: 'Statistik', icon: '📊', color: 'var(--success)' },
+      { view: 'security', label: 'Sicherheit', icon: '🛡️', color: 'var(--danger)' },
+      { view: 'improvements', label: 'Verbesserung', icon: '💡', color: 'var(--warning)' },
+    ],
+  },
+  {
+    title: 'Sonstiges',
+    tiles: [
+      { view: 'jarvis', label: 'SIGGI Chat', icon: '🤖', color: 'var(--accent)' },
+      { view: 'settings', label: 'Einstellungen', icon: '⚙️', color: 'var(--text3)' },
+    ],
+  },
 ];
 
 async function renderDashboard() {
@@ -4162,25 +4217,32 @@ async function renderDashboard() {
         <div style="font-size:13px;color:var(--text3);margin-top:2px">Alles Wichtige auf einen Blick</div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:28px">
-        <div class="dash-stat"><div class="value" style="color:var(--accent)">${counts.inbox || 0}</div><div class="label">Posteingang</div></div>
-        <div class="dash-stat"><div class="value" style="color:var(--warning)">${counts.callbacks || 0}</div><div class="label">Rückrufe</div></div>
-        <div class="dash-stat"><div class="value" style="color:var(--success)">${draftCount}</div><div class="label">Mails zur Freigabe</div></div>
-        <div class="dash-stat"><div class="value" style="color:var(--accent2)">${counts.improvements || 0}</div><div class="label">Verbesserungsvorschläge</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:32px">
+        <div class="dash-stat"><div class="stat-icon" style="background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent)">📬</div><div><div class="value">${counts.inbox || 0}</div><div class="label">Posteingang</div></div></div>
+        <div class="dash-stat"><div class="stat-icon" style="background:color-mix(in srgb, var(--warning) 18%, transparent);color:var(--warning)">📞</div><div><div class="value">${counts.callbacks || 0}</div><div class="label">Rückrufe</div></div></div>
+        <div class="dash-stat"><div class="stat-icon" style="background:color-mix(in srgb, var(--success) 18%, transparent);color:var(--success)">✅</div><div><div class="value">${draftCount}</div><div class="label">Mails zur Freigabe</div></div></div>
+        <div class="dash-stat"><div class="stat-icon" style="background:color-mix(in srgb, var(--accent2) 18%, transparent);color:var(--accent2)">💡</div><div><div class="value">${counts.improvements || 0}</div><div class="label">Verbesserungsvorschläge</div></div></div>
       </div>
 
-      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Schnellzugriff</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px">
-        ${DASH_TILES.map(t => `
-          <div class="dash-tile" onclick="showView('${t.view}')">
-            <div class="icon-wrap" style="background:color-mix(in srgb, ${t.color} 18%, transparent)">
-              <span style="font-size:20px">${t.icon}</span>
-            </div>
-            <div class="label">${t.label}</div>
-            ${badgeFor(t.view) ? `<div class="tile-badge">${badgeFor(t.view)}</div>` : ''}
+      ${DASH_SECTIONS.map(section => `
+        <div class="dash-section">
+          <div class="dash-section-title"><span>${section.title}</span><span class="line"></span></div>
+          <div class="dash-row">
+            ${section.tiles.map(t => {
+              const n = badgeFor(t.view);
+              return `
+                <div class="dash-tile ${n ? 'attention' : ''}" onclick="showView('${t.view}')">
+                  <div class="icon-wrap" style="background:color-mix(in srgb, ${t.color} 18%, transparent)">
+                    <span style="font-size:20px">${t.icon}</span>
+                    ${n ? `<div class="tile-badge">${n}</div>` : ''}
+                  </div>
+                  <div class="label">${t.label}</div>
+                </div>
+              `;
+            }).join('')}
           </div>
-        `).join('')}
-      </div>
+        </div>
+      `).join('')}
     </div>
   `;
 }
