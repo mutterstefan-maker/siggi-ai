@@ -17,7 +17,7 @@ import audit_pdf
 import self_improve_engine
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
-app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB, genug für Base64-kodierte Flyer-Bilder
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB, genug für Base64-kodierte Reel-Videos (Bilder brauchen nur einen Bruchteil davon)
 CORS(app, origins=['https://stean.info', 'https://www.stean.info'])
 
 from flask import session, redirect
