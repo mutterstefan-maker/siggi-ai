@@ -2646,12 +2646,15 @@ async function postReelNow() {
 async function uploadReel(input) {
   const file = input.files[0];
   if (!file) return;
+  showToast('Lade ' + file.name + ' hoch (' + Math.round(file.size / 1024 / 1024) + ' MB, kann bei großen Videos einige Minuten dauern)...', 'info');
   const reader = new FileReader();
   reader.onload = async (e) => {
     const base64 = e.target.result.split(',')[1];
     const result = await apiFetch('/api/instagram/reels/upload', 'POST', { filename: file.name, data: base64 });
     if (result && result.success) { showToast(file.name + ' hochgeladen', 'success'); renderInstagram(); }
+    else { showToast('Upload fehlgeschlagen: ' + (result && result.error || 'Verbindung/Zeitlimit - Video evtl. zu groß oder zu langsame Verbindung'), 'error'); }
   };
+  reader.onerror = () => showToast('Datei konnte nicht gelesen werden.', 'error');
   reader.readAsDataURL(file);
 }
 
@@ -4500,10 +4503,15 @@ async function apiFetch(url, method = 'GET', body = null) {
     };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(API + url, opts);
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) {}
+      return { success: false, error: msg };
+    }
     return await res.json();
   } catch (e) {
     console.error(e);
-    return null;
+    return { success: false, error: e.message || 'Netzwerkfehler' };
   }
 }
 
@@ -4517,9 +4525,9 @@ function showToast(msg, type = 'success') {
   const t = document.getElementById('toasts');
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  el.textContent = (type === 'success' ? '✓ ' : '✗ ') + msg;
+  el.textContent = (type === 'success' ? '✓ ' : type === 'info' ? 'ℹ️ ' : '✗ ') + msg;
   t.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), type === 'info' ? 6000 : 3000);
 }
 
 function cleanFrom(from) {
