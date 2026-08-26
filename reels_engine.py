@@ -198,7 +198,10 @@ def media_file_path(filename):
     """Sucht sowohl in der postbaren Warteschlange als auch bei den zur Freigabe
     wartenden Reels, damit die Vorschau in beiden Ansichten funktioniert."""
     filename = _safe_filename(filename)
-    for d in (pool_dir(), pending_dir()):
+    # posted_dir() gehört mit dazu, weil das Video dorthin verschoben wird, BEVOR der
+    # Facebook-Cross-Post läuft, der dieselbe video_url erneut abruft (Meta lädt sie
+    # asynchron nach) - ohne das würde der FB-Post nach dem Verschieben 404 bekommen.
+    for d in (pool_dir(), pending_dir(), posted_dir()):
         path = os.path.join(d, filename)
         if os.path.exists(path):
             return path
@@ -415,6 +418,26 @@ def is_configured():
     return instagram_engine.is_configured()
 
 
+def _publish_to_facebook_page(video_url, caption):
+    """Postet dasselbe Video als Feed-Video auf die verknüpfte Facebook-Seite,
+    analog zu instagram_engine._publish_to_facebook_page() für Bilder."""
+    cfg = instagram_engine._graph_config()
+    if not cfg['fb_page_id']:
+        return {'success': False, 'error': 'Keine fb_page_id in den Instagram-Einstellungen hinterlegt.'}
+    try:
+        resp = req.post(
+            f"{GRAPH_BASE}/{cfg['fb_page_id']}/videos",
+            data={'file_url': video_url, 'description': caption, 'access_token': cfg['access_token']},
+            timeout=60
+        )
+        data = resp.json()
+        if not resp.ok or 'id' not in data:
+            return {'success': False, 'error': f'Facebook-Video-Post fehlgeschlagen: {data}'}
+        return {'success': True, 'post_id': data['id']}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 def _publish_reel(video_url, caption):
     """Postet als Instagram-Story (24h, kein Feed-Eintrag) statt als dauerhaftes Feed-Reel -
     Stories zeigen keine Caption an, daher wird sie nur für die Historie generiert/geloggt."""
@@ -494,7 +517,11 @@ def post_next_reel_in_queue(public_base_url):
         rs = settings.setdefault('reels_settings', {})
         rs['last_posted'] = datetime.now().isoformat()
         _save_settings(settings)
-        return {'success': True, 'filename': filename}
+
+        fb_result = _publish_to_facebook_page(video_url, caption)
+        if not fb_result['success']:
+            print(f"[Facebook] Reel-Cross-Post fehlgeschlagen: {fb_result.get('error')}")
+        return {'success': True, 'filename': filename, 'facebook_posted': fb_result['success']}
     else:
         _log_post(filename, caption, 'error', result.get('error'))
         return {'success': False, 'error': result.get('error')}
