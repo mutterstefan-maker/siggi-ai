@@ -2647,15 +2647,17 @@ async function uploadReel(input) {
   const file = input.files[0];
   if (!file) return;
   showToast('Lade ' + file.name + ' hoch (' + Math.round(file.size / 1024 / 1024) + ' MB, kann bei großen Videos einige Minuten dauern)...', 'info');
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    const base64 = e.target.result.split(',')[1];
-    const result = await apiFetch('/api/instagram/reels/upload', 'POST', { filename: file.name, data: base64 });
-    if (result && result.success) { showToast(file.name + ' hochgeladen', 'success'); renderInstagram(); }
-    else { showToast('Upload fehlgeschlagen: ' + (result && result.error || 'Verbindung/Zeitlimit - Video evtl. zu groß oder zu langsame Verbindung'), 'error'); }
-  };
-  reader.onerror = () => showToast('Datei konnte nicht gelesen werden.', 'error');
-  reader.readAsDataURL(file);
+  try {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const res = await fetch(API + '/api/instagram/reels/upload', { method: 'POST', body: form });
+    let result;
+    try { result = await res.json(); } catch (_) { result = null; }
+    if (res.ok && result && result.success) { showToast(file.name + ' hochgeladen', 'success'); renderInstagram(); }
+    else { showToast('Upload fehlgeschlagen: ' + (result && result.error || ('HTTP ' + res.status)), 'error'); }
+  } catch (e) {
+    showToast('Upload fehlgeschlagen: ' + (e.message || 'Netzwerkfehler'), 'error');
+  }
 }
 
 async function deleteReel(filename) {

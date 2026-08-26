@@ -1809,6 +1809,14 @@ def reels_upload_route():
     if not REELS_AVAILABLE:
         return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
     try:
+        # Multipart-Upload (echte Datei, kein Base64) - vermeidet den ~33% Overhead
+        # und die Browser-seitige "allocation size overflow"-Grenze beim Umwandeln
+        # großer Videos (100+ MB) in einen riesigen Base64-String.
+        if 'file' in request.files:
+            f = request.files['file']
+            result = reels_engine.save_uploaded_reel(f.filename, f.read())
+            return jsonify(result)
+        # Alte Base64-JSON-Variante bleibt als Fallback für kleine Dateien bestehen.
         data = request.get_json() or {}
         filename = data.get('filename', '')
         b64 = data.get('data', '')
