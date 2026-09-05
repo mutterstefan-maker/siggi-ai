@@ -244,10 +244,31 @@ def init_mail_drafts_table():
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         decided_at DATETIME
     )''')
+    existing_cols = {row[1] for row in c.execute('PRAGMA table_info(mail_drafts)').fetchall()}
+    if 'reject_reason' not in existing_cols:
+        c.execute('ALTER TABLE mail_drafts ADD COLUMN reject_reason TEXT')
     conn.commit()
     conn.close()
 
 init_mail_drafts_table()
+
+
+def get_recent_mail_draft_feedback(limit=6):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT subject, reject_reason FROM mail_drafts WHERE status='rejected' AND reject_reason IS NOT NULL "
+        "AND reject_reason != '' ORDER BY decided_at DESC LIMIT ?", (limit,)
+    )
+    rows = c.fetchall()
+    conn.close()
+    if not rows:
+        return ''
+    lines = [f"- Mail-Entwurf \"{subj}\" wurde abgelehnt. Grund: {reason}" for subj, reason in rows]
+    return (
+        "\n\nWICHTIG - FEEDBACK ZU FRUEHEREN ABGELEHNTEN MAIL-ENTWUERFEN (beruecksichtigen, "
+        "wenn du neue Mail-Entwuerfe verfasst):\n" + '\n'.join(lines)
+    )
 
 def init_contacts_table():
     conn = sqlite3.connect(DB_PATH)
@@ -942,6 +963,7 @@ def jarvis_chat():
         # Add Chat History & Memories
         system_prompt += get_chat_context(3)
         system_prompt += get_siggi_memories()
+        system_prompt += get_recent_mail_draft_feedback()
         system_prompt += "\n" + memory_engine.get_memory_context()
         system_prompt += "\n" + memory_engine.get_upcoming_reminders()
         if GSC_AVAILABLE:
@@ -1122,7 +1144,11 @@ def reject_mail_draft(draft_id):
         conn.close()
         return jsonify({'error': 'Entwurf nicht gefunden oder bereits entschieden'}), 404
 
-    c.execute("UPDATE mail_drafts SET status='rejected', decided_at=datetime('now') WHERE id=?", (draft_id,))
+    reason = (request.json or {}).get('reason', '')
+    c.execute(
+        "UPDATE mail_drafts SET status='rejected', decided_at=datetime('now'), reject_reason=? WHERE id=?",
+        (reason, draft_id)
+    )
     conn.commit()
     conn.close()
     register_mail_decision('rejected')
@@ -1293,13 +1319,25 @@ def linkedin_pipeline_generate():
 def linkedin_pipeline_approve(draft_id):
     if not LINKEDIN_PIPELINE_AVAILABLE:
         return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
-    return jsonify(linkedin_pipeline_engine.approve_draft(draft_id))
+    data = request.json or {}
+    return jsonify(linkedin_pipeline_engine.approve_draft(
+        draft_id, rating=data.get('rating'), tags=data.get('tags'), comment=data.get('comment')
+    ))
 
 @app.route('/api/linkedin/pipeline/drafts/<int:draft_id>/reject', methods=['POST'])
 def linkedin_pipeline_reject(draft_id):
     if not LINKEDIN_PIPELINE_AVAILABLE:
         return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
-    return jsonify(linkedin_pipeline_engine.reject_draft(draft_id))
+    data = request.json or {}
+    return jsonify(linkedin_pipeline_engine.reject_draft(
+        draft_id, rating=data.get('rating'), tags=data.get('tags'), comment=data.get('comment')
+    ))
+
+@app.route('/api/linkedin/pipeline/stats')
+def linkedin_pipeline_stats():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.get_feedback_stats())
 
 @app.route('/api/instagram/flyer-pipeline/pending')
 def flyer_pipeline_pending():

@@ -3482,8 +3482,8 @@ async function renderLinkedinPipeline() {
           <div style="display:flex;align-items:center;gap:10px;white-space:nowrap">
             <span style="color:${m.color};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px">${m.icon} ${m.label}</span>
             ${showActions ? `
-              <button class="btn btn-ghost" style="font-size:11px" onclick="rejectLinkedinDraft(${d.id})">Ablehnen</button>
-              <button class="btn btn-primary" style="font-size:11px" onclick="approveLinkedinDraft(${d.id})">Freigeben & Posten</button>
+              <button class="btn btn-ghost" style="font-size:11px" onclick="openLinkedinFeedback(${d.id}, 'reject')">Ablehnen</button>
+              <button class="btn btn-primary" style="font-size:11px" onclick="openLinkedinFeedback(${d.id}, 'approve')">Freigeben & Posten</button>
             ` : ''}
           </div>
         </div>
@@ -3515,6 +3515,7 @@ async function renderLinkedinPipeline() {
         ${history.length ? history.map(d => renderCard(d, false)).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
       </div>
     </div>
+    <div id="linkedin-feedback-modal"></div>
   `;
 }
 
@@ -3530,20 +3531,81 @@ async function generateLinkedinDraft() {
   }
 }
 
-async function approveLinkedinDraft(id) {
-  const res = await apiFetch(`/api/linkedin/pipeline/drafts/${id}/approve`, 'POST');
+const LINKEDIN_RATINGS = [
+  { key: 'gut', label: 'Gut', emoji: '👍' },
+  { key: 'okay', label: 'Okay', emoji: '🤏' },
+  { key: 'schlecht', label: 'Schlecht', emoji: '👎' },
+  { key: 'quatsch', label: 'Quatsch', emoji: '🚫' },
+];
+const LINKEDIN_TAGS = ['Immer gleicher Aufbau', 'Zu werblich/Verkaufssprech', 'Zu lang', 'Zu kurz/oberflaechlich', 'Thema wiederholt sich', 'Hashtags unpassend', 'Ton passt nicht zu mir', 'Frage am Ende wirkt aufgesetzt'];
+let linkedinFeedbackState = { id: null, action: null, rating: null, tags: [] };
+
+function openLinkedinFeedback(id, action) {
+  linkedinFeedbackState = { id, action, rating: null, tags: [] };
+  renderLinkedinFeedbackModal();
+}
+
+function renderLinkedinFeedbackModal() {
+  const modal = document.getElementById('linkedin-feedback-modal');
+  if (!modal) return;
+  const s = linkedinFeedbackState;
+  if (s.id === null) { modal.innerHTML = ''; return; }
+
+  modal.innerHTML = `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000" onclick="if(event.target===this) closeLinkedinFeedback()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;width:420px;max-width:92vw">
+        <div style="font-weight:700;color:var(--text);margin-bottom:12px">Wie ist dieser Post?</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          ${LINKEDIN_RATINGS.map(r => `
+            <button class="btn ${s.rating === r.key ? 'btn-primary' : 'btn-ghost'}" style="font-size:12px" onclick="setLinkedinRating('${r.key}')">${r.emoji} ${r.label}</button>
+          `).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Optional: Was soll sich verbessern?</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          ${LINKEDIN_TAGS.map(t => `
+            <button class="btn ${s.tags.includes(t) ? 'btn-primary' : 'btn-ghost'}" style="font-size:11px;padding:4px 10px" onclick="toggleLinkedinTag('${t.replace(/'/g, "\\'")}')">${t}</button>
+          `).join('')}
+        </div>
+        <textarea id="linkedin-feedback-comment" placeholder="Kurzer Kommentar (optional)" style="width:100%;min-height:60px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:12px;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="closeLinkedinFeedback()">Abbrechen</button>
+          <button class="btn btn-primary" onclick="submitLinkedinFeedback()">${s.action === 'approve' ? 'Freigeben & Posten' : 'Ablehnen'} & Feedback senden</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function setLinkedinRating(key) {
+  linkedinFeedbackState.rating = key;
+  renderLinkedinFeedbackModal();
+}
+
+function toggleLinkedinTag(tag) {
+  const i = linkedinFeedbackState.tags.indexOf(tag);
+  if (i === -1) linkedinFeedbackState.tags.push(tag); else linkedinFeedbackState.tags.splice(i, 1);
+  renderLinkedinFeedbackModal();
+}
+
+function closeLinkedinFeedback() {
+  linkedinFeedbackState = { id: null, action: null, rating: null, tags: [] };
+  const modal = document.getElementById('linkedin-feedback-modal');
+  if (modal) modal.innerHTML = '';
+}
+
+async function submitLinkedinFeedback() {
+  const s = linkedinFeedbackState;
+  const comment = document.getElementById('linkedin-feedback-comment')?.value || '';
+  const endpoint = s.action === 'approve' ? 'approve' : 'reject';
+  const res = await apiFetch(`/api/linkedin/pipeline/drafts/${s.id}/${endpoint}`, 'POST', {
+    rating: s.rating, tags: s.tags, comment
+  });
+  closeLinkedinFeedback();
   if (res?.success) {
-    showToast('Auf LinkedIn veröffentlicht', 'success');
+    showToast(s.action === 'approve' ? 'Auf LinkedIn veröffentlicht' : 'Abgelehnt', 'success');
   } else {
     showToast(res?.message || res?.error || 'Fehlgeschlagen', 'error');
   }
-  renderLinkedinPipeline();
-  loadCounts();
-}
-
-async function rejectLinkedinDraft(id) {
-  await apiFetch(`/api/linkedin/pipeline/drafts/${id}/reject`, 'POST');
-  showToast('Abgelehnt', 'success');
   renderLinkedinPipeline();
   loadCounts();
 }
@@ -4487,7 +4549,8 @@ async function approveDraft(id) {
 }
 
 async function rejectDraft(id) {
-  const res = await apiFetch(`/api/mail-drafts/${id}/reject`, 'POST');
+  const reason = prompt('Warum lehnst du diesen Entwurf ab? (optional, hilft Siggi sich zu verbessern)') || '';
+  const res = await apiFetch(`/api/mail-drafts/${id}/reject`, 'POST', { reason });
   if (res?.success) {
     showToast('Entwurf verworfen');
     renderMailDrafts();
