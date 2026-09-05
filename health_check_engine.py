@@ -91,10 +91,18 @@ def _c_openai(settings):
     if not key:
         return False, 'Kein OpenAI-Key hinterlegt'
     try:
-        r = requests.get('https://api.openai.com/v1/models', headers={'Authorization': f'Bearer {key}'}, timeout=20)
+        # bewusst ein winziger ECHTER Billing-Call (nicht /v1/models - das
+        # funktioniert auch bei 0 Guthaben, weil reines Auflisten nichts kostet
+        # und daher ein leeres Konto nicht erkennen wuerde)
+        r = requests.post(
+            'https://api.openai.com/v1/embeddings',
+            headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'},
+            json={'model': 'text-embedding-3-small', 'input': 'health-check'},
+            timeout=20,
+        )
         if r.status_code == 200:
             return True, 'OK'
-        if 'insufficient_quota' in r.text or 'credit' in r.text.lower():
+        if 'insufficient_quota' in r.text or 'credit_balance_exhausted' in r.text:
             return False, 'OpenAI-Guthaben aufgebraucht - Bildgenerierung betroffen, alles andere laeuft weiter'
         return False, f'API-Fehler {r.status_code}: {r.text[:150]}'
     except Exception as e:
