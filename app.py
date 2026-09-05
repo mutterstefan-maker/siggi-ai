@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import audit_engine as audit_eng
 import audit_pdf
 import self_improve_engine
+import health_check_engine
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB, genug für Base64-kodierte Reel-Videos (Bilder brauchen nur einen Bruchteil davon)
@@ -303,6 +304,7 @@ def init_actions_log_table():
 
 init_actions_log_table()
 self_improve_engine.init_table()
+health_check_engine.init_table()
 
 def log_siggi_action(tool, tool_input, output):
     try:
@@ -1484,6 +1486,18 @@ def api_improvements_dismiss(suggestion_id):
     if not ok:
         return jsonify({'error': 'Vorschlag nicht gefunden'}), 404
     return jsonify({'success': True})
+
+@app.route('/api/health-check')
+def api_health_check_latest():
+    return jsonify({'latest': health_check_engine.get_latest(), 'history': health_check_engine.get_history()})
+
+@app.route('/api/health-check/run', methods=['POST'])
+def api_health_check_run():
+    try:
+        result = health_check_engine.run_health_check()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def _run_audit_background(audit_id, url):
     conn = sqlite3.connect(DB_PATH)

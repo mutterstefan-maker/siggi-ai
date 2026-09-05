@@ -971,6 +971,10 @@ input:checked + .slider:before { transform: translateX(16px); }
           <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg></span> Selbstverbesserung
           <span class="badge warn" id="badge-improvements" style="display:none">0</span>
         </div>
+        <div class="nav-item" data-view="health_check">
+          <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span> Health-Check
+          <span class="badge danger" id="badge-health_check" style="display:none">!</span>
+        </div>
       </div>
     </div>
 
@@ -1058,7 +1062,8 @@ const VIEW_TITLES = {
   jarvis: 'SIGGI',
   contacts: 'Kontakte / CRM',
   mail_drafts: 'Mail-Entwürfe',
-  improvements: 'Selbstverbesserung'
+  improvements: 'Selbstverbesserung',
+  health_check: 'Health-Check'
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────
@@ -1128,6 +1133,10 @@ async function showView(view) {
   }
   if (view === 'improvements') {
     renderImprovements();
+    return;
+  }
+  if (view === 'health_check') {
+    renderHealthCheck();
     return;
   }
   if (view === 'linkedin_pipeline') {
@@ -3450,6 +3459,73 @@ async function dismissImprovement(id) {
   loadCounts();
 }
 
+async function renderHealthCheck() {
+  const content = document.getElementById('main-content');
+  content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
+
+  const data = await apiFetch('/api/health-check') || { latest: null, history: [] };
+  const latest = data.latest;
+  const history = data.history || [];
+
+  const checkRow = (r) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:16px">${r.ok ? '✅' : '❌'}</span>
+      <div style="flex:1">
+        <div style="font-weight:600;color:var(--text);font-size:13px">${escHtml(r.name)}</div>
+        ${!r.ok ? `<div style="color:var(--danger,#ef4444);font-size:12px;margin-top:2px">${escHtml(r.detail)}</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  const historyRow = (h) => {
+    const failCount = h.results.filter(r => !r.ok).length;
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
+        <span style="color:var(--text2)">${formatDate(h.created_at)}</span>
+        <span style="color:${h.ok ? 'var(--success,#22c55e)' : 'var(--danger,#ef4444)'};font-weight:700">${h.ok ? '✅ Alles OK' : `❌ ${failCount} Problem(e)`}</span>
+      </div>
+    `;
+  };
+
+  content.innerHTML = `
+    <div class="settings-panel">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">🩺 Health-Check</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:4px">
+            Läuft täglich automatisch (Anthropic/OpenAI-Keys, Instagram/LinkedIn-Verbindung, Mail-Konten, Services).
+            Bei Problemen kommt sofort eine Alarm-Mail.
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="runHealthCheckNow()">🔍 Jetzt testen</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>${latest ? (latest.ok ? '✅ Letzter Test: Alles in Ordnung' : '❌ Letzter Test: Es gibt Probleme') : 'Noch kein Test gelaufen'}</h3>
+        ${latest ? `<div style="color:var(--text3);font-size:11px;margin-bottom:10px">${formatDate(latest.created_at)}</div>` : ''}
+        ${latest ? latest.results.map(checkRow).join('') : '<div style="color:var(--text3);font-size:12px">Klicke auf "Jetzt testen" für den ersten Lauf.</div>'}
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
+        <h3>🕓 Verlauf</h3>
+        ${history.length ? history.map(historyRow).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
+      </div>
+    </div>
+  `;
+}
+
+async function runHealthCheckNow() {
+  showToast('Teste alle Systeme...');
+  const res = await apiFetch('/api/health-check/run', 'POST');
+  if (res && !res.error) {
+    showToast(res.ok ? 'Alles in Ordnung' : 'Es wurden Probleme gefunden - Alarm-Mail wurde verschickt', res.ok ? 'success' : 'error');
+    renderHealthCheck();
+    loadCounts();
+  } else {
+    showToast(res?.error || 'Fehler beim Testen', 'error');
+  }
+}
+
 const LINKEDIN_STATUS_META = {
   pending: { label: 'Wartet auf Freigabe', color: 'var(--warn, #f59e0b)', icon: '⏳' },
   approved_posted: { label: 'Freigegeben & gepostet', color: 'var(--success, #22c55e)', icon: '✅' },
@@ -4187,6 +4263,13 @@ async function loadCounts() {
     secBadge.style.display = needsAttention ? 'inline-block' : 'none';
   }
 
+  const healthData = await apiFetch('/api/health-check');
+  const healthBadge = document.getElementById('badge-health_check');
+  if (healthBadge && healthData) {
+    const failing = healthData.latest && !healthData.latest.ok;
+    healthBadge.style.display = failing ? 'inline-block' : 'none';
+  }
+
   updateNavGroupCounts();
 }
 
@@ -4195,7 +4278,7 @@ async function loadCounts() {
 const NAV_GROUPS = {
   mail: ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'mail_drafts'],
   social: ['linkedin_pipeline', 'flyer_pipeline'],
-  tools: ['improvements'],
+  tools: ['improvements', 'health_check'],
 };
 
 function toggleNavGroup(name) {
@@ -4268,6 +4351,7 @@ const DASH_SECTIONS = [
       { view: 'stats', label: 'Statistik', icon: '📊', color: 'var(--success)' },
       { view: 'security', label: 'Sicherheit', icon: '🛡️', color: 'var(--danger)' },
       { view: 'improvements', label: 'Verbesserung', icon: '💡', color: 'var(--warning)' },
+      { view: 'health_check', label: 'Health-Check', icon: '🩺', color: 'var(--danger)' },
     ],
   },
   {
