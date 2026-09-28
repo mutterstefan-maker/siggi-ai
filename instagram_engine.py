@@ -305,6 +305,37 @@ def _graph_config():
     }
 
 
+DEFAULT_FB_PAGE_ID = '1122102114316953'  # Facebook-Seite "Chefblick.de"
+
+
+def resolve_token(token, fb_page_id=''):
+    """Nimmt einen beliebigen Meta-Token (z.B. frisch generierten Systemnutzer-
+    Token aus dem Business Manager) und tauscht ihn gegen den Seiten-Token der
+    Facebook-Seite. Liefert dazu die verknuepfte Instagram-Business-ID, damit
+    im Dashboard nur noch der Token eingefuegt werden muss.
+    Klappt der Tausch nicht (z.B. weil es schon ein Seiten-Token ist), wird der
+    Token unveraendert zurueckgegeben."""
+    page_id = fb_page_id or DEFAULT_FB_PAGE_ID
+    result = {'access_token': token, 'fb_page_id': page_id}
+    try:
+        r = req.get(
+            f'{GRAPH_BASE}/{page_id}',
+            params={'fields': 'access_token,instagram_business_account', 'access_token': token},
+            timeout=20,
+        )
+        data = r.json()
+        if data.get('access_token'):
+            result['access_token'] = data['access_token']
+        ig = (data.get('instagram_business_account') or {}).get('id')
+        if ig:
+            result['ig_user_id'] = ig
+        if 'error' in data:
+            print(f"[Instagram] Token-Tausch nicht moeglich: {data['error'].get('message')}")
+    except Exception as e:
+        print(f'[Instagram] Token-Tausch fehlgeschlagen: {e}')
+    return result
+
+
 def is_configured():
     cfg = _graph_config()
     return bool(cfg['access_token'] and cfg['ig_user_id'])

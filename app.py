@@ -1743,6 +1743,13 @@ def instagram_settings():
             token = data.get('access_token')
             if not token or not token.startswith('EAA'):
                 data.pop('access_token', None)  # leer oder kein Meta-Token (z.B. Browser-Autofill) = nicht ändern
+            else:
+                # Systemnutzer-Token direkt einfuegbar: Seiten-Token + IG-/Seiten-ID holt Siggi selbst
+                resolved = instagram_engine.resolve_token(token, data.get('fb_page_id') or existing.get('fb_page_id', ''))
+                data['access_token'] = resolved['access_token']
+                data['fb_page_id'] = resolved['fb_page_id']
+                if resolved.get('ig_user_id'):
+                    data['ig_user_id'] = resolved['ig_user_id']
             existing.update(data)
             settings['instagram_settings'] = existing
             save_settings(settings)
