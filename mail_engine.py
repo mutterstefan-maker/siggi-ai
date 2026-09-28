@@ -10,6 +10,7 @@ import os
 import re
 import requests
 from datetime import datetime, timedelta
+import settings_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'mails.db')
@@ -38,13 +39,11 @@ def strip_ai_disclaimer(text):
 
 
 def load_settings():
-    with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    return settings_store.load()
 
 
 def save_settings(settings):
-    with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=4, ensure_ascii=False)
+    return settings_store.save(settings)
 
 
 def init_db():

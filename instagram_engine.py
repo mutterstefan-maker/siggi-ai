@@ -19,6 +19,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 import requests as req
+import settings_store
 
 ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
@@ -56,18 +57,11 @@ init_ig_db()
 # ─── Settings / Pfade ───────────────────────────────────────────────
 
 def _load_settings():
-    import json
-    try:
-        with open(SETTINGS_PATH, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return settings_store.load_or_empty()
 
 
 def _save_settings(settings):
-    import json
-    with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
+    return settings_store.save(settings)
 
 
 def _ig_settings():

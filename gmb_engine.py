@@ -9,6 +9,7 @@ import json
 import time
 import requests as req
 from datetime import datetime, timedelta
+import settings_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
@@ -28,12 +29,10 @@ _cache = {}
 # ──────────────────────────────────────────────
 
 def _load_settings():
-    with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    return settings_store.load()
 
 def _save_settings(data):
-    with open(SETTINGS_PATH, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    return settings_store.save(data)
 
 def get_oauth_credentials():
     s = _load_settings()
@@ -92,11 +91,7 @@ def _headers():
 def _save_account_to_settings(account_name):
     """Persistiert den Account-Namen in settings.json um API-Calls zu sparen."""
     try:
-        with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
-            s = json.load(f)
-        s['gmb_account_name'] = account_name
-        with open(SETTINGS_PATH, 'w', encoding='utf-8', newline='\n') as f:
-            json.dump(s, f, ensure_ascii=False, indent=4)
+        settings_store.update(lambda s: s.__setitem__('gmb_account_name', account_name))
     except Exception as e:
         print(f'[GMB] Account-Speichern fehlgeschlagen: {e}')
 

@@ -14,22 +14,18 @@ import sqlite3
 import datetime
 
 import requests
+import settings_store
 
 DB_PATH = '/opt/stean/mails.db'
 SETTINGS_PATH = '/opt/stean/settings.json'
 
 
 def load_settings():
-    try:
-        with open(SETTINGS_PATH, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return settings_store.load_or_empty()
 
 
 def save_settings(settings):
-    with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
+    return settings_store.save(settings)
 
 
 def init_table():

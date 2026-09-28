@@ -16,6 +16,7 @@ import audit_engine as audit_eng
 import audit_pdf
 import self_improve_engine
 import health_check_engine
+import settings_store
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB, genug für Base64-kodierte Reel-Videos (Bilder brauchen nur einen Bruchteil davon)
@@ -200,15 +201,11 @@ SIGGI_SEND_ACCOUNT = 'team@chefblick.de'  # Siggi verschickt eigenständig gesch
 MAIL_TRUST_THRESHOLD_DEFAULT = 15  # so viele Freigaben/Korrekturen/Ablehnungen bis der Autopilot scharf geschaltet wird
 
 def load_settings():
-    try:
-        with open(SETTINGS_PATH) as f:
-            return json.load(f)
-    except:
-        return {}
+    return settings_store.load_or_empty()
 
 def save_settings(settings):
-    with open(SETTINGS_PATH, 'w') as f:
-        json.dump(settings, f, indent=2)
+    if not settings_store.save(settings):
+        raise RuntimeError('Speichern verweigert: settings.json konnte nicht vollstaendig gelesen werden')
 
 def init_audit_table():
     conn = sqlite3.connect(DB_PATH)

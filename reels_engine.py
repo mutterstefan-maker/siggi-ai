@@ -27,6 +27,7 @@ import requests as req
 from PIL import Image, ImageDraw, ImageFont
 
 import instagram_engine
+import settings_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REELS_DB_PATH = os.path.join(BASE_DIR, 'reels.db')
@@ -67,18 +68,11 @@ init_reels_db()
 # ─── Settings / Pfade ───────────────────────────────────────────────
 
 def _load_settings():
-    import json
-    try:
-        with open(SETTINGS_PATH, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return settings_store.load_or_empty()
 
 
 def _save_settings(settings):
-    import json
-    with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
+    return settings_store.save(settings)
 
 
 def _reels_settings():

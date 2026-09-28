@@ -24,3 +24,8 @@ flyer_pool/
 
 # Enthält ein hardcodiertes Login-Passwort - existiert nur auf dem Server, nie ins (öffentliche) Repo
 auth.py
+
+settings_backups/
+settings.json.lock
+.settings-*.tmp
+settings.json.*

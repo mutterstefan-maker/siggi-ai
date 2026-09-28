@@ -25,6 +25,7 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
 import instagram_engine
+import settings_store
 
 load_dotenv('/opt/stean/config/.env')
 
@@ -182,11 +183,7 @@ def init_table():
 
 
 def _load_settings():
-    try:
-        with open(SETTINGS_PATH, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return settings_store.load_or_empty()
 
 
 def get_topic_history(limit=100):

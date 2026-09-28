@@ -11,6 +11,7 @@ import base64
 from datetime import datetime
 from PIL import Image
 import io
+import settings_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
@@ -19,8 +20,7 @@ LOGO_PATH = os.path.join(BASE_DIR, 'logo.png')
 
 
 def load_settings():
-    with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    return settings_store.load()
 
 
 # ── STATE TRACKING (letztes Thema/Layout/Einhorn-Zähler) ──────────────────────

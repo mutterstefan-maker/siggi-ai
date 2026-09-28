@@ -20,6 +20,7 @@ import uuid
 import hashlib
 import secrets
 import threading
+import settings_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
@@ -41,16 +42,11 @@ _pending_actions = {}    # action_id -> {'action', 'params', 'created', 'descrip
 
 
 def _load_settings():
-    try:
-        with open(SETTINGS_PATH, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return settings_store.load_or_empty()
 
 
 def _save_settings(settings):
-    with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
+    return settings_store.save(settings)
 
 
 def init(socketio):
