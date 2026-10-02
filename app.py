@@ -19,7 +19,7 @@ import health_check_engine
 import settings_store
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB, genug für Base64-kodierte Reel-Videos (Bilder brauchen nur einen Bruchteil davon)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB für Handy-Rohvideos - reels_engine komprimiert sie danach auf Story-Größe (muss zu client_max_body_size in nginx passen)
 CORS(app, origins=['https://stean.info', 'https://www.stean.info'])
 
 from flask import session, redirect
@@ -1870,7 +1870,7 @@ def reels_upload_route():
         # großer Videos (100+ MB) in einen riesigen Base64-String.
         if 'file' in request.files:
             f = request.files['file']
-            result = reels_engine.save_uploaded_reel(f.filename, f.read())
+            result = reels_engine.save_uploaded_reel(f.filename, f)
             return jsonify(result)
         # Alte Base64-JSON-Variante bleibt als Fallback für kleine Dateien bestehen.
         data = request.get_json() or {}

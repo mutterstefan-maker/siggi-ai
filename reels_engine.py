@@ -35,6 +35,9 @@ SETTINGS_PATH = os.path.join(BASE_DIR, 'settings.json')
 GRAPH_BASE = instagram_engine.GRAPH_BASE
 
 VIDEO_EXTENSIONS = {'.mp4', '.mov'}
+# Graph-API-Grenzen für Story-Videos (media_type=STORIES) - etwas Puffer unter 100 MB.
+STORY_MAX_BYTES = 95 * 1024 * 1024
+STORY_MAX_SECONDS = 60
 IMAGES_PER_REEL = 5
 SECONDS_PER_IMAGE = 3
 CROSSFADE_SECONDS = 0.6
@@ -167,16 +170,73 @@ def reject_reel(filename):
     return {'success': False, 'error': 'Datei nicht gefunden.'}
 
 
-def save_uploaded_reel(filename, raw_bytes):
+def save_uploaded_reel(filename, data):
     """Manuell hochgeladene Videos landen direkt in der postbaren Warteschlange -
-    der Nutzer hat die Auswahl durch das Hochladen bereits selbst getroffen."""
+    der Nutzer hat die Auswahl durch das Hochladen bereits selbst getroffen.
+    `data` sind entweder rohe Bytes oder ein Werkzeug-FileStorage (wird direkt auf
+    die Platte gestreamt, statt ein mehrere hundert MB großes Video in den RAM zu lesen)."""
     filename = _safe_filename(filename)
     if os.path.splitext(filename)[1].lower() not in VIDEO_EXTENSIONS:
         return {'success': False, 'error': 'Nur Videodateien erlaubt (mp4, mov).'}
-    path = os.path.join(pool_dir(), filename)
-    with open(path, 'wb') as f:
-        f.write(raw_bytes)
-    return {'success': True, 'filename': filename}
+    # .part-Endung, damit get_reels_queue() die halbfertige Datei nicht als postbar listet.
+    tmp_path = os.path.join(pool_dir(), filename + '.part')
+    if hasattr(data, 'save'):
+        data.save(tmp_path)
+    else:
+        with open(tmp_path, 'wb') as f:
+            f.write(data)
+    return _fit_story_limits(tmp_path, filename)
+
+
+def _video_duration(path):
+    """Dauer in Sekunden aus der ffmpeg-Ausgabe (imageio-ffmpeg liefert kein ffprobe mit)."""
+    try:
+        result = subprocess.run([_ffmpeg_binary(), '-i', path], capture_output=True, text=True, timeout=60)
+        m = re.search(r'Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)', result.stderr)
+        if m:
+            return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    except Exception as e:
+        print(f'[Reels] Dauer nicht ermittelbar: {e}')
+    return None
+
+
+def _fit_story_limits(tmp_path, filename):
+    """Instagram-Stories per Graph-API akzeptieren nur Videos bis 100 MB und 60 s - größere
+    oder längere Uploads werden hier einmalig auf Story-taugliches MP4 heruntergerechnet
+    (statt erst beim Posten mit einem Meta-Fehler zu scheitern)."""
+    size = os.path.getsize(tmp_path)
+    duration = _video_duration(tmp_path)
+    too_big = size > STORY_MAX_BYTES
+    too_long = duration is not None and duration > STORY_MAX_SECONDS
+    if not too_big and not too_long:
+        os.replace(tmp_path, os.path.join(pool_dir(), filename))
+        return {'success': True, 'filename': filename}
+
+    out_name = os.path.splitext(filename)[0] + '.mp4'
+    out_path = os.path.join(pool_dir(), out_name)
+    cmd = [_ffmpeg_binary(), '-y', '-i', tmp_path, '-t', str(STORY_MAX_SECONDS),
+           '-map', '0:v:0', '-map', '0:a:0?',
+           '-vf', 'scale=w=1080:h=1920:force_original_aspect_ratio=decrease:force_divisible_by=2',
+           '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+           '-crf', '23', '-maxrate', '8M', '-bufsize', '16M', '-r', '30',
+           '-c:a', 'aac', '-b:a', '128k', '-ar', '48000',
+           '-movflags', '+faststart', out_path]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=480)
+        if result.returncode != 0 or not os.path.exists(out_path):
+            if os.path.exists(out_path):
+                os.remove(out_path)
+            return {'success': False, 'error': f'Video-Komprimierung fehlgeschlagen: {result.stderr[-800:]}'}
+    except Exception as e:
+        return {'success': False, 'error': f'Video-Komprimierung fehlgeschlagen: {e}'}
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    notes = [f'auf {round(os.path.getsize(out_path) / 1024 / 1024)} MB komprimiert']
+    if too_long:
+        notes.append(f'auf {STORY_MAX_SECONDS} s gekürzt (Original {round(duration)} s, Story-Limit)')
+    return {'success': True, 'filename': out_name, 'note': ', '.join(notes)}
 
 
 def delete_reel(filename):

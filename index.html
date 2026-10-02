@@ -2662,7 +2662,8 @@ async function uploadReel(input) {
     const res = await fetch(API + '/api/instagram/reels/upload', { method: 'POST', body: form });
     let result;
     try { result = await res.json(); } catch (_) { result = null; }
-    if (res.ok && result && result.success) { showToast(file.name + ' hochgeladen', 'success'); renderInstagram(); }
+    if (res.ok && result && result.success) { showToast(result.filename + ' hochgeladen' + (result.note ? ' (' + result.note + ')' : ''), 'success'); renderInstagram(); }
+    else if (res.status === 413) { showToast('Upload fehlgeschlagen: Datei zu groß (max. 1 GB)', 'error'); }
     else { showToast('Upload fehlgeschlagen: ' + (result && result.error || ('HTTP ' + res.status)), 'error'); }
   } catch (e) {
     showToast('Upload fehlgeschlagen: ' + (e.message || 'Netzwerkfehler'), 'error');
