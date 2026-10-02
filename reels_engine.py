@@ -178,8 +178,9 @@ def save_uploaded_reel(filename, data):
     filename = _safe_filename(filename)
     if os.path.splitext(filename)[1].lower() not in VIDEO_EXTENSIONS:
         return {'success': False, 'error': 'Nur Videodateien erlaubt (mp4, mov).'}
-    # .part-Endung, damit get_reels_queue() die halbfertige Datei nicht als postbar listet.
-    tmp_path = os.path.join(pool_dir(), filename + '.part')
+    # .part-Endung, damit get_reels_queue() die halbfertige Datei nicht als postbar listet;
+    # eindeutiger Name, damit sich doppelt abgeschickte Uploads nicht gegenseitig zerschießen.
+    tmp_path = os.path.join(pool_dir(), f'{filename}.{os.getpid()}.{time.time_ns()}.part')
     if hasattr(data, 'save'):
         data.save(tmp_path)
     else:
@@ -214,24 +215,27 @@ def _fit_story_limits(tmp_path, filename):
 
     out_name = os.path.splitext(filename)[0] + '.mp4'
     out_path = os.path.join(pool_dir(), out_name)
+    # Erst in eine Temp-Datei kodieren und am Ende atomar umbenennen - sonst liest die
+    # Vorschau (oder Meta) während der Kodierung ein halbfertiges MP4 ohne moov-Atom.
+    enc_path = tmp_path + '.enc'
     cmd = [_ffmpeg_binary(), '-y', '-i', tmp_path, '-t', str(STORY_MAX_SECONDS),
            '-map', '0:v:0', '-map', '0:a:0?',
            '-vf', 'scale=w=1080:h=1920:force_original_aspect_ratio=decrease:force_divisible_by=2',
            '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
            '-crf', '23', '-maxrate', '8M', '-bufsize', '16M', '-r', '30',
            '-c:a', 'aac', '-b:a', '128k', '-ar', '48000',
-           '-movflags', '+faststart', out_path]
+           '-movflags', '+faststart', '-f', 'mp4', enc_path]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=480)
-        if result.returncode != 0 or not os.path.exists(out_path):
-            if os.path.exists(out_path):
-                os.remove(out_path)
+        if result.returncode != 0 or not os.path.exists(enc_path):
             return {'success': False, 'error': f'Video-Komprimierung fehlgeschlagen: {result.stderr[-800:]}'}
+        os.replace(enc_path, out_path)
     except Exception as e:
         return {'success': False, 'error': f'Video-Komprimierung fehlgeschlagen: {e}'}
     finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        for leftover in (tmp_path, enc_path):
+            if os.path.exists(leftover):
+                os.remove(leftover)
 
     notes = [f'auf {round(os.path.getsize(out_path) / 1024 / 1024)} MB komprimiert']
     if too_long:
