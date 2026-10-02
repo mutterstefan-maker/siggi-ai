@@ -522,6 +522,11 @@ def fetch_mails():
                      ', '.join(attachment_names), 1 if spam else 0,
                      1 if auto_reply else 0, 1 if new_cust else 0,
                      ticket_nr, datetime.now().isoformat()))
+                # Sofort committen: upsert_contact() oeffnet eine eigene Verbindung
+                # auf dieselbe DB. Mit offener Schreibtransaktion hier wartete sie
+                # auf sich selbst -> "database is locked", Kontakt + Auto-Audit
+                # fielen bei jeder echten Mail aus (seit Juli kein neuer Kontakt).
+                conn.commit()
                 new_count += 1
                 # Kontakt anlegen/aktualisieren (nur echte Mails, kein Spam/Auto-Reply)
                 if not auto_reply and not spam:
