@@ -3440,17 +3440,6 @@ async function renderImprovements() {
       </div>
 
       <div class="settings-section" style="margin-top:20px">
-        <h3>🔔 Benachrichtigungen</h3>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text)">
-          <input type="checkbox" ${openaiAlert ? 'checked' : ''} onchange="saveHealthAlert('health_alert_openai', this.checked)">
-          Alarm bei fehlendem OpenAI-Guthaben
-        </label>
-        <div style="color:var(--text3);font-size:11px;margin-top:4px;margin-left:26px">
-          Aus: der Check läuft weiter und wird hier angezeigt, verschickt aber keine Alarm-Mail und färbt den Status nicht rot.
-        </div>
-      </div>
-
-      <div class="settings-section" style="margin-top:20px">
         <h3>🕓 Verlauf</h3>
         ${history.length ? history.map(s => renderCard(s, false)).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
       </div>
@@ -3629,17 +3618,6 @@ async function renderLinkedinPipeline() {
       <div class="settings-section">
         <h3>📋 Offen zur Freigabe${pending.length ? ' (' + pending.length + ')' : ''}</h3>
         ${pending.length ? pending.map(d => renderCard(d, true)).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Entwuerfe.</div>'}
-      </div>
-
-      <div class="settings-section" style="margin-top:20px">
-        <h3>🔔 Benachrichtigungen</h3>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text)">
-          <input type="checkbox" ${openaiAlert ? 'checked' : ''} onchange="saveHealthAlert('health_alert_openai', this.checked)">
-          Alarm bei fehlendem OpenAI-Guthaben
-        </label>
-        <div style="color:var(--text3);font-size:11px;margin-top:4px;margin-left:26px">
-          Aus: der Check läuft weiter und wird hier angezeigt, verschickt aber keine Alarm-Mail und färbt den Status nicht rot.
-        </div>
       </div>
 
       <div class="settings-section" style="margin-top:20px">
