@@ -199,7 +199,7 @@ if (s.mail_entwuerfe_offen) lines.push(`- ${s.mail_entwuerfe_offen} Mail-Entwür
 lines.push(``, `SOCIAL MEDIA`);
 lines.push(`- Instagram: ${n(s.instagram_posts)} Bilder gepostet${s.instagram_fehler ? `, ${s.instagram_fehler} fehlgeschlagen` : ''}`);
 lines.push(`- Stories/Reels: ${n(s.stories_gepostet)} gepostet`);
-lines.push(`- LinkedIn: ${n(s.linkedin_entwuerfe)} Entwürfe, ${n(s.linkedin_gepostet)} gepostet${s.linkedin_offen ? `, ${s.linkedin_offen} warten auf Freigabe` : ''}`);
+lines.push(`- LinkedIn: ${n(s.linkedin_entwuerfe)} Entwürfe, ${n(s.linkedin_gepostet)} gepostet, ${n(s.linkedin_warteschlange)} in der Warteschlange${s.linkedin_offen ? `, ${s.linkedin_offen} warten auf Freigabe` : ''}`);
 lines.push(`- Bilder: ${n(s.bilder_erzeugt)} erzeugt${s.bilder_fehlgeschlagen ? `, ${s.bilder_fehlgeschlagen} fehlgeschlagen` : ''}`);
 if (s.audits) lines.push(``, `WEBSITE-AUDITS`, `- ${s.audits} Audits erstellt`);
 lines.push(``, `PROBLEME DER AGENTEN`);

@@ -74,7 +74,7 @@ AGENTS = {
     },
     'linkedin': {
         'kind': 'internal', 'name': 'LinkedIn-Agent', 'icon': 'briefcase', 'view': 'linkedin_pipeline', 'runnable': True,
-        'role': 'Schreibt jeden Morgen einen Post-Entwurf in deinem Stil',
+        'role': 'Schreibt jeden Morgen einen Entwurf und postet freigegebene Beiträge nach Zeitplan',
         'default_config': {}, 'next_run': 'täglich 08:00',
     },
     'comments': {
@@ -345,7 +345,8 @@ def weekly_stats(days=7):
         'instagram_fehler': q('instagram.db', "SELECT COUNT(*) FROM ig_posts WHERE status='error' AND posted_at >= ?", (since_iso,)),
         'stories_gepostet': q('reels.db', "SELECT COUNT(*) FROM reels_posts WHERE status='posted' AND posted_at >= ?", (since_iso,)),
         'linkedin_entwuerfe': q('mails.db', 'SELECT COUNT(*) FROM linkedin_drafts WHERE created_at >= ?', (since,)),
-        'linkedin_gepostet': q('mails.db', "SELECT COUNT(*) FROM linkedin_drafts WHERE status='approved_posted' AND decided_at >= ?", (since,)),
+        'linkedin_gepostet': q('mails.db', "SELECT COUNT(*) FROM linkedin_drafts WHERE status IN ('approved_posted','auto_posted') AND COALESCE(posted_at, decided_at) >= ?", (since,)),
+        'linkedin_warteschlange': q('mails.db', "SELECT COUNT(*) FROM linkedin_drafts WHERE status='approved'"),
         'linkedin_offen': q('mails.db', "SELECT COUNT(*) FROM linkedin_drafts WHERE status='pending'"),
         'bilder_erzeugt': q('mails.db', "SELECT COUNT(*) FROM flyer_history WHERE created_at >= ? AND status != 'failed'", (since,)),
         'bilder_fehlgeschlagen': q('mails.db', "SELECT COUNT(*) FROM flyer_history WHERE created_at >= ? AND status = 'failed'", (since,)),
@@ -562,6 +563,8 @@ def overview(extras=None):
             if pending and status in ('sleeping', 'ready'):
                 status = 'waiting'
                 bubble = f'{pending} warte{"t" if pending == 1 else "n"} auf deine Freigabe'
+            elif ex.get('alert') and status in ('sleeping', 'ready'):
+                bubble = ex['alert']  # z.B. LinkedIn-Warteschlange fast leer - wichtiger als die letzte Meldung
             elif status == 'sleeping' and ex.get('idle') and not bubble:
                 bubble = ex['idle']
             agents.append({

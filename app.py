@@ -1352,6 +1352,32 @@ def linkedin_pipeline_reject(draft_id):
         draft_id, rating=data.get('rating'), tags=data.get('tags'), comment=data.get('comment')
     ))
 
+@app.route('/api/linkedin/pipeline/queue')
+def linkedin_pipeline_queue():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.get_queue())
+
+@app.route('/api/linkedin/pipeline/drafts/<int:draft_id>/unqueue', methods=['POST'])
+def linkedin_pipeline_unqueue(draft_id):
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.unqueue_draft(draft_id))
+
+@app.route('/api/linkedin/pipeline/post-now', methods=['POST'])
+def linkedin_pipeline_post_now():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    return jsonify(linkedin_pipeline_engine.post_next_in_queue())
+
+@app.route('/api/linkedin/pipeline/settings', methods=['GET', 'POST'])
+def linkedin_pipeline_settings():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return jsonify({'error': 'Pipeline nicht verfügbar'}), 500
+    if request.method == 'POST':
+        return jsonify({'success': True, 'settings': linkedin_pipeline_engine.save_post_settings(request.get_json(silent=True) or {})})
+    return jsonify(linkedin_pipeline_engine.get_post_settings())
+
 @app.route('/api/linkedin/pipeline/stats')
 def linkedin_pipeline_stats():
     if not LINKEDIN_PIPELINE_AVAILABLE:
@@ -2239,7 +2265,14 @@ def _agent_extras():
             'idle': f"{safe(lambda: len(reels_engine.get_reels_queue()), 0)} freigegebene(s) Video(s) bereit",
         }
     extras['bild'] = {'pending': safe(lambda: len(instagram_flyer_engine.get_pending()), 0)}
-    extras['linkedin'] = {'pending': safe(lambda: len(linkedin_pipeline_engine.get_drafts('pending')), 0)}
+    lps = safe(linkedin_pipeline_engine.get_post_settings, {}) or {}
+    lq = safe(lambda: len(linkedin_pipeline_engine.get_queue()), 0)
+    extras['linkedin'] = {
+        'pending': safe(lambda: len(linkedin_pipeline_engine.get_drafts('pending')), 0),
+        'next_run': ('Post ' + (safe(lambda: _next_slot(lps.get('post_times'), lps.get('post_days'))) or '–')) if lps.get('auto_enabled') == '1' else 'Auto-Post ist aus',
+        'idle': f'{lq} Beiträge freigegeben – reicht für {lq} Tage',
+        'alert': f'Nur noch {lq} Beitrag/Beiträge freigegeben – bitte nachlegen' if lq < linkedin_pipeline_engine.QUEUE_WARN_BELOW else None,
+    }
     extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
     return extras
 
@@ -2569,6 +2602,25 @@ def _instagram_auto_post_loop():
         time.sleep(60)
 
 threading.Thread(target=_instagram_auto_post_loop, daemon=True).start()
+
+# ─── LinkedIn: freigegebene Beitraege nach Zeitplan posten ──────────────────
+def _linkedin_auto_post_loop():
+    if not LINKEDIN_PIPELINE_AVAILABLE:
+        return
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_linkedin_post_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return  # anderer Worker hält den Lock bereits
+    while True:
+        try:
+            linkedin_pipeline_engine.maybe_auto_post()
+        except Exception as e:
+            print(f'[LinkedIn] Auto-Post-Loop-Fehler: {e}')
+        time.sleep(30)
+
+threading.Thread(target=_linkedin_auto_post_loop, daemon=True).start()
 
 # ─── Reels: Auto-Post-Loop ──────────────────────────────────────────────────
 

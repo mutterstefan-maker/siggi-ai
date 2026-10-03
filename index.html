@@ -3690,7 +3690,8 @@ async function runHealthCheckNow() {
 
 const LINKEDIN_STATUS_META = {
   pending: { label: 'Wartet auf Freigabe', color: 'var(--warn, #f59e0b)', icon: '⏳' },
-  approved_posted: { label: 'Freigegeben & gepostet', color: 'var(--success, #22c55e)', icon: '✅' },
+  approved: { label: 'In der Warteschlange', color: 'var(--accent)', icon: '📤' },
+  approved_posted: { label: 'Gepostet', color: 'var(--success, #22c55e)', icon: '✅' },
   auto_posted: { label: 'Automatisch gepostet', color: 'var(--success, #22c55e)', icon: '🤖' },
   rejected: { label: 'Abgelehnt', color: 'var(--text3)', icon: '✗' },
   approve_failed: { label: 'Posten fehlgeschlagen', color: 'var(--danger)', icon: '⚠️' },
@@ -3701,28 +3702,39 @@ async function renderLinkedinPipeline() {
   const content = document.getElementById('main-content');
   content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
 
-  const [all, progress] = await Promise.all([
-    apiFetch('/api/linkedin/pipeline/drafts') || [],
+  const [all, progress, queueData] = await Promise.all([
+    apiFetch('/api/linkedin/pipeline/drafts'),
     apiFetch('/api/linkedin/pipeline/progress'),
+    apiFetch('/api/linkedin/pipeline/queue'),
   ]);
-  const drafts = all || [];
+  const drafts = Array.isArray(all) ? all : [];
+  const queue = Array.isArray(queueData) ? queueData : [];
   const pending = drafts.filter(d => d.status === 'pending');
-  const history = drafts.filter(d => d.status !== 'pending');
-  const p = progress || { approved_count: 0, threshold: 50, auto_mode: false };
+  const history = drafts.filter(d => d.status !== 'pending' && d.status !== 'approved');
+  const p = progress || { approved_count: 0, threshold: 50, auto_mode: false, queue_warn_below: 2, post_settings: {} };
+  const ps = p.post_settings || {};
+  const days = (ps.post_days || 'mon,tue,wed,thu,fri,sat,sun').split(',');
+  const dayNames = [['mon', 'Mo'], ['tue', 'Di'], ['wed', 'Mi'], ['thu', 'Do'], ['fri', 'Fr'], ['sat', 'Sa'], ['sun', 'So']];
+  const low = queue.length < (p.queue_warn_below || 2);
 
-  const renderCard = (d, showActions) => {
+  const renderCard = (d, mode, idx) => {
     const m = LINKEDIN_STATUS_META[d.status] || LINKEDIN_STATUS_META.pending;
+    const actions = mode === 'pending' ? `
+        <button class="btn btn-ghost" style="font-size:11px" onclick="openLinkedinFeedback(${d.id}, 'reject')">Ablehnen</button>
+        <button class="btn btn-primary" style="font-size:11px" onclick="openLinkedinFeedback(${d.id}, 'approve')">Freigeben</button>`
+      : mode === 'queue' ? `
+        <button class="btn btn-ghost" style="font-size:11px" onclick="unqueueLinkedinDraft(${d.id})">Zurück zu Entwürfen</button>
+        ${idx === 0 ? `<button class="btn btn-primary" style="font-size:11px" onclick="postLinkedinNow()">Jetzt posten</button>` : ''}` : '';
+    const label = mode === 'queue' ? (idx === 0 ? '📤 Geht als Nächstes raus' : `📤 Platz ${idx + 1}`) : `${m.icon} ${m.label}`;
     return `
       <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${m.color};border-radius:var(--radius);padding:16px;margin-bottom:12px">
         <div style="white-space:pre-wrap;color:var(--text);font-size:13px;line-height:1.5">${escHtml(d.text)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px">
-          <div style="color:var(--text3);font-size:11px;font-family:var(--font-mono)">${formatDate(d.created_at)}${d.decided_at ? ' · entschieden: ' + formatDate(d.decided_at) : ''}</div>
-          <div style="display:flex;align-items:center;gap:10px;white-space:nowrap">
-            <span style="color:${m.color};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px">${m.icon} ${m.label}</span>
-            ${showActions ? `
-              <button class="btn btn-ghost" style="font-size:11px" onclick="openLinkedinFeedback(${d.id}, 'reject')">Ablehnen</button>
-              <button class="btn btn-primary" style="font-size:11px" onclick="openLinkedinFeedback(${d.id}, 'approve')">Freigeben & Posten</button>
-            ` : ''}
+        ${d.post_error ? `<div style="margin-top:10px;font-size:12px;color:var(--danger)">Letzter Post-Versuch fehlgeschlagen: ${escHtml(d.post_error).slice(0, 200)}</div>` : ''}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px;flex-wrap:wrap">
+          <div style="color:var(--text3);font-size:11px;font-family:var(--font-mono)">${formatDate(d.created_at)}${d.decided_at ? ' · freigegeben: ' + formatDate(d.decided_at) : ''}</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="color:${m.color};font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px">${label}</span>
+            ${actions}
           </div>
         </div>
       </div>
@@ -3735,26 +3747,77 @@ async function renderLinkedinPipeline() {
         <div>
           <div style="font-size:16px;font-weight:800;color:var(--text)">💼 LinkedIn Content-Pipeline (Chefblick)</div>
           <div style="font-size:12px;color:var(--text3);margin-top:4px">
-            Taeglich ein neuer Entwurf im Stil deiner bisherigen Posts.
+            Täglich ein neuer Entwurf im Stil deiner bisherigen Posts. Was du freigibst, kommt in die Warteschlange
+            und wird automatisch nach Zeitplan gepostet.
             Freigaben: <strong>${p.approved_count} / ${p.threshold}</strong>
-            ${p.auto_mode ? ' — <strong style="color:var(--success,#22c55e)">Auto-Modus aktiv, postet ab jetzt ohne Rueckfrage</strong>' : ' bis zum automatischen Modus.'}
+            ${p.auto_mode ? ' — <strong style="color:var(--success,#22c55e)">Auto-Modus aktiv: neue Entwürfe kommen ohne Rückfrage in die Warteschlange</strong>' : ' bis zum automatischen Modus.'}
           </div>
         </div>
         <button class="btn btn-primary" onclick="generateLinkedinDraft()">✍️ Neuen Entwurf erzeugen</button>
       </div>
 
       <div class="settings-section">
+        <h3>📅 Automatisch posten</h3>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text);margin-bottom:12px">
+          <input type="checkbox" id="li-auto" ${ps.auto_enabled === '1' ? 'checked' : ''}> Freigegebene Beiträge automatisch posten
+        </label>
+        <label class="form-label" for="li-times">Uhrzeit(en)</label>
+        <input class="form-input" id="li-times" value="${escHtml(ps.post_times || '10:00')}" placeholder="10:00 – mehrere mit Komma: 09:00, 17:00" style="max-width:320px;margin-bottom:12px">
+        <div class="form-label">Tage</div>
+        <div id="li-days" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          ${dayNames.map(([k, n]) => `<button type="button" class="day-btn ${days.includes(k) ? 'active' : ''}" data-day="${k}" onclick="this.classList.toggle('active')">${n}</button>`).join('')}
+        </div>
+        <button class="btn btn-ghost" onclick="saveLinkedinPostSettings()">Zeitplan speichern</button>
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
+        <h3>📤 Warteschlange${queue.length ? ' (' + queue.length + ')' : ''}</h3>
+        ${low ? `<div style="background:color-mix(in srgb, var(--warning) 14%, var(--surface));border:1px solid color-mix(in srgb, var(--warning) 45%, transparent);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--text);margin-bottom:12px">
+          ${queue.length ? `Nur noch <strong>${queue.length}</strong> freigegebener Beitrag` : '<strong>Keine</strong> freigegebenen Beiträge'} – gib unten neue Entwürfe frei, sonst wird bald nichts mehr gepostet.</div>` : ''}
+        ${queue.length ? queue.map((d, i) => renderCard(d, 'queue', i)).join('') : '<div style="color:var(--text3);font-size:12px">Die Warteschlange ist leer.</div>'}
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
         <h3>📋 Offen zur Freigabe${pending.length ? ' (' + pending.length + ')' : ''}</h3>
-        ${pending.length ? pending.map(d => renderCard(d, true)).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Entwuerfe.</div>'}
+        ${pending.length ? pending.map(d => renderCard(d, 'pending')).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Entwürfe.</div>'}
       </div>
 
       <div class="settings-section" style="margin-top:20px">
         <h3>🕓 Verlauf</h3>
-        ${history.length ? history.map(d => renderCard(d, false)).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
+        ${history.length ? history.map(d => renderCard(d, 'history')).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
       </div>
     </div>
     <div id="linkedin-feedback-modal"></div>
   `;
+}
+
+async function saveLinkedinPostSettings() {
+  const days = [...document.querySelectorAll('#li-days .day-btn.active')].map(b => b.dataset.day);
+  const res = await apiFetch('/api/linkedin/pipeline/settings', 'POST', {
+    auto_enabled: document.getElementById('li-auto')?.checked ? '1' : '0',
+    post_times: (document.getElementById('li-times')?.value || '').replace(/\s/g, ''),
+    post_days: days.join(','),
+  });
+  if (res && res.success) showToast('Zeitplan gespeichert', 'success');
+  else showToast(res?.error || 'Speichern fehlgeschlagen', 'error');
+  renderLinkedinPipeline();
+}
+
+async function postLinkedinNow() {
+  if (!confirm('Den nächsten Beitrag jetzt auf LinkedIn veröffentlichen?')) return;
+  showToast('Poste auf LinkedIn …');
+  const res = await apiFetch('/api/linkedin/pipeline/post-now', 'POST');
+  if (res && res.success) showToast('Auf LinkedIn veröffentlicht', 'success');
+  else showToast(res?.error || 'Posten fehlgeschlagen', 'error');
+  renderLinkedinPipeline();
+  loadCounts();
+}
+
+async function unqueueLinkedinDraft(id) {
+  const res = await apiFetch(`/api/linkedin/pipeline/drafts/${id}/unqueue`, 'POST');
+  if (res && res.success) showToast('Zurück bei den Entwürfen', 'success');
+  renderLinkedinPipeline();
+  loadCounts();
 }
 
 async function generateLinkedinDraft() {
@@ -3807,7 +3870,7 @@ function renderLinkedinFeedbackModal() {
         <textarea id="linkedin-feedback-comment" placeholder="Kurzer Kommentar (optional)" style="width:100%;min-height:60px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:12px;box-sizing:border-box"></textarea>
         <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
           <button class="btn btn-ghost" onclick="closeLinkedinFeedback()">Abbrechen</button>
-          <button class="btn btn-primary" onclick="submitLinkedinFeedback()">${s.action === 'approve' ? 'Freigeben & Posten' : 'Ablehnen'} & Feedback senden</button>
+          <button class="btn btn-primary" onclick="submitLinkedinFeedback()">${s.action === 'approve' ? 'Freigeben' : 'Ablehnen'} & Feedback senden</button>
         </div>
       </div>
     </div>
@@ -3840,7 +3903,7 @@ async function submitLinkedinFeedback() {
   });
   closeLinkedinFeedback();
   if (res?.success) {
-    showToast(s.action === 'approve' ? 'Auf LinkedIn veröffentlicht' : 'Abgelehnt', 'success');
+    showToast(s.action === 'approve' ? (res.message || 'In die Warteschlange gelegt') : 'Abgelehnt', 'success');
   } else {
     showToast(res?.message || res?.error || 'Fehlgeschlagen', 'error');
   }

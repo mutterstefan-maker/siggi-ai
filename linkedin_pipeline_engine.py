@@ -2,10 +2,12 @@
 
 Erstellt taeglich einen LinkedIn-Post-Entwurf im Stil von Stefans bisherigen
 Posts (Chefblick / E-Commerce-Beratung), abgeleitet aus linkedin_posts.json.
-Die ersten 50 Entwuerfe muessen manuell im "LinkedIn Pipeline"-Tab freigegeben
-werden (Freigeben = posten via linkedin_engine.post_share, Ablehnen = verwerfen).
-Ab der 50. Freigabe schaltet die Pipeline auf automatisches Posten ohne
-manuelle Pruefung um (analog zum Wissensluecken-Lernmechanismus bei Mails).
+Freigeben legt einen Entwurf in die Warteschlange (status 'approved'); gepostet
+wird automatisch nach Zeitplan (linkedin_post_settings, wie bei Instagram) -
+immer der aelteste freigegebene Beitrag. Faellt die Warteschlange unter
+QUEUE_WARN_BELOW, meldet der LinkedIn-Agent das (Zentrale + Mail).
+Ab der 50. Freigabe kommen neue Entwuerfe ohne manuelle Pruefung direkt in die
+Warteschlange (analog zum Wissensluecken-Lernmechanismus bei Mails).
 """
 import json
 import random
@@ -27,6 +29,8 @@ SETTINGS_PATH = '/opt/stean/settings.json'
 POSTS_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'linkedin_posts.json')
 
 AUTO_POST_THRESHOLD = 50
+QUEUE_WARN_BELOW = 2   # weniger freigegebene Beitraege -> Agent meldet sich
+DEFAULT_POST_SETTINGS = {'auto_enabled': '1', 'post_times': '10:00', 'post_days': 'mon,tue,wed,thu,fri,sat,sun'}
 
 TOPIC_FOCUS = (
     "Chefblick / E-Commerce-Beratung: Website-Erstellung, Online-Shops, "
@@ -57,7 +61,8 @@ def init_table():
         decided_at DATETIME
     )''')
     existing_cols = {row[1] for row in c.execute('PRAGMA table_info(linkedin_drafts)').fetchall()}
-    for col_def in ('format_style TEXT', 'rating TEXT', 'feedback_tags TEXT', 'feedback_comment TEXT'):
+    for col_def in ('format_style TEXT', 'rating TEXT', 'feedback_tags TEXT', 'feedback_comment TEXT',
+                    'posted_at DATETIME', 'post_error TEXT'):
         col_name = col_def.split()[0]
         if col_name not in existing_cols:
             c.execute(f'ALTER TABLE linkedin_drafts ADD COLUMN {col_def}')
@@ -252,11 +257,10 @@ def generate_draft():
     c = conn.cursor()
 
     if approved_count >= AUTO_POST_THRESHOLD:
-        result = linkedin_engine.post_share(text)
-        status = 'auto_posted' if 'veröffentlicht' in result else 'auto_post_failed'
+        # Auto-Modus: ohne Pruefung direkt in die Warteschlange (gepostet wird nach Zeitplan)
         c.execute(
-            "INSERT INTO linkedin_drafts (topic, text, format_style, status, decided_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            ('auto', text, format_style['key'], status)
+            "INSERT INTO linkedin_drafts (topic, text, format_style, status, decided_at) VALUES (?, ?, ?, 'approved', CURRENT_TIMESTAMP)",
+            ('auto', text, format_style['key'])
         )
     else:
         c.execute(
@@ -300,22 +304,16 @@ def approve_draft(draft_id, rating=None, tags=None, comment=None):
         conn.close()
         return {'error': 'Entwurf nicht gefunden oder bereits entschieden.'}
 
-    result = linkedin_engine.post_share(row[0])
-    ok = 'veröffentlicht' in result
-    c.execute(
-        "UPDATE linkedin_drafts SET status=?, decided_at=CURRENT_TIMESTAMP WHERE id=?",
-        ('approved_posted' if ok else 'approve_failed', draft_id)
-    )
+    # Nicht sofort posten - der Beitrag kommt in die Warteschlange und geht nach Zeitplan raus
+    c.execute("UPDATE linkedin_drafts SET status='approved', decided_at=CURRENT_TIMESTAMP, post_error=NULL WHERE id=?", (draft_id,))
     _store_feedback(c, draft_id, rating, tags, comment)
     conn.commit()
     conn.close()
 
-    if ok:
-        settings = load_settings()
-        settings['linkedin_approved_count'] = settings.get('linkedin_approved_count', 0) + 1
-        save_settings(settings)
-
-    return {'success': ok, 'message': result}
+    settings_store.update(lambda st: st.__setitem__('linkedin_approved_count', st.get('linkedin_approved_count', 0) + 1))
+    n = len(get_queue())
+    return {'success': True, 'queued': True, 'queue_length': n,
+            'message': f'In die Warteschlange gelegt ({n} freigegeben)'}
 
 
 def reject_draft(draft_id, rating=None, tags=None, comment=None):
@@ -361,8 +359,114 @@ def get_progress():
     return {
         'approved_count': approved,
         'threshold': AUTO_POST_THRESHOLD,
-        'auto_mode': approved >= AUTO_POST_THRESHOLD
+        'auto_mode': approved >= AUTO_POST_THRESHOLD,
+        'queue_length': len(get_queue()),
+        'queue_warn_below': QUEUE_WARN_BELOW,
+        'post_settings': get_post_settings(),
     }
+
+
+# ─── Warteschlange & Zeitplan (wie bei Instagram) ────────────────────
+
+def get_queue():
+    """Freigegebene, noch nicht gepostete Beitraege - der aelteste zuerst."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, topic, text, format_style, status, created_at, decided_at, post_error FROM linkedin_drafts "
+              "WHERE status='approved' ORDER BY decided_at ASC, id ASC")
+    cols = ['id', 'topic', 'text', 'format_style', 'status', 'created_at', 'decided_at', 'post_error']
+    rows = [dict(zip(cols, r)) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+
+def unqueue_draft(draft_id):
+    """Aus der Warteschlange zurueck zu den offenen Entwuerfen."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE linkedin_drafts SET status='pending', decided_at=NULL WHERE id=? AND status='approved'", (draft_id,))
+    ok = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return {'success': ok}
+
+
+def get_post_settings():
+    s = dict(DEFAULT_POST_SETTINGS)
+    s.update({k: v for k, v in (load_settings().get('linkedin_post_settings') or {}).items() if k in DEFAULT_POST_SETTINGS or k == 'auto_post_last_slot'})
+    return s
+
+
+def save_post_settings(data):
+    days = [d for d in str(data.get('post_days', '')).split(',') if d in ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')]
+    times = [t.strip() for t in str(data.get('post_times', '')).split(',') if re.match(r'^\d{1,2}:\d{2}$', t.strip())]
+    def mut(st):
+        ps = st.setdefault('linkedin_post_settings', {})
+        ps['auto_enabled'] = '1' if str(data.get('auto_enabled')) in ('1', 'true', 'True') else '0'
+        ps['post_times'] = ','.join(times) or DEFAULT_POST_SETTINGS['post_times']
+        ps['post_days'] = ','.join(days) or DEFAULT_POST_SETTINGS['post_days']
+    settings_store.update(mut)
+    return get_post_settings()
+
+
+def _queue_problem(n):
+    if n >= QUEUE_WARN_BELOW:
+        return []
+    return [f'LinkedIn-Warteschlange: nur noch {n} freigegebene(r) Beitrag/Beiträge – bitte neue Entwürfe freigeben, '
+            f'sonst wird bald nichts mehr gepostet']
+
+
+def post_next_in_queue():
+    """Postet den aeltesten freigegebenen Beitrag. Schlaegt das fehl (z.B. Token abgelaufen),
+    bleibt er in der Warteschlange - nichts geht verloren."""
+    import agents_engine as agents
+    queue = get_queue()
+    if not queue:
+        agents.done('linkedin', 'Nichts gepostet – Warteschlange ist leer', problems=_queue_problem(0), notify=True,
+                    bubble='Warteschlange leer – bitte Entwürfe freigeben')
+        return {'success': False, 'error': 'Keine freigegebenen Beiträge in der Warteschlange.'}
+    item = queue[0]
+    plan = lambda *st: [{'label': l, 'state': x} for l, x in zip(
+        ['Ältesten freigegebenen Beitrag nehmen', 'Auf LinkedIn veröffentlichen', 'Warteschlange prüfen'], st)]
+    agents.start('linkedin', 'Veröffentliche den nächsten Beitrag auf LinkedIn …', plan=plan('done', 'active', 'open'))
+    result = linkedin_engine.post_share(item['text'])
+    ok = 'veröffentlicht' in result
+    conn = sqlite3.connect(DB_PATH)
+    if ok:
+        conn.execute("UPDATE linkedin_drafts SET status='approved_posted', posted_at=CURRENT_TIMESTAMP, post_error=NULL WHERE id=?", (item['id'],))
+    else:
+        conn.execute("UPDATE linkedin_drafts SET post_error=? WHERE id=?", (str(result)[:500], item['id']))
+    conn.commit()
+    conn.close()
+    if not ok:
+        agents.fail('linkedin', f'LinkedIn-Post fehlgeschlagen (bleibt in der Warteschlange): {str(result)[:200]}',
+                    plan=plan('done', 'error', 'open'))
+        return {'success': False, 'error': result}
+    left = len(get_queue())
+    problems = _queue_problem(left)
+    agents.done('linkedin', f'Beitrag gepostet – noch {left} in der Warteschlange', problems=problems, notify=True,
+                plan=plan('done', 'done', 'warn' if problems else 'done'))
+    return {'success': True, 'message': result, 'queue_length': left}
+
+
+def maybe_auto_post():
+    """Jede Minute aufgerufen (Loop in app.py): postet zur eingestellten Zeit, einmal pro Slot."""
+    import agents_engine as agents
+    ps = get_post_settings()
+    if ps.get('auto_enabled') != '1' or agents.is_paused('linkedin'):
+        return
+    now = datetime.datetime.now()
+    day_map = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    if day_map[now.weekday()] not in ps['post_days'].split(','):
+        return
+    current_hm = now.strftime('%H:%M')
+    if current_hm not in [t.strip().zfill(5) for t in ps['post_times'].split(',')]:
+        return
+    slot_key = f'{now.strftime("%Y-%m-%d")}_{current_hm}'
+    if ps.get('auto_post_last_slot') == slot_key:
+        return
+    settings_store.update(lambda st: st.setdefault('linkedin_post_settings', {}).__setitem__('auto_post_last_slot', slot_key))
+    post_next_in_queue()
 
 
 def run_as_agent():
@@ -378,7 +482,9 @@ def run_as_agent():
     except Exception as e:
         agents.fail('linkedin', e, plan=plan('done', 'error', 'open'))
         raise
-    agents.done('linkedin', 'Neuer Entwurf liegt zur Freigabe bereit', plan=plan('done', 'done', 'done'))
+    problems = _queue_problem(len(get_queue()))
+    agents.done('linkedin', 'Neuer Entwurf liegt zur Freigabe bereit', plan=plan('done', 'done', 'done'),
+                problems=problems, notify=True)
     return new_id
 
 
