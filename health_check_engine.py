@@ -16,6 +16,7 @@ import os
 import smtplib
 import sqlite3
 import subprocess
+import time
 import imaplib
 from datetime import datetime
 from email.message import EmailMessage
@@ -132,9 +133,15 @@ def _c_instagram(settings):
 def _c_linkedin(settings):
     try:
         import linkedin_engine
-        if linkedin_engine.is_connected():
-            return True, 'OK'
-        return False, 'Nicht verbunden oder Token abgelaufen'
+        if not linkedin_engine.is_connected():
+            return False, 'Nicht verbunden oder Token abgelaufen - bitte neu verbinden'
+        # LinkedIn gibt normalen Apps keinen Refresh-Token: nach 60 Tagen ist Schluss,
+        # deshalb eine Woche vorher warnen statt erst, wenn Posts schon scheitern.
+        token = linkedin_engine._load_token() or {}
+        expires_at = token.get('obtained_at', 0) + token.get('expires_in', 0)
+        if expires_at - time.time() < 7 * 86400:
+            return False, f"Token laeuft am {datetime.fromtimestamp(expires_at).strftime('%d.%m.%Y')} ab - bitte neu verbinden"
+        return True, 'OK'
     except Exception as e:
         return False, f'Check fehlgeschlagen: {e}'
 
