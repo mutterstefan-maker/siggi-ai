@@ -869,7 +869,11 @@ input:checked + .slider:before { transform: translateX(16px); }
 .ag-live-dot { width: 9px; height: 9px; border-radius: 50%; background: #3b7cf0; animation: ag-pulse-ring 1.6s ease-out infinite; }
 .ag-warn { background: color-mix(in srgb, #e0453a 12%, var(--surface)); border: 1px solid color-mix(in srgb, #e0453a 40%, transparent); color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 13px; font-weight: 600; }
 .ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
-.ag-card { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 2px solid var(--border); border-radius: 18px; padding: 16px 18px 18px; transition: transform .15s ease, box-shadow .15s ease; }
+.ag-card-wrap { position: relative; min-width: 0; display: flex; }
+.ag-card-wrap > .ag-card { flex: 1; }
+.ag-details-btn { position: absolute; right: 12px; bottom: 12px; font: 600 12px var(--font); color: var(--text2); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; min-height: 32px; cursor: pointer; }
+.ag-details-btn:hover { color: var(--text); border-color: var(--accent); }
+.ag-card { all: unset; box-sizing: border-box; cursor: pointer; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 2px solid var(--border); border-radius: 18px; padding: 16px 18px 18px; transition: transform .15s ease, box-shadow .15s ease; }
 .ag-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,.12); }
 .ag-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .ag-card.selected { box-shadow: 0 8px 22px rgba(0,0,0,.14); }
@@ -879,13 +883,13 @@ input:checked + .slider:before { transform: translateX(16px); }
 .ag-svg { width: 120px; height: 140px; display: block; }
 .ag-svg text { font-family: var(--font); }
 .ag-info { display: flex; flex-direction: column; gap: 7px; }
-.ag-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ag-name { font-size: 16px; font-weight: 800; color: var(--text); }
+.ag-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; min-width: 0; }
+.ag-name { font-size: 16px; font-weight: 800; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .ag-chip { font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
 .ag-role { font-size: 12px; color: var(--text2); }
 .ag-bar { height: 6px; border-radius: 99px; background: var(--surface2); overflow: hidden; }
 .ag-bar > div { height: 100%; border-radius: 99px; transition: width .5s; }
-.ag-next { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); }
+.ag-next { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); padding-right: 64px; }
 .ag-bottom { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 .ag-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 20px; box-sizing: border-box; min-width: 0; }
 .ag-detail { flex: 999 1 520px; display: flex; flex-direction: column; gap: 18px; }
@@ -4747,15 +4751,24 @@ async function refreshAgents() {
 
   const grid = document.getElementById('ag-grid');
   d.agents.forEach(a => {
-    let card = grid.querySelector(`[data-agent-id="${a.id}"]`);
-    if (!card) {
-      card = document.createElement('button');
-      card.className = 'ag-card';
-      card.dataset.agentId = a.id;
-      card.setAttribute('aria-label', a.name + ' auswählen');
-      card.onclick = () => { agentsSelected = a.id; delete agentsRendered['detail']; refreshAgents(); };
-      grid.appendChild(card);
+    let wrap = grid.querySelector(`[data-agent-id="${a.id}"]`);
+    if (!wrap) {
+      // Karte = direkt zur Aufgabe (z.B. LinkedIn-Freigaben); "Details" = Plan & Verlauf hier unten
+      wrap = document.createElement('div');
+      wrap.className = 'ag-card-wrap';
+      wrap.dataset.agentId = a.id;
+      wrap.innerHTML = `<button class="ag-card"></button><button class="ag-details-btn" aria-label="Details zu ${escHtml(a.name)}">Details</button>`;
+      wrap.querySelector('.ag-card').onclick = () => {
+        const cur = (agentsData?.agents || []).find(x => x.id === a.id);
+        if (cur && cur.target) { showView(cur.target); return; }
+        selectAgentDetails(a.id);
+      };
+      wrap.querySelector('.ag-details-btn').onclick = () => selectAgentDetails(a.id);
+      grid.appendChild(wrap);
     }
+    const card = wrap.querySelector('.ag-card');
+    wrap.querySelector('.ag-details-btn').style.display = a.target ? '' : 'none';
+    card.setAttribute('aria-label', a.target ? `${a.name} – Aufgabe öffnen` : `${a.name} – Details anzeigen`);
     card.classList.toggle('selected', a.id === agentsSelected);
     card.style.borderColor = a.id === agentsSelected ? (AGENT_STATUS[a.status] || {}).color : '';
     const html = agentCardInner(a);
@@ -4788,6 +4801,12 @@ async function refreshAgents() {
     agentsRendered['feed'] = fHtml;
   }
   updateAgentsBadge(d);
+}
+
+function selectAgentDetails(id) {
+  agentsSelected = id;
+  delete agentsRendered['detail'];
+  refreshAgents().then(() => document.getElementById('ag-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
 
 function updateAgentsBadge(d) {

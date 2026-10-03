@@ -53,7 +53,7 @@ STATUSES = {'working', 'planning', 'waiting', 'ready', 'sleeping', 'error'}
 # 'view' = Dashboard-Ansicht, in der Freigaben dieses Agenten liegen.
 AGENTS = {
     'mail': {
-        'kind': 'internal', 'name': 'Mail-Agent', 'icon': 'mail', 'view': 'mail_drafts', 'runnable': True,
+        'kind': 'internal', 'name': 'Mail-Agent', 'icon': 'mail', 'view': 'mail_drafts', 'home': 'inbox', 'runnable': True,
         'role': 'Ruft Mails ab, sortiert sie und beantwortet sie',
         'default_config': {}, 'next_run': 'alle 21 Minuten',
     },
@@ -569,6 +569,8 @@ def overview(extras=None):
                 'status': status, 'bubble': bubble or '', 'progress': r['progress'],
                 'plan': json.loads(r['plan'] or '[]'), 'next_run': ex.get('next_run') or r['next_run'] or meta['next_run'],
                 'kind': meta.get('kind', 'n8n'), 'view': meta.get('view'), 'runnable': meta.get('runnable', True),
+                # Klick auf die Karte: dorthin, wo die Aufgabe liegt (Freigaben, sonst der Arbeitsbereich)
+                'target': meta.get('view') if pending else meta.get('home', meta.get('view')),
                 'gauges': json.loads(r['gauges'] or '[]'),
                 'paused': bool(r['paused']), 'config': json.loads(r['config'] or '{}'),
                 'last_summary': r['last_summary'], 'last_run_at': r['last_run_at'], 'updated_at': r['updated_at'],
