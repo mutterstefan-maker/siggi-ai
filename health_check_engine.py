@@ -224,6 +224,7 @@ def _send_alert_mail(failed):
     )
     msg = EmailMessage()
     msg.set_content(body)
+    msg['Auto-Submitted'] = 'auto-generated'
     msg['Subject'] = f'SIGGI ALARM: {len(failed)} Problem(e) beim Health-Check'
     msg['From'] = user
     msg['To'] = to_addr

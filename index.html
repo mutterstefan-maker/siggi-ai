@@ -4790,6 +4790,13 @@ function agentConfigHTML(a) {
         <button class="btn btn-ghost" onclick="disconnectTelegram()">Verbindung trennen</button>
       </div>`;
   }
+  if (a.id === 'followup') {
+    return `
+      <label class="form-label" for="ag-fu-days">Nachfassen, wenn ein Kunde so viele Tage nicht geantwortet hat</label>
+      <div class="ag-nums"><label class="ag-num"><input class="form-input" type="number" min="2" max="60" id="ag-fu-days" value="${(a.info || {}).days || 7}"> Tage</label></div>
+      <div class="ag-muted">Siggi schlägt nur vor – jede Nachfass-Mail kommt per Telegram zur Freigabe, nichts geht ungefragt raus.</div>
+      <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('followup')">Speichern</button></div>`;
+  }
   if (a.id === 'server') {
     const f = (k, l) => `<label class="ag-num"><span>${l}</span><input class="form-input" type="number" min="10" max="99" id="ag-${k}" value="${a.config[k] ?? ''}"> %</label>`;
     return `
@@ -4988,6 +4995,7 @@ async function saveAgentConfig(id) {
   let config = {};
   if (id === 'watch') config.sites = (document.getElementById('ag-sites')?.value || '').split('\n');
   if (id === 'server') ['cpu_warn', 'ram_warn', 'disk_warn'].forEach(k => { config[k] = parseInt(document.getElementById('ag-' + k)?.value, 10); });
+  if (id === 'followup') config.days = parseInt(document.getElementById('ag-fu-days')?.value, 10) || 7;
   const res = await apiFetch(`/api/agents/${id}/config`, 'POST', config);
   if (res && res.success) showToast('Gespeichert', 'success');
   else showToast('Speichern fehlgeschlagen', 'error');

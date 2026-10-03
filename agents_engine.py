@@ -79,6 +79,11 @@ AGENTS = {
         'role': 'Schreibt jeden Morgen einen Entwurf und postet freigegebene Beiträge nach Zeitplan',
         'default_config': {}, 'next_run': 'täglich 08:00',
     },
+    'followup': {
+        'kind': 'internal', 'name': 'Nachfass-Agent', 'icon': 'search', 'view': 'mail_drafts', 'runnable': True,
+        'role': 'Findet Kunden, die sich nach deiner Mail nicht gemeldet haben, und schlägt Nachfass-Mails vor',
+        'default_config': {}, 'next_run': 'täglich 09:30',
+    },
     'comments': {
         'kind': 'internal', 'name': 'Kommentar-Agent', 'icon': 'chat', 'view': None, 'runnable': False,
         'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',
@@ -724,6 +729,7 @@ def _send_mail(subject, body):
         return
     msg = EmailMessage()
     msg.set_content(body)
+    msg['Auto-Submitted'] = 'auto-generated'
     msg['Subject'] = subject
     msg['From'] = user
     msg['To'] = os.environ.get('MAIL_USER_2') or user

@@ -448,6 +448,8 @@ def send_new_mail(to_addr, subject, body, sign=False, attachments=None):
     msg['From'] = SIGGI_SEND_ACCOUNT
     msg['To'] = to_addr
     msg['Subject'] = subject
+    if not sign:
+        msg['Auto-Submitted'] = 'auto-generated'  # interne Hinweise an Stefan - nicht beantworten
     msg.set_content(body)
     for path in attachments or []:
         with open(path, 'rb') as f:
@@ -459,6 +461,15 @@ def send_new_mail(to_addr, subject, body, sign=False, attachments=None):
         server.send_message(msg)
 
     names = ', '.join(os.path.basename(p) for p in attachments or [])
+    if sign:  # Mail an einen Kunden in Stefans Namen -> fuer den Nachfass-Agenten merken
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute('INSERT INTO sent_mails (account, to_addr, subject, body, sent_at) VALUES (?,?,?,?,?)',
+                         (SIGGI_SEND_ACCOUNT, to_addr, subject, body, datetime.now().isoformat()))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f'[Mail] Konnte gesendete Mail nicht protokollieren: {e}')
     return f"Mail an {to_addr} von {SIGGI_SEND_ACCOUNT} verschickt." + (f" Anhang: {names}" if names else '')
 
 SIGGI_TOOLS = [
@@ -2588,6 +2599,13 @@ def _agent_extras():
             'alert': None if ts.get('paired') else ('Warte auf deine erste Nachricht in Telegram' if ts.get('configured')
                                                     else 'Noch nicht eingerichtet – tippe auf mich'),
         }
+    fu = safe(followup_engine.config, {}) or {}
+    open_n = safe(lambda: len(followup_engine.find_candidates(fu)), 0)
+    extras['followup'] = {
+        'info': {'days': fu.get('days', 7)},
+        'idle': (f"{open_n} Kunde(n) seit {fu.get('days', 7)}+ Tagen ohne Antwort – prüfe ich um 09:30" if open_n
+                 else f"Niemand wartet seit {fu.get('days', 7)}+ Tagen auf ein Nachfassen"),
+    }
     extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
     return extras
 
@@ -2706,7 +2724,10 @@ def _agents_status_text():
 def _start_mail_fetch():
     open(MAIL_FETCH_TRIGGER, 'w').close()
 
+import followup_engine
+
 INTERNAL_AGENT_RUNNERS = {
+    'followup': lambda: followup_engine.run(create_mail_draft),
     'mail': _start_mail_fetch,
     'bild': lambda: instagram_flyer_engine.run_as_agent(),
     'linkedin': lambda: linkedin_pipeline_engine.run_as_agent(),
@@ -2792,6 +2813,29 @@ def telegram_disconnect():
     return jsonify({'success': True})
 
 
+def _followup_loop():
+    """Nachfass-Agent einmal taeglich ab 09:30 (merkt sich den Tag in settings, ueberlebt Neustarts)."""
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_followup_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return
+    while True:
+        try:
+            now = datetime.now()
+            today = now.strftime('%Y-%m-%d')
+            if now.strftime('%H:%M') >= '09:30' and load_settings().get('followup_last_run') != today \
+                    and not agents_engine.is_paused('followup'):
+                settings_store.update(lambda s: s.__setitem__('followup_last_run', today))
+                followup_engine.run(create_mail_draft)
+        except Exception as e:
+            print(f'[Nachfassen] Fehler: {e}')
+        time.sleep(300)
+
+threading.Thread(target=_followup_loop, daemon=True).start()
+
+
 @app.route('/api/agents')
 def agents_overview():
     return jsonify(agents_engine.overview(_agent_extras()))
@@ -2818,6 +2862,9 @@ def agents_run(agent_id):
 
 @app.route('/api/agents/<agent_id>/config', methods=['POST'])
 def agents_config(agent_id):
+    if agent_id == 'followup':
+        followup_engine.save_config(request.get_json(silent=True) or {})
+        return jsonify({'success': True})
     ok = agents_engine.set_config(agent_id, request.get_json(silent=True) or {})
     return jsonify({'success': ok}), (200 if ok else 400)
 

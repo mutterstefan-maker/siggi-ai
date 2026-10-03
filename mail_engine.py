@@ -502,6 +502,13 @@ def fetch_mails():
                 auto_reply = is_auto_reply_mail(msg, from_addr, subject)
                 spam = is_spam_mail(from_addr, subject, body, settings)
 
+                # Siggis eigene Hinweise/Alarme (team@ -> stefan-mutter@) wurden sonst als Kundenanfrage
+                # behandelt und per Claude "beantwortet" - mehrfach am Tag, kostet nur.
+                own_accounts = {a.lower() for a in (settings.get('accounts') or {})}
+                sender = re.search(r'[\w.+-]+@[\w.-]+', from_addr or '')
+                if sender and sender.group(0).lower() in own_accounts:
+                    auto_reply = True
+
                 reply_count = reply_count_last_24h(from_addr, conn)
                 if reply_count >= 3:
                     print(f"Endlosschutz: {from_addr}")

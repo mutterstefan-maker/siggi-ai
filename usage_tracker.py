@@ -38,6 +38,7 @@ SOURCES = [
     ('telegram_engine', 'telegram', 'Telegram'),
     ('_suggest_instagram_reply', 'comments', 'Kommentare'),
     ('_suggest_linkedin_reply', 'comments', 'Kommentare'),
+    ('followup_engine', 'followup', 'Nachfassen'),
     ('mail_engine', 'mail', 'Mails'),
     ('linkedin_pipeline_engine', 'linkedin', 'LinkedIn'),
     ('instagram_flyer_engine', 'bild', 'Bilder'),
