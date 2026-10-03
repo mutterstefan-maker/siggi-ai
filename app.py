@@ -17,6 +17,7 @@ import audit_pdf
 import self_improve_engine
 import health_check_engine
 import settings_store
+import agents_engine
 
 app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB für Handy-Rohvideos - reels_engine komprimiert sie danach auf Story-Größe (muss zu client_max_body_size in nginx passen)
@@ -103,6 +104,8 @@ def require_login():
         return None
     if request.path.startswith('/api/instagram/media/') or request.path.startswith('/api/instagram/reels/media/'):
         return None  # muss öffentlich erreichbar sein, damit Meta das Bild/Video abrufen kann
+    if request.path.startswith('/api/agents/hook/'):
+        return None  # n8n-Agenten melden sich per Bearer-Token, nicht per Login (Pruefung in der Route)
     if not session.get('logged_in'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'unauthorized'}), 401
@@ -302,6 +305,7 @@ def init_actions_log_table():
 init_actions_log_table()
 self_improve_engine.init_table()
 health_check_engine.init_table()
+agents_engine.init_table()
 
 def log_siggi_action(tool, tool_input, output):
     try:
@@ -2160,6 +2164,38 @@ def linkedin_status():
     if not LINKEDIN_AVAILABLE:
         return jsonify({'available': False})
     return jsonify({'available': True, 'connected': linkedin_engine.is_connected()})
+
+# ─── Agenten-Zentrale (n8n) ──────────────────────────────────────────
+
+@app.route('/api/agents/hook/<agent_id>', methods=['POST'])
+def agents_hook(agent_id):
+    if not agents_engine.verify_token(request.headers.get('Authorization', '')):
+        return jsonify({'error': 'unauthorized'}), 401
+    body, status = agents_engine.handle_hook(agent_id, request.get_json(silent=True) or {})
+    return jsonify(body), status
+
+@app.route('/api/agents')
+def agents_overview():
+    return jsonify(agents_engine.overview())
+
+@app.route('/api/agents/<agent_id>/pause', methods=['POST'])
+def agents_pause(agent_id):
+    ok = agents_engine.set_paused(agent_id, bool((request.get_json(silent=True) or {}).get('paused')))
+    return jsonify({'success': ok}), (200 if ok else 404)
+
+@app.route('/api/agents/<agent_id>/run', methods=['POST'])
+def agents_run(agent_id):
+    return jsonify(agents_engine.run_now(agent_id))
+
+@app.route('/api/agents/<agent_id>/config', methods=['POST'])
+def agents_config(agent_id):
+    ok = agents_engine.set_config(agent_id, request.get_json(silent=True) or {})
+    return jsonify({'success': ok}), (200 if ok else 400)
+
+@app.route('/api/agents/approvals/<int:approval_id>', methods=['POST'])
+def agents_approval(approval_id):
+    ok = agents_engine.decide_approval(approval_id, bool((request.get_json(silent=True) or {}).get('approve')))
+    return jsonify({'success': ok}), (200 if ok else 404)
 
 @app.route('/health')
 def health():

@@ -146,6 +146,15 @@ def _c_linkedin(settings):
         return False, f'Check fehlgeschlagen: {e}'
 
 
+@check('n8n (Agenten)')
+def _c_n8n(settings):
+    try:
+        import agents_engine
+        return (True, 'OK') if agents_engine.is_n8n_up() else (False, 'n8n antwortet nicht - Agenten laufen nicht (docker ps / docker logs n8n)')
+    except Exception as e:
+        return False, f'Check fehlgeschlagen: {e}'
+
+
 @check('Mail-Konten (IMAP-Login)')
 def _c_mail(settings):
     accounts = (settings or {}).get('accounts', {})

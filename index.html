@@ -858,6 +858,112 @@ input:checked + .slider:before { transform: translateX(16px); }
 .compose-modal input:focus, .compose-modal textarea:focus { border-color: var(--accent); }
 .compose-modal textarea { min-height: 160px; resize: vertical; }
 .compose-modal .compose-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+
+/* ── Agenten-Zentrale ── */
+.ag-wrap { max-width: 1320px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; box-sizing: border-box; }
+.ag-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.ag-kicker { font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--text2); }
+.ag-title { font-size: 26px; font-weight: 800; color: var(--text); margin-top: 4px; }
+.ag-summary { font-size: 14px; color: var(--text2); margin-top: 4px; }
+.ag-live { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; font-family: var(--font-mono, monospace); font-size: 12px; font-weight: 700; color: var(--text); }
+.ag-live-dot { width: 9px; height: 9px; border-radius: 50%; background: #3b7cf0; animation: ag-pulse-ring 1.6s ease-out infinite; }
+.ag-warn { background: color-mix(in srgb, #e0453a 12%, var(--surface)); border: 1px solid color-mix(in srgb, #e0453a 40%, transparent); color: var(--text); border-radius: 12px; padding: 12px 14px; font-size: 13px; font-weight: 600; }
+.ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+.ag-card { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 10px; background: var(--surface); border: 2px solid var(--border); border-radius: 18px; padding: 16px 18px 18px; transition: transform .15s ease, box-shadow .15s ease; }
+.ag-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,.12); }
+.ag-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ag-card.selected { box-shadow: 0 8px 22px rgba(0,0,0,.14); }
+.ag-bubble { font-size: 13px; line-height: 1.35; font-weight: 600; padding: 10px 12px; border-radius: 12px; min-height: 36px; display: flex; align-items: center; }
+.ag-stage { position: relative; height: 150px; display: flex; align-items: flex-end; justify-content: center; }
+.ag-floor { position: absolute; bottom: 2px; width: 120px; height: 16px; border-radius: 50%; }
+.ag-svg { width: 120px; height: 140px; display: block; }
+.ag-svg text { font-family: var(--font); }
+.ag-info { display: flex; flex-direction: column; gap: 7px; }
+.ag-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ag-name { font-size: 16px; font-weight: 800; color: var(--text); }
+.ag-chip { font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
+.ag-role { font-size: 12px; color: var(--text2); }
+.ag-bar { height: 6px; border-radius: 99px; background: var(--surface2); overflow: hidden; }
+.ag-bar > div { height: 100%; border-radius: 99px; transition: width .5s; }
+.ag-next { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); }
+.ag-bottom { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.ag-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 20px; box-sizing: border-box; min-width: 0; }
+.ag-detail { flex: 999 1 520px; display: flex; flex-direction: column; gap: 18px; }
+.ag-feed { flex: 1 1 300px; display: flex; flex-direction: column; gap: 12px; max-height: 620px; overflow-y: auto; }
+.ag-detail-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.ag-detail-name { font-size: 22px; font-weight: 800; color: var(--text); margin-top: 2px; }
+.ag-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ag-actions .btn { min-height: 44px; text-decoration: none; display: inline-flex; align-items: center; }
+.ag-actions .btn[disabled] { opacity: .5; cursor: not-allowed; }
+.ag-section { font-size: 12px; font-weight: 700; color: var(--text2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
+.ag-now { font-size: 17px; font-weight: 700; color: var(--text); }
+.ag-muted { font-size: 12px; color: var(--text2); }
+.ag-plan { display: flex; flex-direction: column; gap: 10px; }
+.ag-step { display: flex; align-items: center; gap: 12px; }
+.ag-dot { flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; box-sizing: border-box; }
+.ag-dot.open { border: 2px dashed; background: transparent; }
+.ag-step-label { font-size: 14px; color: var(--text); min-width: 0; }
+.ag-step-label.open { color: var(--text2); }
+.ag-step-label.active, .ag-step-label.wait, .ag-step-label.error { font-weight: 700; }
+.ag-step-note { margin-left: auto; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); white-space: nowrap; }
+.ag-config { border-top: 1px solid var(--border); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.ag-config:empty { display: none; }
+.ag-nums { display: flex; flex-wrap: wrap; gap: 12px; }
+.ag-num { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+.ag-num input { width: 72px; }
+.ag-approvals { display: flex; flex-direction: column; gap: 8px; background: color-mix(in srgb, #d18a00 10%, var(--surface)); border: 1px solid color-mix(in srgb, #d18a00 40%, transparent); border-radius: 14px; padding: 14px; }
+.ag-approvals-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.ag-approval { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.ag-approval-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.ag-feed-row { display: flex; gap: 10px; align-items: flex-start; }
+.ag-feed-time { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); white-space: nowrap; padding-top: 2px; min-width: 92px; }
+.ag-feed-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; }
+.ag-feed-agent { font-size: 12px; font-weight: 700; color: var(--text); }
+.ag-feed-text { font-size: 13px; color: var(--text2); overflow-wrap: anywhere; }
+
+@keyframes ag-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes ag-scan { 0%,100% { transform: translateX(-3px); } 50% { transform: translateX(3px); } }
+@keyframes ag-rot { to { transform: rotate(360deg); } }
+@keyframes ag-zz { 0% { opacity: 0; transform: translate(0,6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(10px,-14px); } }
+@keyframes ag-think { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
+@keyframes ag-blinkk { 0%,92%,100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes ag-wavee { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-18deg); } }
+@keyframes ag-glow { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes ag-pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(59,124,240,.45); } 100% { box-shadow: 0 0 0 10px rgba(59,124,240,0); } }
+.ag-bob { animation: ag-bob 2.4s ease-in-out infinite; }
+.ag-scan { animation: ag-scan 1.1s ease-in-out infinite; }
+.ag-spin { animation: ag-rot 3s linear infinite; transform-origin: center; transform-box: fill-box; }
+.ag-zz1 { animation: ag-zz 2.6s ease-in infinite; }
+.ag-zz2 { animation: ag-zz 2.6s ease-in .9s infinite; }
+.ag-t1 { animation: ag-think 1.2s infinite; } .ag-t2 { animation: ag-think 1.2s .2s infinite; } .ag-t3 { animation: ag-think 1.2s .4s infinite; }
+.ag-blink { animation: ag-blinkk 4s infinite; transform-origin: center; transform-box: fill-box; }
+.ag-wave { animation: ag-wavee 1s ease-in-out infinite; transform-origin: bottom center; transform-box: fill-box; }
+.ag-pulse { animation: ag-glow 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .ag-bob, .ag-scan, .ag-spin, .ag-zz1, .ag-zz2, .ag-t1, .ag-t2, .ag-t3, .ag-blink, .ag-wave, .ag-pulse, .ag-live-dot { animation: none; }
+}
+
+/* Handy: Figur links, Text rechts - eine Karte pro Zeile */
+@media (max-width: 640px) {
+  .ag-wrap { padding: 14px 12px 28px; gap: 14px; }
+  .ag-title { font-size: 22px; }
+  .ag-grid { grid-template-columns: 1fr; gap: 10px; }
+  .ag-card { display: grid; grid-template-columns: 84px minmax(0, 1fr); grid-template-areas: "stage bubble" "stage info"; column-gap: 12px; row-gap: 8px; padding: 12px; border-radius: 14px; }
+  .ag-card:hover { transform: none; }
+  .ag-bubble { grid-area: bubble; font-size: 12px; padding: 8px 10px; min-height: 0; }
+  .ag-stage { grid-area: stage; height: auto; align-items: center; }
+  .ag-stage .ag-svg { width: 80px; height: 94px; }
+  .ag-floor { width: 76px; height: 10px; bottom: -2px; }
+  .ag-info { grid-area: info; gap: 5px; }
+  .ag-name { font-size: 15px; }
+  .ag-head { flex-wrap: wrap; }
+  .ag-panel { padding: 14px; border-radius: 14px; }
+  .ag-detail, .ag-feed { flex-basis: 100%; }
+  .ag-feed { max-height: none; }
+  .ag-actions { width: 100%; }
+  .ag-actions .btn { flex: 1 1 auto; justify-content: center; }
+  .ag-feed-time { min-width: 0; }
+}
 </style>
 </head>
 <body>
@@ -876,6 +982,10 @@ input:checked + .slider:before { transform: translateX(16px); }
     </div>
     <div class="nav-item" data-view="jarvis">
       <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/><path d="M3.6 9h.01M3.6 15h.01M20.4 9h.01M20.4 15h.01"/></svg></span> SIGGI
+    </div>
+    <div class="nav-item" data-view="agents">
+      <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1"/><path d="M9.5 13h.01M14.5 13h.01"/><path d="M2 13v2M22 13v2"/></svg></span> Agenten
+      <span class="badge warn" id="badge-agents" style="display:none">0</span>
     </div>
 
     <div class="nav-group" id="nav-group-mail">
@@ -1063,7 +1173,8 @@ const VIEW_TITLES = {
   contacts: 'Kontakte / CRM',
   mail_drafts: 'Mail-Entwürfe',
   improvements: 'Selbstverbesserung',
-  health_check: 'Health-Check'
+  health_check: 'Health-Check',
+  agents: 'Agenten'
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────
@@ -1149,6 +1260,10 @@ async function showView(view) {
   }
   if (view === 'topics') {
     renderTopics();
+    return;
+  }
+  if (view === 'agents') {
+    renderAgents();
     return;
   }
   if (view === 'reach') {
@@ -4271,6 +4386,7 @@ async function loadSettings() {
 }
 
 async function loadCounts() {
+  apiFetch('/api/agents').then(d => { if (d && d.agents) updateAgentsBadge(d); });
   const counts = await apiFetch('/api/counts');
   if (counts) {
     ['inbox', 'callbacks', 'invoices', 'knowledge_gap', 'trash', 'improvements', 'linkedin_pipeline', 'flyer_pipeline'].forEach(cat => {
@@ -4391,11 +4507,293 @@ const DASH_SECTIONS = [
   {
     title: 'Sonstiges',
     tiles: [
+      { view: 'agents', label: 'Agenten', icon: '🦾', color: '#3b7cf0' },
       { view: 'jarvis', label: 'SIGGI Chat', icon: '🤖', color: 'var(--accent)' },
       { view: 'settings', label: 'Einstellungen', icon: '⚙️', color: 'var(--text3)' },
     ],
   },
 ];
+
+// ── Agenten-Zentrale ──────────────────────────────────────────────────────
+// Live-Ansicht der n8n-Agenten: jede Figur zeigt per Animation ihren Zustand,
+// die Sprechblase den aktuellen Schritt. Aktualisiert sich alle 3 s, ersetzt
+// dabei nur geänderte Teile (sonst starten die Animationen ständig neu und
+// Eingaben im Einstellungsfeld gingen verloren).
+
+const AGENT_STATUS = {
+  working:  { label: 'arbeitet',        color: '#3b7cf0' },
+  planning: { label: 'plant',           color: '#7a5af8' },
+  waiting:  { label: 'wartet auf dich', color: '#d18a00' },
+  ready:    { label: 'bereit',          color: '#0f9a8c' },
+  sleeping: { label: 'schläft',         color: '#7c879c' },
+  paused:   { label: 'pausiert',        color: '#7c879c' },
+  error:    { label: 'Problem',         color: '#e0453a' },
+};
+const AGENT_ICONS = {
+  shield: 'M12 2 L21 6 V12 C21 17 17 21 12 22 C7 21 3 17 3 12 V6 Z M8 12 L11 15 L16 9',
+  server: 'M4 3 H20 V10 H4 Z M4 14 H20 V21 H4 Z M8 6.5 H8.01 M8 17.5 H8.01 M12 6.5 H16 M12 17.5 H16',
+  search: 'M10.5 3 A7.5 7.5 0 1 0 10.5 18 A7.5 7.5 0 1 0 10.5 3 Z M16 16 L22 22',
+  chat: 'M3 5 H21 V16 H9 L4 20 V16 H3 Z',
+};
+let agentsTimer = null;
+let agentsSelected = null;
+let agentsData = null;
+const agentsRendered = {};
+
+function agentFigure(a) {
+  const st = AGENT_STATUS[a.status] || AGENT_STATUS.sleeping;
+  const c = st.color;
+  const asleep = a.status === 'sleeping' || a.status === 'paused';
+  const busy = a.status === 'working';
+  const eyeY = (a.status === 'planning' || a.status === 'waiting') ? 48 : 53;
+  const eyeCol = { waiting: '#ffc94d', planning: '#b9a6ff', ready: '#6fe3d3', error: '#ff8a80' }[a.status] || '#7fb0ff';
+  const eyes = asleep
+    ? `<line x1="41" y1="53" x2="53" y2="53" stroke="#8fa0c2" stroke-width="3" stroke-linecap="round"/><line x1="67" y1="53" x2="79" y2="53" stroke="#8fa0c2" stroke-width="3" stroke-linecap="round"/>`
+    : a.status === 'error'
+      ? `<path d="M42 48 L52 58 M52 48 L42 58 M68 48 L78 58 M78 48 L68 58" stroke="${eyeCol}" stroke-width="3" stroke-linecap="round"/>`
+      : `<g class="${busy ? 'ag-scan' : ''}"><circle class="ag-blink" cx="48" cy="${eyeY}" r="5" fill="${eyeCol}"/><circle class="ag-blink" cx="72" cy="${eyeY}" r="5" fill="${eyeCol}"/></g>`;
+  const extra = a.status === 'waiting'
+    ? `<g class="ag-wave"><line x1="96" y1="94" x2="108" y2="74" stroke="${c}" stroke-width="5" stroke-linecap="round"/><circle cx="109" cy="71" r="5" fill="${c}"/></g>`
+    : asleep
+      ? `<text class="ag-zz1" x="92" y="30" fill="#7c879c" font-size="16" font-weight="700">z</text><text class="ag-zz2" x="100" y="22" fill="#7c879c" font-size="12" font-weight="700">z</text>`
+      : a.status === 'planning'
+        ? `<circle class="ag-t1" cx="96" cy="26" r="3.5" fill="${c}"/><circle class="ag-t2" cx="104" cy="18" r="4.5" fill="${c}"/><circle class="ag-t3" cx="113" cy="9" r="5.5" fill="${c}"/>`
+        : a.status === 'error'
+          ? `<text x="98" y="30" fill="${c}" font-size="22" font-weight="800">!</text>`
+          : '';
+  return `
+    <div class="ag-floor" style="background:color-mix(in srgb, ${c} 22%, transparent)"></div>
+    <div class="${busy || a.status === 'planning' || a.status === 'waiting' ? 'ag-bob' : ''}" style="position:relative">
+      <svg class="ag-svg" viewBox="0 0 120 140" fill="none" aria-hidden="true">
+        <line x1="60" y1="8" x2="60" y2="24" stroke="${c}" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="60" cy="7" r="5" fill="${c}" class="${busy ? 'ag-pulse' : ''}"/>
+        <rect x="22" y="24" width="76" height="58" rx="18" fill="var(--surface)" stroke="${c}" stroke-width="3"/>
+        <rect x="32" y="36" width="56" height="34" rx="11" fill="#17213a"/>
+        ${eyes}
+        <rect x="34" y="86" width="52" height="40" rx="12" fill="color-mix(in srgb, ${c} 16%, var(--surface))" stroke="${c}" stroke-width="3"/>
+        <g transform="translate(48 94)"><path class="${busy ? 'ag-spin' : ''}" d="${AGENT_ICONS[a.icon] || AGENT_ICONS.shield}" stroke="${c}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>
+        ${extra}
+      </svg>
+    </div>`;
+}
+
+function agentCardInner(a) {
+  const st = AGENT_STATUS[a.status] || AGENT_STATUS.sleeping;
+  const pct = a.status === 'working' && a.progress != null ? Math.round(a.progress * 100) : null;
+  return `
+    <div class="ag-bubble" style="background:color-mix(in srgb, ${st.color} 14%, var(--surface));color:var(--text)">${escHtml(a.bubble || st.label)}</div>
+    <div class="ag-stage">${agentFigure(a)}</div>
+    <div class="ag-info">
+      <div class="ag-head">
+        <span class="ag-name">${escHtml(a.name)}</span>
+        <span class="ag-chip" style="color:${st.color};background:color-mix(in srgb, ${st.color} 16%, transparent)">${st.label}${a.pending_approvals ? ' · ' + a.pending_approvals : ''}</span>
+      </div>
+      <div class="ag-role">${escHtml(a.role)}</div>
+      ${pct != null ? `<div class="ag-bar"><div style="width:${pct}%;background:${st.color}"></div></div>` : ''}
+      <div class="ag-next">${a.paused ? 'Pausiert' : 'Nächster Lauf: ' + escHtml(a.next_run || '–')}</div>
+    </div>`;
+}
+
+function agentPlanHTML(a) {
+  if (!a.plan || !a.plan.length) return '<div class="ag-muted">Noch kein Lauf – der Plan erscheint, sobald der Agent loslegt.</div>';
+  const col = { done: '#0f9a8c', active: (AGENT_STATUS[a.status] || {}).color || '#3b7cf0', wait: '#d18a00', error: '#e0453a', open: 'var(--text3)' };
+  const mark = { done: '✓', active: '●', wait: '!', error: '!', open: '' };
+  const word = { done: 'erledigt', active: 'läuft', wait: 'wartet auf dich', error: 'Problem', open: 'geplant' };
+  return a.plan.map(p => `
+    <div class="ag-step">
+      <span class="ag-dot ${p.state === 'open' ? 'open' : ''}" style="${p.state === 'open' ? 'border-color:' + col.open + ';color:' + col.open : 'background:' + col[p.state]}">${mark[p.state]}</span>
+      <span class="ag-step-label ${p.state}">${escHtml(p.label)}</span>
+      <span class="ag-step-note">${escHtml(p.note || word[p.state])}</span>
+    </div>`).join('');
+}
+
+function agentConfigHTML(a) {
+  if (a.id === 'watch') {
+    return `
+      <label class="form-label" for="ag-sites">Überwachte Websites (eine pro Zeile)</label>
+      <textarea class="form-textarea" id="ag-sites" rows="4" style="min-height:96px">${escHtml((a.config.sites || []).join('\n'))}</textarea>
+      <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('watch')">Websites speichern</button></div>`;
+  }
+  if (a.id === 'server') {
+    const f = (k, l) => `<label class="ag-num"><span>${l}</span><input class="form-input" type="number" min="10" max="99" id="ag-${k}" value="${a.config[k] ?? ''}"> %</label>`;
+    return `
+      <div class="form-label">Warnen ab</div>
+      <div class="ag-nums">${f('cpu_warn', 'CPU')}${f('ram_warn', 'Arbeitsspeicher')}${f('disk_warn', 'Festplatte')}</div>
+      <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('server')">Grenzen speichern</button></div>`;
+  }
+  return '';
+}
+
+function agentDetailHTML(a, d) {
+  const approvals = (d.approvals || []).filter(x => x.agent_id === a.id);
+  return `
+    <div class="ag-detail-head">
+      <div>
+        <div class="ag-kicker">AUSGEWÄHLT</div>
+        <div class="ag-detail-name">${escHtml(a.name)}</div>
+      </div>
+      <div class="ag-actions">
+        <button class="btn btn-primary" onclick="runAgentNow('${a.id}')" ${a.paused || a.status === 'working' ? 'disabled' : ''}>Jetzt starten</button>
+        <button class="btn btn-ghost" onclick="toggleAgentPause('${a.id}', ${!a.paused})">${a.paused ? 'Fortsetzen' : 'Pausieren'}</button>
+        <a class="btn btn-ghost" href="${d.n8n_url}" target="_blank" rel="noopener">In n8n öffnen</a>
+      </div>
+    </div>
+    ${approvals.length ? `<div class="ag-approvals">
+      <div class="ag-approvals-title">Wartet auf deine Freigabe – ohne dein OK passiert nichts</div>
+      ${approvals.map(x => `<div class="ag-approval"><div><div class="ag-approval-title">${escHtml(x.title)}</div><div class="ag-muted">${escHtml(x.body).slice(0, 300)}</div></div>
+        <div class="ag-actions"><button class="btn btn-ghost" onclick="decideAgentApproval(${x.id}, false)">Ablehnen</button><button class="btn btn-primary" onclick="decideAgentApproval(${x.id}, true)">Freigeben</button></div></div>`).join('')}
+    </div>` : ''}
+    <div>
+      <div class="ag-section">Gerade</div>
+      <div class="ag-now">${escHtml(a.bubble || (AGENT_STATUS[a.status] || {}).label || '')}</div>
+      ${a.last_run_at ? `<div class="ag-muted" style="margin-top:4px">Letzter Lauf: ${formatDate(a.last_run_at)}${a.last_summary ? ' · ' + escHtml(a.last_summary) : ''}</div>` : ''}
+    </div>
+    <div>
+      <div class="ag-section">Plan</div>
+      <div class="ag-plan">${agentPlanHTML(a)}</div>
+    </div>
+    <div class="ag-config" data-agent="${a.id}">${agentConfigHTML(a)}</div>`;
+}
+
+function agentFeedHTML(d) {
+  if (!d.feed.length) return '<div class="ag-muted">Noch keine Aktivität.</div>';
+  const col = { info: '#3b7cf0', success: '#0f9a8c', warn: '#d18a00', error: '#e0453a' };
+  return d.feed.map(e => `
+    <div class="ag-feed-row">
+      <span class="ag-feed-time">${formatDate(e.created_at)}</span>
+      <span class="ag-feed-dot" style="background:${col[e.level] || col.info}"></span>
+      <div style="min-width:0"><div class="ag-feed-agent">${escHtml(e.agent_name)}</div><div class="ag-feed-text">${escHtml(e.text)}</div></div>
+    </div>`).join('');
+}
+
+async function renderAgents() {
+  const content = document.getElementById('main-content');
+  content.style.cssText = 'display:block;overflow-y:auto;flex:1;height:calc(100vh - 56px);padding:0';
+  content.innerHTML = `
+    <div class="ag-wrap">
+      <div class="ag-top">
+        <div>
+          <div class="ag-kicker">SIGGI · AGENTEN</div>
+          <div class="ag-title">Agenten-Zentrale</div>
+          <div class="ag-summary" id="ag-summary">Lade …</div>
+        </div>
+        <div class="ag-live" id="ag-live"><span class="ag-live-dot"></span><span id="ag-clock">LIVE</span></div>
+      </div>
+      <div id="ag-banner"></div>
+      <div class="ag-grid" id="ag-grid"></div>
+      <div class="ag-bottom">
+        <div class="ag-panel ag-detail" id="ag-detail"></div>
+        <div class="ag-panel ag-feed"><div class="ag-kicker">VERLAUF</div><div id="ag-feed"></div></div>
+      </div>
+    </div>`;
+  for (const k in agentsRendered) delete agentsRendered[k];
+  await refreshAgents();
+  clearInterval(agentsTimer);
+  agentsTimer = setInterval(() => {
+    if (currentView !== 'agents' || !document.getElementById('ag-grid')) { clearInterval(agentsTimer); return; }
+    refreshAgents();
+  }, 3000);
+}
+
+async function refreshAgents() {
+  const d = await apiFetch('/api/agents');
+  if (!d || !d.agents) return;
+  agentsData = d;
+  if (!agentsSelected || !d.agents.some(a => a.id === agentsSelected)) agentsSelected = d.agents[0]?.id;
+
+  const counts = {};
+  d.agents.forEach(a => { counts[a.status] = (counts[a.status] || 0) + 1; });
+  const parts = Object.keys(AGENT_STATUS).filter(k => counts[k]).map(k => counts[k] + ' ' + AGENT_STATUS[k].label);
+  document.getElementById('ag-summary').textContent = parts.join(' · ');
+  document.getElementById('ag-clock').textContent = 'LIVE · ' + new Date().toLocaleTimeString('de-DE');
+  document.getElementById('ag-banner').innerHTML = d.n8n_up ? '' :
+    '<div class="ag-warn">n8n ist gerade nicht erreichbar – die Agenten laufen nicht. Der Health-Check meldet das ebenfalls.</div>';
+
+  const grid = document.getElementById('ag-grid');
+  d.agents.forEach(a => {
+    let card = grid.querySelector(`[data-agent-id="${a.id}"]`);
+    if (!card) {
+      card = document.createElement('button');
+      card.className = 'ag-card';
+      card.dataset.agentId = a.id;
+      card.setAttribute('aria-label', a.name + ' auswählen');
+      card.onclick = () => { agentsSelected = a.id; delete agentsRendered['detail']; refreshAgents(); };
+      grid.appendChild(card);
+    }
+    card.classList.toggle('selected', a.id === agentsSelected);
+    card.style.borderColor = a.id === agentsSelected ? (AGENT_STATUS[a.status] || {}).color : '';
+    const html = agentCardInner(a);
+    if (agentsRendered['card-' + a.id] !== html) {
+      // Figur nur tauschen, wenn sich der Zustand ändert - sonst ruckeln die Animationen
+      if (agentsRendered['state-' + a.id] === a.status && card.querySelector('.ag-stage')) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        card.querySelector('.ag-bubble').replaceWith(tmp.querySelector('.ag-bubble'));
+        card.querySelector('.ag-info').replaceWith(tmp.querySelector('.ag-info'));
+      } else {
+        card.innerHTML = html;
+      }
+      agentsRendered['card-' + a.id] = html;
+      agentsRendered['state-' + a.id] = a.status;
+    }
+  });
+
+  const sel = d.agents.find(a => a.id === agentsSelected);
+  const detail = document.getElementById('ag-detail');
+  const editing = detail.contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName);
+  const dHtml = sel ? agentDetailHTML(sel, d) : '';
+  if (!editing && agentsRendered['detail'] !== dHtml) {
+    detail.innerHTML = dHtml;
+    agentsRendered['detail'] = dHtml;
+  }
+  const fHtml = agentFeedHTML(d);
+  if (agentsRendered['feed'] !== fHtml) {
+    document.getElementById('ag-feed').innerHTML = fHtml;
+    agentsRendered['feed'] = fHtml;
+  }
+  updateAgentsBadge(d);
+}
+
+function updateAgentsBadge(d) {
+  const badge = document.getElementById('badge-agents');
+  if (!badge || !d) return;
+  const n = (d.approvals || []).length + d.agents.filter(a => a.status === 'error').length;
+  badge.textContent = n;
+  badge.style.display = n ? 'inline-block' : 'none';
+}
+
+async function runAgentNow(id) {
+  const res = await apiFetch(`/api/agents/${id}/run`, 'POST');
+  if (res && res.success) showToast('Agent gestartet', 'success');
+  else showToast(res?.error || 'Start fehlgeschlagen', 'error');
+  setTimeout(refreshAgents, 800);
+}
+
+async function toggleAgentPause(id, paused) {
+  const res = await apiFetch(`/api/agents/${id}/pause`, 'POST', { paused });
+  if (res && res.success) showToast(paused ? 'Agent pausiert' : 'Agent fortgesetzt', 'success');
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function saveAgentConfig(id) {
+  let config = {};
+  if (id === 'watch') config.sites = (document.getElementById('ag-sites')?.value || '').split('\n');
+  if (id === 'server') ['cpu_warn', 'ram_warn', 'disk_warn'].forEach(k => { config[k] = parseInt(document.getElementById('ag-' + k)?.value, 10); });
+  const res = await apiFetch(`/api/agents/${id}/config`, 'POST', config);
+  if (res && res.success) showToast('Gespeichert', 'success');
+  else showToast('Speichern fehlgeschlagen', 'error');
+  document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function decideAgentApproval(approvalId, approve) {
+  const res = await apiFetch(`/api/agents/approvals/${approvalId}`, 'POST', { approve });
+  if (res && res.success) showToast(approve ? 'Freigegeben' : 'Abgelehnt', 'success');
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
 
 async function renderDashboard() {
   const content = document.getElementById('main-content');
