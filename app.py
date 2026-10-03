@@ -1053,6 +1053,11 @@ def jarvis_chat():
         _wd = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
         _now = datetime.now()
         live_prompt = f"JETZT: {_wd[_now.weekday()]}, {_now.strftime('%d.%m.%Y, %H:%M')} Uhr (Europe/Berlin)\n\n"
+        if data.get('channel') == 'telegram':
+            # Kurz halten: Ausgabe-Tokens kosten 5x so viel wie Eingabe, und die Antwort wird ggf. vorgelesen.
+            # Steht im nicht gecachten Teil, damit der Cache fuer Dashboard und Telegram derselbe bleibt.
+            live_prompt += ("KANAL: Telegram auf dem Handy, Antwort wird evtl. vorgelesen. Antworte knapp in 2-4 Sätzen, "
+                            "ohne Überschriften und lange Listen. Mehr Details nur, wenn Stefan danach fragt.\n\n")
         live_prompt += "STATUS:\n"
         live_prompt += f"- Ungelesene Mails: {mail_stats.get('inbox', 0)}\n"
         live_prompt += f"- Callbacks: {mail_stats.get('callbacks', 0)}\n"
@@ -2465,7 +2470,7 @@ def _telegram_chat(text):
     with app.test_client() as client:
         with client.session_transaction() as sess:
             sess['logged_in'] = True
-        data = client.post('/api/jarvis/chat', json={'message': text}).get_json() or {}
+        data = client.post('/api/jarvis/chat', json={'message': text, 'channel': 'telegram'}).get_json() or {}
     return data.get('reply') or 'Erledigt!', data.get('actions') or []
 
 
