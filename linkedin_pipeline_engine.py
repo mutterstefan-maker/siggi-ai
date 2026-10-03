@@ -31,6 +31,8 @@ POSTS_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'linke
 
 AUTO_POST_THRESHOLD = 50
 QUEUE_WARN_BELOW = 2   # weniger freigegebene Beitraege -> Agent meldet sich
+STOCK_TARGET = 3       # Siggi schreibt selbst nach, bis freigegebene + wartende Entwuerfe diese Zahl erreichen
+MAX_NEW_PER_RUN = 3    # hoechstens so viele neue Entwuerfe pro Lauf (Kostenbremse)
 DEFAULT_POST_SETTINGS = {'auto_enabled': '1', 'post_times': '10:00', 'post_days': 'mon,tue,wed,thu,fri,sat,sun'}
 
 TOPIC_FOCUS = (
@@ -415,8 +417,8 @@ def save_post_settings(data):
 def _queue_problem(n):
     if n >= QUEUE_WARN_BELOW:
         return []
-    return [f'LinkedIn-Warteschlange: nur noch {n} freigegebene(r) Beitrag/Beiträge – bitte neue Entwürfe freigeben, '
-            f'sonst wird bald nichts mehr gepostet']
+    return [f'LinkedIn-Warteschlange: nur noch {n} freigegebene(r) Beitrag/Beiträge – Siggi hat Entwürfe geschrieben, '
+            f'bitte freigeben (Telegram-Knopf oder Dashboard), sonst wird bald nichts mehr gepostet']
 
 
 def post_next_in_queue():
@@ -446,9 +448,15 @@ def post_next_in_queue():
                     plan=plan('done', 'error', 'open'))
         return {'success': False, 'error': result}
     left = len(get_queue())
-    problems = _queue_problem(left)
-    agents.done('linkedin', f'Beitrag gepostet – noch {left} in der Warteschlange', problems=problems, notify=True,
-                plan=plan('done', 'done', 'warn' if problems else 'done'))
+    agents.done('linkedin', f'Beitrag gepostet – noch {left} in der Warteschlange',
+                plan=plan('done', 'done', 'warn' if left < QUEUE_WARN_BELOW else 'done'))
+    if left + len(get_drafts('pending')) < QUEUE_WARN_BELOW:
+        try:
+            run_as_agent(max_new=1)  # Nachschub schreiben - kommt per Telegram zur Freigabe
+        except Exception as e:
+            print(f'[LinkedIn] Nachschub fehlgeschlagen: {e}')
+    elif left < QUEUE_WARN_BELOW:
+        agents.notify_stefan('📝 ' + _queue_problem(left)[0], mail_subject='LinkedIn: bitte Entwürfe freigeben')
     return {'success': True, 'message': result, 'queue_length': left}
 
 
@@ -472,30 +480,45 @@ def maybe_auto_post():
     post_next_in_queue()
 
 
-def run_as_agent():
-    """Taeglicher Lauf (Cron 08:00) bzw. 'Jetzt starten' in der Agenten-Zentrale."""
+def run_as_agent(max_new=MAX_NEW_PER_RUN):
+    """Taeglicher Lauf (Cron 08:00), Nachschub nach einem Post, oder 'Jetzt starten'.
+    Stefan schreibt die Posts nicht selbst - Siggi haelt deshalb Vorrat: es werden so viele Entwuerfe
+    geschrieben, bis freigegebene + zur Freigabe wartende STOCK_TARGET erreichen (max. max_new).
+    Jeder Entwurf kommt per Telegram mit Freigabe-Knopf. Liefert die Liste der neuen Entwurfs-IDs."""
     import agents_engine as agents
+    init_table()
+    queued, pending = len(get_queue()), len(get_drafts('pending'))
+    to_write = min(max_new, max(0, STOCK_TARGET - queued - pending))
     plan = lambda *st: [{'label': l, 'state': x} for l, x in zip(
-        ['Deine bisherigen Posts und Bewertungen lesen', 'Thema wählen und Entwurf schreiben', 'Zur Freigabe vorlegen'], st)]
-    if not agents.start('linkedin', 'Schreibe einen LinkedIn-Entwurf in deinem Stil …', plan=plan('done', 'active', 'open')):
-        return None
+        ['Vorrat prüfen', f'{to_write} Entwurf/Entwürfe in deinem Stil schreiben', 'Per Telegram zur Freigabe schicken'], st)]
+    if not to_write:
+        agents.done('linkedin', f'Genug Vorrat ({queued} freigegeben, {pending} warten auf Freigabe) – kein neuer Entwurf nötig',
+                    plan=plan('done', 'done', 'done'), quiet=True)
+        return []
+    if not agents.start('linkedin', f'Schreibe {to_write} LinkedIn-Entwurf/Entwürfe in deinem Stil …', plan=plan('done', 'active', 'open')):
+        return []
+    new_ids = []
     try:
-        init_table()
-        new_id = generate_draft()
+        for i in range(to_write):
+            agents.step('linkedin', f'Schreibe Entwurf {i + 1} von {to_write} …', progress=i / to_write)
+            new_id = generate_draft()
+            if not new_id:
+                break
+            new_ids.append(new_id)
+            if get_progress().get('approved_count', 0) < AUTO_POST_THRESHOLD:
+                draft = next((d for d in get_drafts('pending') if d['id'] == new_id), None)
+                agents.notify_stefan(f"📝 Neuer LinkedIn-Entwurf ({len(get_queue())} freigegeben in der Warteschlange):\n\n"
+                                     f"{(draft or {}).get('text', '')[:3300]}\n\n(Freigeben = wird nach Zeitplan gepostet.)",
+                                     mail_subject='Freigabe nötig: LinkedIn-Entwurf', approve=('linkedin', new_id))
     except Exception as e:
         agents.fail('linkedin', e, plan=plan('done', 'error', 'open'))
         raise
     problems = _queue_problem(len(get_queue()))
-    agents.done('linkedin', 'Neuer Entwurf liegt zur Freigabe bereit', plan=plan('done', 'done', 'done'),
-                problems=problems, notify=True)
-    if new_id and get_progress().get('approved_count', 0) < AUTO_POST_THRESHOLD:
-        draft = next((d for d in get_drafts('pending') if d['id'] == new_id), None)
-        agents.notify_stefan(f"📝 Neuer LinkedIn-Entwurf ({len(get_queue())} in der Warteschlange):\n\n"
-                             f"{(draft or {}).get('text', '')[:3300]}\n\n(Freigeben = in die Warteschlange, wird nach Zeitplan gepostet.)",
-                             mail_subject='Freigabe nötig: LinkedIn-Entwurf', approve=('linkedin', new_id))
-    return new_id
+    agents.done('linkedin', f'{len(new_ids)} neue(r) Entwurf/Entwürfe zur Freigabe geschickt', plan=plan('done', 'done', 'done'),
+                problems=problems, notify=False)  # die Entwuerfe selbst kamen schon per Telegram
+    return new_ids
 
 
 if __name__ == '__main__':
-    new_id = run_as_agent()
-    print(f'Neuer Entwurf erzeugt: id={new_id}')
+    new_ids = run_as_agent()
+    print(f'Neue Entwuerfe: {new_ids}')

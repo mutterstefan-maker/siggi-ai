@@ -2576,7 +2576,7 @@ def _agent_extras():
         'pending': safe(lambda: len(linkedin_pipeline_engine.get_drafts('pending')), 0),
         'next_run': ('Post ' + (safe(lambda: _next_slot(lps.get('post_times'), lps.get('post_days'))) or '–')) if lps.get('auto_enabled') == '1' else 'Auto-Post ist aus',
         'idle': f'{lq} Beiträge freigegeben – reicht für {lq} Tage',
-        'alert': f'Nur noch {lq} Beitrag/Beiträge freigegeben – bitte nachlegen' if lq < linkedin_pipeline_engine.QUEUE_WARN_BELOW else None,
+        'alert': f'Nur noch {lq} Beitrag/Beiträge freigegeben – bitte Entwürfe freigeben' if lq < linkedin_pipeline_engine.QUEUE_WARN_BELOW else None,
     }
     if TELEGRAM_AVAILABLE:
         ts = safe(telegram_engine.status, {}) or {}
