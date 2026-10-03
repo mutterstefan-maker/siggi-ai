@@ -1190,7 +1190,9 @@ async function renderMailView(view) {
 function mailItemHTML(m, view) {
   const from = view === 'sent' ? `An: ${m.to_addr}` : cleanFrom(m.from_addr || '');
   const subject = m.subject || '(Kein Betreff)';
-  const preview = (m.body || m.ai_reply || '').replace(/\n/g, ' ').substring(0, 80);
+  const preview = (m.body || m.ai_reply || '')
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 80);
   const date = formatDate(m.date || m.sent_at || m.created_at);
   const isUnread = !m.read && view !== 'sent' && view !== 'trash';
   const catTag = view === 'inbox' ? `<span class="cat-tag tag-${m.category}">${m.category}</span>` : '';
@@ -1235,6 +1237,17 @@ async function openMail(id, view) {
   loadCounts();
 }
 
+function mailBodyHTML(body) {
+  // HTML-Newsletter (TikTok & Co.) gerendert statt als Quelltext zeigen - in einem
+  // Sandbox-iframe ohne Skripte, damit fremdes Mail-HTML das Dashboard nicht anfassen kann.
+  if (body && /<(html|body|table|div|p|br)[\s>\/]/i.test(body)) {
+    return `<iframe class="mail-body-card" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"
+      style="width:100%;height:520px;padding:0;background:#fff;border:1px solid var(--border)"
+      srcdoc="${escHtml('<base target="_blank">' + body)}"></iframe>`;
+  }
+  return `<div class="mail-body-card">${escHtml(body || '(Kein Inhalt)')}</div>`;
+}
+
 function renderMailDetail(m, container, view) {
   const isGap = m.category === 'knowledge_gap';
   const inTrash = view === 'trash';
@@ -1254,7 +1267,7 @@ function renderMailDetail(m, container, view) {
       </div>
     </div>
 
-    <div class="mail-body-card">${escHtml(m.body || '(Kein Inhalt)')}</div>
+    ${mailBodyHTML(m.body)}
 
     ${m.ai_reply ? `
       <div class="ai-reply-card">

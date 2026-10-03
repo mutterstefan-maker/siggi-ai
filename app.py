@@ -1252,7 +1252,20 @@ def get_mails(category):
 
 @app.route('/api/mail/<mail_id>')
 def get_mail(mail_id):
-    return jsonify({})
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute('SELECT * FROM mails WHERE id=?', (mail_id,)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Mail nicht gefunden'}), 404
+        if not row['read']:
+            conn.execute('UPDATE mails SET read=1 WHERE id=?', (mail_id,))
+            conn.commit()
+        conn.close()
+        return jsonify(dict(row))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/mail/<mail_id>/delete', methods=['POST'])
 def delete_mail(mail_id):
