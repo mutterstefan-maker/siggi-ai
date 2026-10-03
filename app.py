@@ -1049,7 +1049,11 @@ def jarvis_chat():
         memory_prompt += "\n" + memory_engine.get_memory_context()
 
         # 3) aendert sich staendig: Status, Kalender, letzte Chats, Erinnerungen - nie gecacht
-        live_prompt = "STATUS:\n"
+        # Aktuelles Datum gehoert in den nicht gecachten Teil - ohne raet das Modell ("Montag, 05.10.")
+        _wd = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+        _now = datetime.now()
+        live_prompt = f"JETZT: {_wd[_now.weekday()]}, {_now.strftime('%d.%m.%Y, %H:%M')} Uhr (Europe/Berlin)\n\n"
+        live_prompt += "STATUS:\n"
         live_prompt += f"- Ungelesene Mails: {mail_stats.get('inbox', 0)}\n"
         live_prompt += f"- Callbacks: {mail_stats.get('callbacks', 0)}\n"
         live_prompt += f"- Total: {mail_stats.get('total', 0)}\n"
