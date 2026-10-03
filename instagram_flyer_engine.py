@@ -361,6 +361,7 @@ def _call_claude(prompt, api_key):
         },
         json={
             'model': 'claude-sonnet-5',
+            'thinking': {'type': 'disabled'},  # Nachdenken bringt fuer den Themenplan nichts, kostet nur
             'max_tokens': 4000,
             'messages': [{'role': 'user', 'content': prompt}]
         },
@@ -369,6 +370,9 @@ def _call_claude(prompt, api_key):
     result = response.json()
     if 'content' not in result:
         raise Exception(f'Claude-API-Fehler: {result}')
+    if result.get('stop_reason') == 'max_tokens':
+        # abgeschnittener Text waere ein halber Post - lieber Fehler als still speichern
+        raise Exception('Claude-Antwort wurde abgeschnitten (max_tokens erreicht)')
     for block in result['content']:
         if block.get('type') == 'text':
             return block['text'].strip()

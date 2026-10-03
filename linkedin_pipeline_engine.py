@@ -168,7 +168,10 @@ def _call_claude(system_prompt, user_content, api_key):
         },
         json={
             'model': 'claude-sonnet-5',
-            'max_tokens': 1200,
+            # Ohne diese Angabe denkt Sonnet 5 erst nach (adaptive thinking) - das frass das ganze
+            # Limit (leere oder abgeschnittene Posts) und kostet Ausgabe-Tokens ohne Mehrwert fuer einen Post.
+            'thinking': {'type': 'disabled'},
+            'max_tokens': 2000,
             'system': system_prompt,
             'messages': [{'role': 'user', 'content': user_content}]
         },
@@ -177,6 +180,9 @@ def _call_claude(system_prompt, user_content, api_key):
     result = response.json()
     if 'content' not in result:
         raise Exception(f'Claude-API-Fehler: {result}')
+    if result.get('stop_reason') == 'max_tokens':
+        # abgeschnittener Text waere ein halber Post - lieber Fehler als still speichern
+        raise Exception('Claude-Antwort wurde abgeschnitten (max_tokens erreicht)')
     for block in result['content']:
         if block.get('type') == 'text':
             return block['text'].strip()
