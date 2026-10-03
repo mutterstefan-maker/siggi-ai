@@ -211,6 +211,15 @@ def _send_alert_mail(failed):
         print('FEHLER beim Senden der Alarm-Mail:', e)
 
 
+# Checks, deren Alarm der Nutzer im Dashboard abschalten kann: Check-Name -> Settings-Key.
+MUTABLE_CHECKS = {'OpenAI API (Bildgenerierung)': 'health_alert_openai'}
+
+
+def _muted_checks(settings):
+    settings = settings or {}
+    return {name for name, key in MUTABLE_CHECKS.items() if settings.get(key, True) is False}
+
+
 def run_health_check(send_alert=True):
     init_table()
     settings = load_settings()
@@ -220,16 +229,19 @@ def run_health_check(send_alert=True):
             ok, detail = fn(settings)
         except Exception as e:
             ok, detail = False, f'Check selbst abgestuerzt: {e}'
-        results.append({'name': name, 'ok': ok, 'detail': detail})
-        print(('OK  ' if ok else 'FAIL') + f' - {name}: {detail}')
+        muted = name in _muted_checks(settings)
+        results.append({'name': name, 'ok': ok, 'detail': detail, 'muted': muted})
+        print(('OK  ' if ok else ('MUTE' if muted else 'FAIL')) + f' - {name}: {detail}')
 
-    all_ok = all(r['ok'] for r in results)
+    # Stummgeschaltete Checks laufen weiter und bleiben im Dashboard sichtbar, zaehlen
+    # aber weder fuer den Gesamtstatus (rotes "!") noch fuer die Alarm-Mail.
+    all_ok = all(r['ok'] or r['muted'] for r in results)
     conn = sqlite3.connect(DB_PATH)
     conn.execute('INSERT INTO health_checks (ok, results) VALUES (?, ?)', (int(all_ok), json.dumps(results, ensure_ascii=False)))
     conn.commit()
     conn.close()
 
-    failed = [(r['name'], r['detail']) for r in results if not r['ok']]
+    failed = [(r['name'], r['detail']) for r in results if not r['ok'] and not r['muted']]
     if failed and send_alert:
         _send_alert_mail(failed)
 

@@ -3440,6 +3440,17 @@ async function renderImprovements() {
       </div>
 
       <div class="settings-section" style="margin-top:20px">
+        <h3>🔔 Benachrichtigungen</h3>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text)">
+          <input type="checkbox" ${openaiAlert ? 'checked' : ''} onchange="saveHealthAlert('health_alert_openai', this.checked)">
+          Alarm bei fehlendem OpenAI-Guthaben
+        </label>
+        <div style="color:var(--text3);font-size:11px;margin-top:4px;margin-left:26px">
+          Aus: der Check läuft weiter und wird hier angezeigt, verschickt aber keine Alarm-Mail und färbt den Status nicht rot.
+        </div>
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
         <h3>🕓 Verlauf</h3>
         ${history.length ? history.map(s => renderCard(s, false)).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
       </div>
@@ -3478,21 +3489,23 @@ async function renderHealthCheck() {
   content.innerHTML = `<div class="loading"><div class="spinner"></div> Lade...</div>`;
 
   const data = await apiFetch('/api/health-check') || { latest: null, history: [] };
+  const settings = await apiFetch('/api/settings') || {};
+  const openaiAlert = settings.health_alert_openai !== false;
   const latest = data.latest;
   const history = data.history || [];
 
   const checkRow = (r) => `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-      <span style="font-size:16px">${r.ok ? '✅' : '❌'}</span>
+      <span style="font-size:16px">${r.ok ? '✅' : (r.muted ? '🔕' : '❌')}</span>
       <div style="flex:1">
-        <div style="font-weight:600;color:var(--text);font-size:13px">${escHtml(r.name)}</div>
-        ${!r.ok ? `<div style="color:var(--danger,#ef4444);font-size:12px;margin-top:2px">${escHtml(r.detail)}</div>` : ''}
+        <div style="font-weight:600;color:var(--text);font-size:13px">${escHtml(r.name)}${!r.ok && r.muted ? ' <span style="font-weight:400;color:var(--text3);font-size:11px">(Benachrichtigung aus)</span>' : ''}</div>
+        ${!r.ok ? `<div style="color:${r.muted ? 'var(--text3)' : 'var(--danger,#ef4444)'};font-size:12px;margin-top:2px">${escHtml(r.detail)}</div>` : ''}
       </div>
     </div>
   `;
 
   const historyRow = (h) => {
-    const failCount = h.results.filter(r => !r.ok).length;
+    const failCount = h.results.filter(r => !r.ok && !r.muted).length;
     return `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
         <span style="color:var(--text2)">${formatDate(h.created_at)}</span>
@@ -3521,11 +3534,28 @@ async function renderHealthCheck() {
       </div>
 
       <div class="settings-section" style="margin-top:20px">
+        <h3>🔔 Benachrichtigungen</h3>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text)">
+          <input type="checkbox" ${openaiAlert ? 'checked' : ''} onchange="saveHealthAlert('health_alert_openai', this.checked)">
+          Alarm bei fehlendem OpenAI-Guthaben
+        </label>
+        <div style="color:var(--text3);font-size:11px;margin-top:4px;margin-left:26px">
+          Aus: der Check läuft weiter und wird hier angezeigt, verschickt aber keine Alarm-Mail und färbt den Status nicht rot.
+        </div>
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
         <h3>🕓 Verlauf</h3>
         ${history.length ? history.map(historyRow).join('') : '<div style="color:var(--text3);font-size:12px">Noch keine Historie.</div>'}
       </div>
     </div>
   `;
+}
+
+async function saveHealthAlert(key, enabled) {
+  const res = await apiFetch('/api/settings', 'POST', { [key]: enabled });
+  if (res && res.success) showToast(enabled ? 'Benachrichtigung aktiviert' : 'Benachrichtigung deaktiviert', 'success');
+  else showToast('Speichern fehlgeschlagen', 'error');
 }
 
 async function runHealthCheckNow() {
@@ -3598,6 +3628,17 @@ async function renderLinkedinPipeline() {
       <div class="settings-section">
         <h3>📋 Offen zur Freigabe${pending.length ? ' (' + pending.length + ')' : ''}</h3>
         ${pending.length ? pending.map(d => renderCard(d, true)).join('') : '<div style="color:var(--text3);font-size:12px">Keine offenen Entwuerfe.</div>'}
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
+        <h3>🔔 Benachrichtigungen</h3>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:var(--text)">
+          <input type="checkbox" ${openaiAlert ? 'checked' : ''} onchange="saveHealthAlert('health_alert_openai', this.checked)">
+          Alarm bei fehlendem OpenAI-Guthaben
+        </label>
+        <div style="color:var(--text3);font-size:11px;margin-top:4px;margin-left:26px">
+          Aus: der Check läuft weiter und wird hier angezeigt, verschickt aber keine Alarm-Mail und färbt den Status nicht rot.
+        </div>
       </div>
 
       <div class="settings-section" style="margin-top:20px">
