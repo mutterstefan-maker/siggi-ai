@@ -181,7 +181,7 @@ def _handle(update, chat_fn, clean_fn=None):
     if chat_id != cfg['chat_id']:
         return  # fremde Absender still ignorieren
 
-    if text in ('/start', '/hilfe', '/help'):
+    if text in ('/hilfe', '/help') or text.startswith('/start'):  # /start <code> nach der Kopplung = nur Hilfe
         send(HELP)
         return
     if text == '/stimme':
