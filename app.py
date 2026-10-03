@@ -435,6 +435,47 @@ SIGGI_TOOLS = [
         }
     },
     {
+        'name': 'todos_anzeigen',
+        'description': 'Zeigt Stefans offene Todo-Liste mit Nummern (zum Vorlesen oder um eines abzuhaken).',
+        'input_schema': {'type': 'object', 'properties': {}}
+    },
+    {
+        'name': 'todo_erledigt',
+        'description': 'Hakt ein Todo ab (entfernt es aus der Liste). Nummer aus todos_anzeigen.',
+        'input_schema': {
+            'type': 'object',
+            'properties': {'nummer': {'type': 'integer', 'description': 'Nummer laut todos_anzeigen (ab 1)'}},
+            'required': ['nummer']
+        }
+    },
+    {
+        'name': 'agenten_status',
+        'description': (
+            'Live-Stand aller Agenten und des Posting-Zeitplans: was jeder Agent gerade tut, wann er das naechste Mal '
+            'laeuft, was auf Stefans Freigabe wartet - inkl. naechster Instagram-Post (Zeit + Bild), naechstes Reel/Story '
+            '(Zeit + Video, freigegebene/wartende Reels), LinkedIn-Warteschlange und naechster LinkedIn-Post, '
+            'letzte Posts. Nutze das fuer alle Fragen wie "Wann geht das naechste Reel raus?", "Was postest du heute?", '
+            '"Was machen die Agenten?", "Wartet was auf mich?".'
+        ),
+        'input_schema': {'type': 'object', 'properties': {}}
+    },
+    {
+        'name': 'agent_steuern',
+        'description': (
+            'Pausiert, setzt fort oder startet einen Agenten. Pausieren stoppt die Automatik wirklich (z.B. kein '
+            'automatisches Posten mehr). Agent-IDs: mail, instagram, reels, bild, linkedin, comments, telegram, improve, '
+            'health, watch, server, report. Starten geht nur bei Agenten, die nichts oeffentlich posten.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'agent': {'type': 'string', 'description': 'Agent-ID'},
+                'aktion': {'type': 'string', 'enum': ['pausieren', 'fortsetzen', 'starten']}
+            },
+            'required': ['agent', 'aktion']
+        }
+    },
+    {
         'name': 'kontakt_suchen',
         'description': (
             'Durchsucht die hinterlegten Kontakte (Name, E-Mail, Firma, Telefon) nach einem Suchbegriff. '
@@ -664,6 +705,41 @@ def _run_siggi_tool_inner(name, tool_input):
             settings.setdefault('daily_todos', []).append(tool_input['text'])
             save_settings(settings)
             return f"Todo hinzugefügt: {tool_input['text']}"
+
+        if name == 'todos_anzeigen':
+            todos = load_settings().get('daily_todos', [])
+            return '\n'.join(f'{i}. {t}' for i, t in enumerate(todos, 1)) if todos else 'Die Todo-Liste ist leer.'
+
+        if name == 'todo_erledigt':
+            idx = int(tool_input['nummer']) - 1
+            removed = []
+            def _done(st):
+                todos = st.get('daily_todos', [])
+                if 0 <= idx < len(todos):
+                    removed.append(todos.pop(idx))
+            settings_store.update(_done)
+            return f'Abgehakt: {removed[0]}' if removed else 'Diese Nummer gibt es nicht - erst todos_anzeigen aufrufen.'
+
+        if name == 'agenten_status':
+            return _agents_status_text()
+
+        if name == 'agent_steuern':
+            agent_id, action = tool_input['agent'], tool_input['aktion']
+            if agent_id not in agents_engine.AGENTS:
+                return f'Unbekannter Agent "{agent_id}". Gueltig: ' + ', '.join(agents_engine.AGENTS)
+            label = agents_engine.AGENTS[agent_id]['name']
+            if action in ('pausieren', 'fortsetzen'):
+                agents_engine.set_paused(agent_id, action == 'pausieren')
+                return f'{label} ist jetzt {"pausiert" if action == "pausieren" else "wieder aktiv"}.'
+            if not agents_engine.AGENTS[agent_id].get('runnable', True):
+                return f'{label} kann man nicht von Hand starten (postet oeffentlich) - er laeuft nach Zeitplan.'
+            if agents_engine.is_paused(agent_id):
+                return f'{label} ist pausiert - erst fortsetzen.'
+            if agent_id in INTERNAL_AGENT_RUNNERS:
+                threading.Thread(target=INTERNAL_AGENT_RUNNERS[agent_id], daemon=True).start()
+                return f'{label} ist gestartet.'
+            res = agents_engine.run_now(agent_id)
+            return f'{label} ist gestartet.' if res.get('success') else f'Start fehlgeschlagen: {res.get("error")}'
 
         if name == 'kontakt_suchen':
             q = f"%{tool_input['query']}%"
@@ -2285,6 +2361,63 @@ def _agent_extras():
         }
     extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
     return extras
+
+
+def _agents_status_text():
+    """Kompakter Klartext-Stand fuer Siggis Werkzeug agenten_status."""
+    out = []
+    try:
+        ov = agents_engine.overview(_agent_extras())
+        labels = {'working': 'arbeitet', 'planning': 'plant', 'waiting': 'wartet auf Stefan', 'ready': 'bereit',
+                  'sleeping': 'ruht', 'paused': 'PAUSIERT', 'error': 'PROBLEM'}
+        out.append('AGENTEN:')
+        for a in ov['agents']:
+            line = f"- {a['name']} ({a['id']}): {labels.get(a['status'], a['status'])} - {a['bubble'] or '-'} | naechster Lauf: {a['next_run']}"
+            if a.get('pending_approvals'):
+                line += f" | {a['pending_approvals']} warten auf Freigabe"
+            out.append(line)
+    except Exception as e:
+        out.append(f'(Agenten-Uebersicht nicht verfuegbar: {e})')
+
+    settings = load_settings()
+    if INSTAGRAM_AVAILABLE:
+        try:
+            ig = settings.get('instagram_settings', {})
+            q = instagram_engine.get_ig_queue()
+            nxt = _next_slot(ig.get('post_times', '09:00'), ig.get('post_days')) if ig.get('auto_enabled') == '1' else None
+            out.append('\nINSTAGRAM (Bilder):')
+            out.append(f"- Auto-Post: {'an' if ig.get('auto_enabled') == '1' else 'AUS'}, Zeiten {ig.get('post_times', '09:00')}, Tage {ig.get('post_days') or 'alle'}")
+            out.append(f"- Naechster Post: {nxt or '-'} mit {q[0] if q else 'NICHTS (Warteschlange leer)'}; {len(q)} Bild(er) in der Warteschlange")
+            if ig.get('last_posted'):
+                out.append(f"- Zuletzt gepostet: {ig['last_posted'][:16].replace('T', ' ')}")
+        except Exception as e:
+            out.append(f'(Instagram-Stand nicht verfuegbar: {e})')
+    if REELS_AVAILABLE:
+        try:
+            rs = settings.get('reels_settings', {})
+            rq, rp = reels_engine.get_reels_queue(), reels_engine.get_pending_reels()
+            nxt = _next_slot(rs.get('post_times', '11:00'), rs.get('post_days')) if rs.get('auto_enabled') == '1' else None
+            out.append('\nREELS / STORIES (gepostet als Instagram-Story):')
+            out.append(f"- Auto-Post: {'an' if rs.get('auto_enabled') == '1' else 'AUS'}, Zeiten {rs.get('post_times', '11:00')}, Tage {rs.get('post_days') or 'alle'}")
+            out.append(f"- Naechstes Reel: {nxt or '-'} mit {rq[0] if rq else 'NICHTS (kein freigegebenes Video)'}; {len(rq)} freigegeben, {len(rp)} warten auf Freigabe")
+            if rs.get('last_posted'):
+                out.append(f"- Zuletzt gepostet: {rs['last_posted'][:16].replace('T', ' ')}")
+        except Exception as e:
+            out.append(f'(Reels-Stand nicht verfuegbar: {e})')
+    if LINKEDIN_PIPELINE_AVAILABLE:
+        try:
+            ps = linkedin_pipeline_engine.get_post_settings()
+            lq = linkedin_pipeline_engine.get_queue()
+            nxt = _next_slot(ps.get('post_times'), ps.get('post_days')) if ps.get('auto_enabled') == '1' else None
+            out.append('\nLINKEDIN:')
+            out.append(f"- Auto-Post: {'an' if ps.get('auto_enabled') == '1' else 'AUS'}, Zeiten {ps.get('post_times')}")
+            out.append(f"- Naechster Post: {nxt or '-'}; {len(lq)} Beitrag/Beitraege in der Warteschlange, "
+                       f"{len(linkedin_pipeline_engine.get_drafts('pending'))} Entwuerfe warten auf Freigabe")
+            if lq:
+                out.append(f"- Als Naechstes: {lq[0]['text'][:140]}...")
+        except Exception as e:
+            out.append(f'(LinkedIn-Stand nicht verfuegbar: {e})')
+    return '\n'.join(out)
 
 
 # Interne Agenten, die man per "Jetzt starten" anstossen darf (nichts davon postet oeffentlich)
