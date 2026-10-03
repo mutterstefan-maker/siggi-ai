@@ -43,6 +43,61 @@ def _init():
     c.close()
 
 
+def sync_sent_folders(days=60):
+    """Stefans selbst verschickte Mails (Outlook) aus den Gesendet-Ordnern der Postfaecher holen - nur so
+    sieht Siggi Angebote, die Stefan selbst schreibt. Setzt voraus, dass Outlook Gesendetes auf dem
+    Server ablegt. Doppelte werden ueber die Message-ID erkannt."""
+    import email
+    import imaplib
+    from email.header import decode_header, make_header
+    from email.utils import parsedate_to_datetime
+    c = sqlite3.connect(DB_PATH)
+    cols = [r[1] for r in c.execute('PRAGMA table_info(sent_mails)')]
+    if 'message_id' not in cols:
+        c.execute('ALTER TABLE sent_mails ADD COLUMN message_id TEXT')
+    known = {r[0] for r in c.execute('SELECT message_id FROM sent_mails WHERE message_id IS NOT NULL')}
+    since = (datetime.now() - timedelta(days=days)).strftime('%d-%b-%Y')
+    added = 0
+    for acc, cfg in (settings_store.load_or_empty().get('accounts') or {}).items():
+        if not cfg.get('active'):
+            continue
+        try:
+            imap = imaplib.IMAP4_SSL(cfg.get('imap_server', 'imap.ionos.de'), 993)
+            imap.login(acc, cfg.get('password', ''))
+            folders = [f.decode(errors='replace') for f in imap.list()[1]]
+            sent = next((f.split(' "/" ')[-1] for f in folders if any(k in f.lower() for k in ('gesendet', 'sent'))), None)
+            if not sent:
+                imap.logout()
+                continue
+            imap.select(sent, readonly=True)
+            for num in imap.search(None, 'SINCE', since)[1][0].split():
+                raw = imap.fetch(num, '(RFC822)')[1][0][1]
+                msg = email.message_from_bytes(raw)
+                mid = (msg.get('Message-ID') or '').strip() or f'{acc}:{num.decode()}'
+                if mid in known:
+                    continue
+                body = ''
+                for part in (msg.walk() if msg.is_multipart() else [msg]):
+                    if part.get_content_type() == 'text/plain' and not part.get('Content-Disposition', '').startswith('attachment'):
+                        body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='replace')
+                        break
+                try:
+                    sent_at = parsedate_to_datetime(msg.get('Date')).astimezone().replace(tzinfo=None).isoformat()
+                except Exception:
+                    sent_at = datetime.now().isoformat()
+                c.execute('INSERT INTO sent_mails (account, to_addr, subject, body, sent_at, message_id) VALUES (?,?,?,?,?,?)',
+                          (acc, str(make_header(decode_header(msg.get('To', '')))), str(make_header(decode_header(msg.get('Subject', '')))),
+                           body[:20000], sent_at, mid))
+                known.add(mid)
+                added += 1
+            imap.logout()
+        except Exception as e:
+            print(f'[Nachfassen] Gesendet-Ordner {acc}: {e}')
+    c.commit()
+    c.close()
+    return added
+
+
 def config():
     cfg = dict(DEFAULT_CONFIG)
     cfg.update(settings_store.load_or_empty().get('followup_settings') or {})
@@ -129,6 +184,9 @@ def run(create_draft_fn):
     if not agents.start('followup', 'Suche Kunden, die sich nicht zurückgemeldet haben …', plan=plan('active', 'open', 'open')):
         return []
     try:
+        new_sent = sync_sent_folders()
+        if new_sent:
+            agents.event('followup', f'{new_sent} selbst verschickte Mail(s) aus den Gesendet-Ordnern übernommen')
         cands = find_candidates(cfg)[:cfg['max_per_run']]
         if not cands:
             agents.done('followup', 'Niemand wartet auf ein Nachfassen', plan=plan('done', 'done', 'done'),
