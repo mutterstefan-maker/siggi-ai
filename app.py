@@ -456,7 +456,8 @@ SIGGI_TOOLS = [
     {
         'name': 'datei_senden',
         'description': (
-            'Schickt Stefan eine Datei per Telegram. quelle: "cowork" (Datei aus dem COWORK-Ordner - name = Pfad aus '
+            'Schickt Stefan eine Datei per Telegram. Dokumente gehen NUR als PDF raus - meldet das Werkzeug "Kein PDF '
+            'gefunden", sag Stefan genau das. quelle: "cowork" (Datei aus dem COWORK-Ordner - name = Pfad aus '
             'cowork_datei_suchen oder ein Suchbegriff), "audit" (Website-Audit als PDF - name = Domain, z.B. chefblick.de), '
             '"instagram" bzw. "reels" (Bild/Video aus der Warteschlange - name = Dateiname oder "naechstes"), '
             '"telegram_ablage" (eine Datei, die Stefan geschickt hat).'
@@ -551,7 +552,8 @@ SIGGI_TOOLS = [
             '(z.B. "schreib X eine Mail dass..."). Wenn nur ein Name genannt wird, ERST kontakt_suchen aufrufen '
             'um die E-Mail-Adresse zu finden. Bei fehlenden Angaben (Empfänger, Inhalt) nachfragen statt zu raten. '
             'Die Mail geht in Stefans Namen raus: KEINE Grußformel und KEINE Unterschrift schreiben, niemals mit '
-            '"SIGGI" unterschreiben - Stefans offizielle Signatur wird automatisch angehängt.'
+            '"SIGGI" unterschreiben - Stefans offizielle Signatur wird automatisch angehängt. '
+            'Dokumente nur als PDF verlinken - gibt es kein PDF, Stefan das sagen statt eine andere Datei zu verlinken.'
         ),
         'input_schema': {
             'type': 'object',
@@ -838,6 +840,11 @@ def _run_siggi_tool_inner(name, tool_input):
             return json.dumps(rows, ensure_ascii=False)
 
         if name == 'sende_mail':
+            bad_links = [u for u in re.findall(r'https?://\S*/api/cowork/download/\S+', tool_input.get('text', ''))
+                         if not u.rstrip('.,;:)>"\'').lower().endswith('.pdf')]
+            if bad_links:
+                return ('NICHT gesendet: Die Mail verlinkt eine Datei, die kein PDF ist (' + ', '.join(bad_links) +
+                        '). Es duerfen nur PDFs verschickt werden. Sag Stefan, dass es dazu kein PDF gibt.')
             trust = get_mail_trust_status()
             if trust['auto_send_enabled']:
                 return send_new_mail(tool_input['empfaenger'], tool_input['betreff'], tool_input['text'], sign=True)
@@ -859,10 +866,13 @@ def _run_siggi_tool_inner(name, tool_input):
             if not COWORK_AVAILABLE:
                 return 'COWORK-Ordner ist nicht verfügbar.'
             ok, content = cowork_engine.read_file_text(tool_input['pfad'])
-            download_url = f"{os.environ.get('PUBLIC_BASE_URL', 'https://stean.info')}/api/cowork/download/{tool_input['pfad']}"
+            if tool_input['pfad'].lower().endswith('.pdf'):
+                link = f"(Download-Link: {os.environ.get('PUBLIC_BASE_URL', 'https://stean.info')}/api/cowork/download/{tool_input['pfad']})"
+            else:
+                link = '(Kein PDF - diese Datei nicht verlinken oder verschicken; verschickt werden nur PDFs.)'
             if ok:
-                return f"Inhalt von {tool_input['pfad']}:\n\n{content}\n\n(Download-Link: {download_url})"
-            return f"{content} Download-Link: {download_url}"
+                return f"Inhalt von {tool_input['pfad']}:\n\n{content}\n\n{link}"
+            return f"{content} {link}"
 
         if name == 'websuche':
             if not INTERNET_AVAILABLE:
@@ -2504,6 +2514,24 @@ def _agent_extras():
     return extras
 
 
+def _pdf_or_error(path):
+    """Dokumente gehen nur als PDF raus (Stefans Vorgabe). Zu einer .md/.docx/... wird ein PDF mit
+    gleichem Namen gesucht - gibt es keins, eine klare Meldung statt einer anderen Datei."""
+    if path.lower().endswith('.pdf'):
+        return path
+    stem = os.path.splitext(os.path.basename(path))[0]
+    sibling = os.path.splitext(path)[0] + '.pdf'
+    if os.path.isfile(sibling):
+        return sibling
+    for hit in cowork_engine.search_files(stem, limit=10):
+        if hit['name'].lower() == f'{stem}.pdf'.lower():
+            found = cowork_engine.get_download_path(hit['path'])
+            if found:
+                return found
+    return (f"Kein PDF gefunden: Es gibt nur '{os.path.basename(path)}' - verschickt werden nur PDFs. "
+            f"Sag Stefan, dass dazu kein PDF existiert (er muss es erst als PDF anlegen).")
+
+
 def _resolve_send_file(source, name):
     """Absoluter Pfad der Datei, die Siggi schicken soll - oder ein Fehlertext."""
     name = (name or '').strip()
@@ -2516,7 +2544,9 @@ def _resolve_send_file(source, name):
             if len(hits) > 1 and not any(h['name'].lower() == os.path.basename(name).lower() for h in hits):
                 return 'Mehrere Treffer, bitte genauer: ' + ', '.join(h['path'] for h in hits)
             path = cowork_engine.get_download_path(hits[0]['path'])
-        return path or 'Datei nicht gefunden.'
+        if not path:
+            return 'Datei nicht gefunden.'
+        return _pdf_or_error(path)
     if source == 'audit':
         conn = sqlite3.connect(DB_PATH)
         row = conn.execute("SELECT pdf_path_customer, pdf_path FROM audit_history WHERE url LIKE ? AND status='done' "
