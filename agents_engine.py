@@ -40,6 +40,7 @@ from email.message import EmailMessage
 import requests
 
 import settings_store
+import usage_tracker  # zaehlt ab Import jeden Claude-Aufruf dieses Prozesses mit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'agents.db')
@@ -600,7 +601,15 @@ def overview(extras=None):
             e['agent_name'] = AGENTS.get(e['agent_id'], {}).get('name', e['agent_id'])
         approvals = [dict(a) for a in c.execute(
             "SELECT id, agent_id, title, body, created_at FROM agent_approvals WHERE status='pending' ORDER BY id")]
-        return {'agents': agents, 'feed': feed, 'approvals': approvals, 'n8n_up': is_n8n_up(),
+        try:
+            costs = usage_tracker.summary()
+            per_agent = {s['id']: s['amount'] for s in costs['by_source']}
+            for a in agents:
+                a['cost_month'] = per_agent.get(a['id'])
+        except Exception as e:
+            print(f'[Verbrauch] Auswertung fehlgeschlagen: {e}')
+            costs = None
+        return {'agents': agents, 'feed': feed, 'approvals': approvals, 'n8n_up': is_n8n_up(), 'costs': costs,
                 'n8n_url': 'https://n8n.stean.info', 'server_time': _now()}
     finally:
         c.close()
