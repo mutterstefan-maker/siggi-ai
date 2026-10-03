@@ -4617,6 +4617,7 @@ const AGENT_ICONS = {
   briefcase: 'M3 7 H21 V20 H3 Z M8 7 V4 H16 V7 M3 12 H21',
   bulb: 'M9 18 H15 M10 21 H14 M12 3 A6 6 0 0 0 8 13.5 C8.8 14.3 9 15 9 16 H15 C15 15 15.2 14.3 16 13.5 A6 6 0 0 0 12 3 Z',
   pulse: 'M2 12 H6 L9 4 L13 20 L16 12 H22',
+  send: 'M22 2 L11 13 M22 2 L15 22 L11 13 L2 9 Z',
   chart: 'M3 21 H21 M6 17 V11 M11 17 V6 M16 17 V13 M21 17 V9',
 };
 let agentsTimer = null;
@@ -4715,6 +4716,29 @@ function agentConfigHTML(a) {
       <label class="form-label" for="ag-sites">Überwachte Websites (eine pro Zeile)</label>
       <textarea class="form-textarea" id="ag-sites" rows="4" style="min-height:96px">${escHtml((a.config.sites || []).join('\n'))}</textarea>
       <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('watch')">Websites speichern</button></div>`;
+  }
+  if (a.id === 'telegram') {
+    const t = a.info || {};
+    if (!t.configured) return `
+      <div class="form-label">Telegram einrichten</div>
+      <div class="ag-muted" style="margin-bottom:6px">1. In Telegram <b>@BotFather</b> öffnen, <b>/newbot</b> schicken, Namen vergeben.<br>2. Den Token, den BotFather schickt, hier einfügen:</div>
+      <input class="form-input" id="tg-token" placeholder="123456789:AA..." autocomplete="off">
+      <div class="action-row"><button class="btn btn-primary" onclick="connectTelegram()">Verbinden</button></div>`;
+    if (!t.paired) return `
+      <div class="form-label">Fast fertig – mit deinem Telegram koppeln</div>
+      <div class="ag-muted" style="margin-bottom:8px">Tippe auf den Knopf (öffnet Telegram) und dort auf <b>Starten</b>. Oder schick deinem Bot <b>@${escHtml(t.bot_username || '')}</b> diese Nachricht:</div>
+      <div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--text);margin-bottom:8px">/start ${escHtml(t.pairing_code || '')}</div>
+      <div class="action-row">
+        <a class="btn btn-primary" href="https://t.me/${encodeURIComponent(t.bot_username || '')}?start=${encodeURIComponent(t.pairing_code || '')}" target="_blank" rel="noopener">In Telegram öffnen</a>
+        <button class="btn btn-ghost" onclick="disconnectTelegram()">Abbrechen</button>
+      </div>`;
+    return `
+      <div class="form-label">Verbunden mit <b>@${escHtml(t.bot_username || '')}</b></div>
+      <div class="ag-muted">Nur dein Telegram-Konto kann Siggi Aufgaben geben – alle anderen werden ignoriert.</div>
+      <div class="action-row">
+        <a class="btn btn-ghost" href="https://t.me/${encodeURIComponent(t.bot_username || '')}" target="_blank" rel="noopener">Chat öffnen</a>
+        <button class="btn btn-ghost" onclick="disconnectTelegram()">Verbindung trennen</button>
+      </div>`;
   }
   if (a.id === 'server') {
     const f = (k, l) => `<label class="ag-num"><span>${l}</span><input class="form-input" type="number" min="10" max="99" id="ag-${k}" value="${a.config[k] ?? ''}"> %</label>`;
@@ -4911,6 +4935,25 @@ async function saveAgentConfig(id) {
   if (res && res.success) showToast('Gespeichert', 'success');
   else showToast('Speichern fehlgeschlagen', 'error');
   document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function connectTelegram() {
+  const token = (document.getElementById('tg-token')?.value || '').trim();
+  if (!token) { showToast('Bitte den Token von @BotFather einfügen', 'error'); return; }
+  const res = await apiFetch('/api/telegram/connect', 'POST', { token });
+  if (res && res.success) showToast(`Bot @${res.bot_username} eingerichtet – jetzt koppeln`, 'success');
+  else showToast(res?.error || 'Verbinden fehlgeschlagen', 'error');
+  document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function disconnectTelegram() {
+  if (!confirm('Telegram-Verbindung trennen? Siggi hört dann nicht mehr auf den Bot.')) return;
+  await apiFetch('/api/telegram/disconnect', 'POST');
+  showToast('Telegram getrennt', 'success');
   delete agentsRendered['detail'];
   refreshAgents();
 }

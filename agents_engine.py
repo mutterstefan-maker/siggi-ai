@@ -83,6 +83,11 @@ AGENTS = {
         'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',
         'default_config': {}, 'next_run': 'alle 5 Minuten',
     },
+    'telegram': {
+        'kind': 'internal', 'name': 'Telegram-Siggi', 'icon': 'send', 'view': None, 'runnable': False,
+        'role': 'Nimmt deine Aufgaben per Telegram an – als Text oder Sprachnachricht',
+        'default_config': {}, 'next_run': 'sofort bei jeder Nachricht',
+    },
     'improve': {
         'kind': 'internal', 'name': 'Selbstverbesserung', 'icon': 'bulb', 'view': 'improvements', 'runnable': True,
         'role': 'Sucht Wissenslücken und Fehler in Siggi und schlägt Verbesserungen vor',
@@ -583,6 +588,7 @@ def overview(extras=None):
                 'kind': meta.get('kind', 'n8n'), 'view': meta.get('view'), 'runnable': meta.get('runnable', True),
                 # Klick auf die Karte: dorthin, wo die Aufgabe liegt (Freigaben, sonst der Arbeitsbereich)
                 'target': meta.get('view') if pending else meta.get('home', meta.get('view')),
+                'info': ex.get('info'),
                 'gauges': json.loads(r['gauges'] or '[]'),
                 'paused': bool(r['paused']), 'config': json.loads(r['config'] or '{}'),
                 'last_summary': r['last_summary'], 'last_run_at': r['last_run_at'], 'updated_at': r['updated_at'],

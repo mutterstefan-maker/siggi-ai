@@ -2273,6 +2273,16 @@ def _agent_extras():
         'idle': f'{lq} Beiträge freigegeben – reicht für {lq} Tage',
         'alert': f'Nur noch {lq} Beitrag/Beiträge freigegeben – bitte nachlegen' if lq < linkedin_pipeline_engine.QUEUE_WARN_BELOW else None,
     }
+    if TELEGRAM_AVAILABLE:
+        ts = safe(telegram_engine.status, {}) or {}
+        extras['telegram'] = {
+            'info': ts,
+            'idle': 'Bereit – höre auf deine Nachrichten' if ts.get('paired')
+                    else 'Warte auf deine erste Nachricht in Telegram' if ts.get('configured')
+                    else 'Noch nicht eingerichtet – Bot-Token eintragen',
+            'alert': None if ts.get('paired') else ('Warte auf deine erste Nachricht in Telegram' if ts.get('configured')
+                                                    else 'Noch nicht eingerichtet – tippe auf mich'),
+        }
     extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
     return extras
 
@@ -2288,6 +2298,55 @@ INTERNAL_AGENT_RUNNERS = {
     'improve': lambda: self_improve_engine.run_as_agent(),
     'health': lambda: health_check_engine.run_health_check(),
 }
+
+
+# ─── Telegram: Aufgaben an Siggi per Text- oder Sprachnachricht ─────────────
+try:
+    import telegram_engine
+    TELEGRAM_AVAILABLE = True
+except Exception as _e:
+    print(f'[Telegram] nicht verfuegbar: {_e}')
+    TELEGRAM_AVAILABLE = False
+
+
+def _telegram_chat(text):
+    """Telegram-Nachricht durch Siggis normalen Chat (gleiche Werkzeuge, gleiches Gedaechtnis)."""
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['logged_in'] = True
+        data = client.post('/api/jarvis/chat', json={'message': text}).get_json() or {}
+    return data.get('reply') or 'Erledigt!', data.get('actions') or []
+
+
+def _telegram_loop():
+    if not TELEGRAM_AVAILABLE:
+        return
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_telegram_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return  # anderer Worker hält den Lock bereits
+    telegram_engine.poll_forever(_telegram_chat)
+
+threading.Thread(target=_telegram_loop, daemon=True).start()
+
+
+@app.route('/api/telegram/connect', methods=['POST'])
+def telegram_connect():
+    if not TELEGRAM_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Telegram-Modul nicht verfügbar'}), 503
+    try:
+        return jsonify({'success': True, **telegram_engine.connect((request.get_json(silent=True) or {}).get('token', ''))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Token ungültig oder Telegram nicht erreichbar: {str(e)[:150]}'}), 400
+
+
+@app.route('/api/telegram/disconnect', methods=['POST'])
+def telegram_disconnect():
+    if TELEGRAM_AVAILABLE:
+        telegram_engine.disconnect()
+    return jsonify({'success': True})
 
 
 @app.route('/api/agents')
