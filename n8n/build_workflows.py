@@ -59,52 +59,79 @@ PLAN_RUN = ("[{label:'Websites von Siggi holen', state:'done'},"
             "{label:'Bei Problemen Mail an Stefan', state:'open'}]")
 
 watch_nodes = [
-    note("## Website-Wächter\nPrüft jede Website aus Siggi (Agenten → Website-Wächter → Websites): erreichbar?, Ladezeit, Tage bis SSL-Ablauf.\n\nJeder Schritt wird live an Siggi gemeldet. Probleme schickt Siggi per Mail.\n\nWebsites ändern: im Siggi-Dashboard, nicht hier.", [-40, -260], 520, 220),
-    {"id": str(uuid.uuid4()), "name": "Jeden Montag 8:00", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2,
-     "position": [0, 0], "parameters": {"rule": {"interval": [{"field": "cronExpression", "expression": "0 8 * * 1"}]}}},
+    note("## Website-Wächter\nAlle 15 Minuten: Sind die Websites aus Siggi erreichbar? (Agenten → Website-Wächter → Websites)\nTäglich 8:00 und bei 'Jetzt starten': zusätzlich Ladezeit und SSL-Zertifikat.\n\nAlarm erst, wenn eine Seite 2× hintereinander nicht antwortet (kein Fehlalarm bei kurzen Wacklern), Entwarnung sobald sie wieder da ist. Routine-Läufe ohne Befund bleiben still.\n\nWebsites ändern: im Siggi-Dashboard, nicht hier.", [-40, -300], 560, 260),
+    {"id": str(uuid.uuid4()), "name": "Alle 15 Minuten", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2,
+     "position": [0, 0], "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}},
     webhook("Start aus Siggi", "siggi-watch-run", [0, 200]),
-    http("Bei Siggi anmelden", "watch", "{type:'start', bubble:'Hole die Liste der Websites …', text:'Lauf gestartet'}", [260, 100]),
+    code("Modus bestimmen", """// Große Prüfung (inkl. SSL & Ladezeit) täglich um 8 Uhr und bei 'Jetzt starten' aus Siggi,
+// sonst nur der kurze Erreichbarkeits-Check.
+let fromSiggi = false;
+try { fromSiggi = $('Start aus Siggi').isExecuted; } catch (e) {}
+const now = new Date();
+return [{ json: { full: fromSiggi || (now.getHours() === 8 && now.getMinutes() < 15) } }];""", [240, 100]),
+    http("Bei Siggi anmelden", "watch", "{type:'start', quiet: !$json.full, bubble: $json.full ? 'Große Prüfung: Erreichbarkeit, Ladezeit, SSL …' : 'Kurzer Check: sind alle Websites erreichbar?', text: 'Große Prüfung gestartet'}", [480, 100]),
     code("Websites vorbereiten", """// Pausiert? Dann hier aufhören.
 if (!$json.run) return [];
 const sites = ($json.config && $json.config.sites) || [];
-return sites.map((url, i) => ({ json: { url, index: i + 1, total: sites.length } }));""", [500, 100]),
+return sites.map((url, i) => ({ json: { url, index: i + 1, total: sites.length } }));""", [720, 100]),
     {"id": str(uuid.uuid4()), "name": "Eine nach der anderen", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 3,
-     "position": [740, 100], "parameters": {"batchSize": 1, "options": {}}},
+     "position": [960, 100], "parameters": {"batchSize": 1, "options": {}}},
     http("Fortschritt an Siggi", "watch",
          "{type:'status', status:'working', bubble:'Prüfe ' + $json.url.replace(/^https?:\\/\\//,'') + ' (' + $json.index + ' von ' + $json.total + ')', progress: ($json.index - 1) / $json.total, plan: " + PLAN_RUN + "}",
-         [980, 260]),
-    http("Website prüfen", "watch", "{type:'site_check', url: $('Eine nach der anderen').item.json.url}", [1220, 260]),
+         [1200, 260]),
+    http("Website prüfen", "watch", "{type:'site_check', url: $('Eine nach der anderen').item.json.url}", [1440, 260]),
     code("Ergebnis auswerten", """const results = $input.all().map(i => i.json);
-const problems = [];
+const full = $('Modus bestimmen').first().json.full;
+// Gedächtnis über Läufe hinweg: wie oft hintereinander nicht erreichbar, wer gilt als 'down'
+const mem = $getWorkflowStaticData('global');
+mem.fails = mem.fails || {};
+mem.down = mem.down || {};
+const problems = [], notices = [];
 const host = u => u.replace(/^https?:\\/\\//, '').replace(/\\/$/, '');
 const steps = results.map(r => {
   const h = host(r.url);
   const own = [];
-  if (!r.ok) own.push(`${h}: nicht erreichbar (${r.status || r.error || 'keine Antwort'})`);
-  else if (r.ms > 4000) own.push(`${h}: lädt langsam (${(r.ms / 1000).toFixed(1)} s)`);
-  if (r.ssl_days != null && r.ssl_days < 14) own.push(`${h}: SSL-Zertifikat läuft in ${r.ssl_days} Tagen ab`);
-  if (r.ssl_error) own.push(`${h}: SSL-Problem (${r.ssl_error})`);
+  if (!r.ok) {
+    mem.fails[h] = (mem.fails[h] || 0) + 1;
+    // erst ab dem 2. Fehlschlag in Folge Alarm - ein kurzer Wackler beim Hoster bleibt still
+    if (mem.fails[h] >= 2) {
+      own.push(`${h}: nicht erreichbar seit ca. ${(mem.fails[h] - 1) * 15} Min. (${r.status || r.error || 'keine Antwort'})`);
+      mem.down[h] = true;
+    }
+  } else {
+    if (mem.down[h]) notices.push(`${h} ist wieder erreichbar`);
+    mem.fails[h] = 0;
+    mem.down[h] = false;
+    if (full && r.ms > 4000) own.push(`${h}: lädt langsam (${(r.ms / 1000).toFixed(1)} s)`);
+    if (full && r.ssl_days != null && r.ssl_days < 14) own.push(`${h}: SSL-Zertifikat läuft in ${r.ssl_days} Tagen ab`);
+    if (full && r.ssl_error) own.push(`${h}: SSL-Problem (${r.ssl_error})`);
+  }
   problems.push(...own);
-  const time = r.ms < 1000 ? `${r.ms} ms` : `${(r.ms / 1000).toFixed(1)} s`;
-  const note = r.ok ? `${time} · SSL ${r.ssl_days != null ? r.ssl_days + ' T.' : '–'}` : 'nicht erreichbar';
-  return { label: h, state: own.length ? 'error' : 'done', note };
+  const time = r.ms == null ? '–' : r.ms < 1000 ? `${r.ms} ms` : `${(r.ms / 1000).toFixed(1)} s`;
+  const note = r.ok ? `${time} · SSL ${r.ssl_days != null ? r.ssl_days + ' T.' : '–'}` : `nicht erreichbar (${mem.fails[h]}×)`;
+  return { label: h, state: own.length ? 'error' : r.ok ? 'done' : 'warn', note };
 });
-const summary = problems.length ? `${problems.length} Problem(e) bei ${results.length} Websites` : `Alle ${results.length} Websites OK`;
+const n = results.length;
+const summary = problems.length ? `${problems.length} Problem(e) bei ${n} Websites`
+  : full ? `Alle ${n} Websites OK (Ladezeit & SSL geprüft)` : `Alle ${n} Websites erreichbar`;
 return [{ json: {
-  type: 'finish', status: 'sleeping', summary, problems,
-  bubble: problems.length ? summary + ' – Mail ist raus' : summary + ' – schlafe bis Montag',
+  type: 'finish', status: problems.length ? 'error' : 'sleeping', summary, problems, notices,
+  quiet: !full && !problems.length && !notices.length,
+  next_run: 'alle 15 Minuten',
+  bubble: problems.length ? summary + ' – Mail ist raus' : summary + ' – nächster Check in 15 Min.',
   plan: [{ label: 'Websites von Siggi holen', state: 'done' }, ...steps,
-         { label: 'Bei Problemen Mail an Stefan', state: 'done', note: problems.length ? 'gesendet' : 'nicht nötig' }],
-} }];""", [980, -60]),
-    http("Ergebnis an Siggi", "watch", "$json", [1220, -60]),
+         { label: 'Bei Problemen Mail an Stefan', state: 'done', note: problems.length ? 'gesendet' : notices.length ? 'Entwarnung gesendet' : 'nicht nötig' }],
+} }];""", [1200, -60]),
+    http("Ergebnis an Siggi", "watch", "$json", [1440, -60]),
 ]
 watch = {
     "id": "SiggiWebWaechter", "versionId": str(uuid.uuid4()),
     "name": "Website-Wächter", "nodes": watch_nodes, "active": False,
     "settings": {"executionOrder": "v1", "timezone": "Europe/Berlin"},
     "connections": link(
-        ("Jeden Montag 8:00", "Bei Siggi anmelden"),
-        ("Start aus Siggi", "Bei Siggi anmelden"),
+        ("Alle 15 Minuten", "Modus bestimmen"),
+        ("Start aus Siggi", "Modus bestimmen"),
+        ("Modus bestimmen", "Bei Siggi anmelden"),
         ("Bei Siggi anmelden", "Websites vorbereiten"),
         ("Websites vorbereiten", "Eine nach der anderen"),
         ("Eine nach der anderen", "Ergebnis auswerten", 0),

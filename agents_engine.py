@@ -9,8 +9,9 @@ Hook-Nachrichten (JSON-Feld "type"):
               Agenten bricht der Workflow damit selbst ab.
   status   -> {"status", "bubble", "progress", "plan", "next_run"} (alles optional)
   event    -> {"level": info|success|warn|error, "text"}
-  finish   -> {"status", "bubble", "summary", "problems": [...]}  - Probleme gehen
-              zusaetzlich per Mail an Stefan.
+  finish   -> {"status", "bubble", "summary", "problems": [...], "notices": [...], "next_run"}
+              - Probleme gehen zusaetzlich per Mail an Stefan (gedrosselt), "notices"
+              (z.B. Entwarnung "wieder erreichbar") sofort und ungedrosselt.
   approval -> {"title", "body", "payload"} legt eine Freigabe an (wartet auf Stefan).
   metrics  -> liefert Server-Kennzahlen dieses Hosts (fuer den Server-Waechter, der
               im Container selbst nur seine eigene Sandbox sieht).
@@ -95,11 +96,11 @@ AGENTS = {
     'watch': {
         'kind': 'n8n', 'view': None, 'runnable': True,
         'name': 'Website-Wächter',
-        'role': 'Prüft Websites: erreichbar, SSL-Zertifikat, Ladezeit',
+        'role': 'Prüft alle 15 Min., ob deine Websites erreichbar sind – täglich auch SSL und Ladezeit',
         'icon': 'shield',
         'trigger': '/webhook/siggi-watch-run',
         'default_config': {'sites': ['https://chefblick.de', 'https://stean.info', 'https://www.fischmann-plattner.de']},
-        'next_run': 'Mo 08:00 (wöchentlich)',
+        'next_run': 'alle 15 Minuten',
     },
     'server': {
         'kind': 'n8n', 'view': None, 'runnable': True,
@@ -259,6 +260,11 @@ def handle_hook(agent_id, data):
             if isinstance(data.get('gauges'), list):
                 c.execute('UPDATE agent_state SET gauges=? WHERE agent_id=?',
                           (json.dumps(_clean_gauges(data['gauges']), ensure_ascii=False), agent_id))
+            if data.get('next_run'):
+                c.execute('UPDATE agent_state SET next_run=? WHERE agent_id=?', (str(data['next_run'])[:80], agent_id))
+            notices = [str(n)[:300] for n in (data.get('notices') or [])][:20]
+            for n in notices:
+                _log(c, agent_id, 'success', n)
             had_problems = bool(row['last_summary']) and row['last_summary'].startswith('Problem')
             if problems or not data.get('quiet') or had_problems:
                 for p in problems:
@@ -273,6 +279,9 @@ def handle_hook(agent_id, data):
                            + '\n\nDetails im Dashboard unter "Agenten".')
                 _log(c, agent_id, 'info', 'Problem-Mail an Stefan gesendet')
                 c.commit()
+            if notices and data.get('notify', True):
+                _send_mail(f"Siggi-Agent {AGENTS[agent_id]['name']}: Entwarnung",
+                           '\n'.join(f'- {n}' for n in notices) + '\n\nDetails im Dashboard unter "Agenten".')
             return {'ok': True}, 200
 
         if kind == 'approval':
