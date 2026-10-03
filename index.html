@@ -5262,6 +5262,7 @@ function draftHTML(d) {
       <input type="text" id="draft-subject-${d.id}" value="${escHtml(d.subject)}" style="width:100%;margin:4px 0 8px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font)">
       <label style="font-size:11px;color:var(--text2)">TEXT</label>
       <textarea id="draft-body-${d.id}" style="width:100%;min-height:100px;margin:4px 0 10px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font)">${escHtml(d.body)}</textarea>
+      ${(() => { let a = []; try { a = JSON.parse(d.attachments || '[]'); } catch (e) {} return a.length ? `<div style="font-size:12px;color:var(--text2);margin:-4px 0 10px">📎 Anhang: ${a.map(p => escHtml(p.split('/').pop())).join(', ')}</div>` : ''; })()}
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="approveDraft(${d.id})">✓ Freigeben &amp; senden</button>
         <button class="btn" onclick="saveDraftEdit(${d.id})">💾 Änderung speichern</button>

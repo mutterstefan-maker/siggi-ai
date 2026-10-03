@@ -251,6 +251,8 @@ def init_mail_drafts_table():
     existing_cols = {row[1] for row in c.execute('PRAGMA table_info(mail_drafts)').fetchall()}
     if 'reject_reason' not in existing_cols:
         c.execute('ALTER TABLE mail_drafts ADD COLUMN reject_reason TEXT')
+    if 'attachments' not in existing_cols:
+        c.execute('ALTER TABLE mail_drafts ADD COLUMN attachments TEXT')  # JSON-Liste absoluter PDF-Pfade
     conn.commit()
     conn.close()
 
@@ -356,12 +358,12 @@ def register_mail_decision(kind):
     save_settings(settings)
     return settings.get('mail_auto_send_enabled', False)
 
-def create_mail_draft(to_addr, subject, body):
+def create_mail_draft(to_addr, subject, body, attachments=None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
-        'INSERT INTO mail_drafts (to_addr, subject, body, account, status) VALUES (?, ?, ?, ?, ?)',
-        (to_addr, subject, body, SIGGI_SEND_ACCOUNT, 'pending')
+        'INSERT INTO mail_drafts (to_addr, subject, body, account, status, attachments) VALUES (?, ?, ?, ?, ?, ?)',
+        (to_addr, subject, body, SIGGI_SEND_ACCOUNT, 'pending', json.dumps(attachments or []))
     )
     draft_id = c.lastrowid
     conn.commit()
@@ -382,7 +384,47 @@ def _strip_signoff(body):
     return '\n'.join(lines).rstrip()
 
 
-def send_new_mail(to_addr, subject, body, sign=False):
+MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024  # gesamt - groessere Mails lehnen viele Postfaecher ab
+
+
+def _prepare_attachments(body, wanted):
+    """Kunden koennen Siggis Download-Links nicht oeffnen (die brauchen Stefans Login) - Dokumente
+    gehen deshalb als echte PDF-Anhaenge raus. Links auf /api/cowork/download/... im Text werden zum
+    Anhang und durch '(siehe Anhang: ...)' ersetzt. Liefert (body, [pfade], fehler)."""
+    from urllib.parse import unquote
+    paths, errors = [], []
+
+    def add(path):
+        if path not in paths:
+            paths.append(path)
+
+    for item in wanted or []:
+        item = str(item).strip()
+        if item.lower().startswith('audit:'):
+            res = _resolve_send_file('audit', item[6:])
+        else:
+            res = _resolve_send_file('cowork', item)
+        if os.path.isabs(res) and res.lower().endswith('.pdf'):
+            add(res)
+        else:
+            errors.append(res if not os.path.isabs(res) else f'{os.path.basename(res)} ist kein PDF.')
+
+    def replace_link(m):
+        rel = unquote(m.group(1).rstrip('.,;:)>"\''))
+        res = _resolve_send_file('cowork', rel)
+        if os.path.isabs(res) and res.lower().endswith('.pdf'):
+            add(res)
+            return f'(siehe Anhang: {os.path.basename(res)})'
+        errors.append(res if not os.path.isabs(res) else f'{os.path.basename(res)} ist kein PDF.')
+        return m.group(0)
+
+    body = re.sub(r'https?://\S*?/api/cowork/download/(\S+)', replace_link, body or '')
+    if sum(os.path.getsize(p) for p in paths) > MAX_ATTACHMENT_BYTES:
+        errors.append('Anhänge zusammen größer als 15 MB.')
+    return body, paths, errors
+
+
+def send_new_mail(to_addr, subject, body, sign=False, attachments=None):
     """Verschickt eine neue E-Mail immer über SIGGI_SEND_ACCOUNT.
     sign=True: Mail an Dritte in Stefans Namen - Siggis eigene Grussformel weg, echte Signatur des
     Postfachs dran (wie bei den automatischen Antworten). Interne Hinweise an Stefan bleiben ohne."""
@@ -402,13 +444,17 @@ def send_new_mail(to_addr, subject, body, sign=False):
     msg['To'] = to_addr
     msg['Subject'] = subject
     msg.set_content(body)
+    for path in attachments or []:
+        with open(path, 'rb') as f:
+            msg.add_attachment(f.read(), maintype='application', subtype='pdf', filename=os.path.basename(path))
 
     with smtplib.SMTP(account.get('smtp_server', 'smtp.ionos.de'), account.get('smtp_port', 587)) as server:
         server.starttls()
         server.login(SIGGI_SEND_ACCOUNT, account.get('password', ''))
         server.send_message(msg)
 
-    return f"Mail an {to_addr} von {SIGGI_SEND_ACCOUNT} verschickt."
+    names = ', '.join(os.path.basename(p) for p in attachments or [])
+    return f"Mail an {to_addr} von {SIGGI_SEND_ACCOUNT} verschickt." + (f" Anhang: {names}" if names else '')
 
 SIGGI_TOOLS = [
     {
@@ -553,14 +599,20 @@ SIGGI_TOOLS = [
             'um die E-Mail-Adresse zu finden. Bei fehlenden Angaben (Empfänger, Inhalt) nachfragen statt zu raten. '
             'Die Mail geht in Stefans Namen raus: KEINE Grußformel und KEINE Unterschrift schreiben, niemals mit '
             '"SIGGI" unterschreiben - Stefans offizielle Signatur wird automatisch angehängt. '
-            'Dokumente nur als PDF verlinken - gibt es kein PDF, Stefan das sagen statt eine andere Datei zu verlinken.'
+            'Dokumente NIE verlinken (Kunden koennen Siggis Links nicht oeffnen), sondern als PDF ueber "anhaenge" '
+            'anhaengen und im Text "im Anhang" schreiben. Gibt es kein PDF, Stefan das sagen statt die Mail zu schicken.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
                 'empfaenger': {'type': 'string', 'description': 'E-Mail-Adresse des Empfängers.'},
                 'betreff': {'type': 'string', 'description': 'Betreff der Mail.'},
-                'text': {'type': 'string', 'description': 'Inhalt der Mail.'}
+                'text': {'type': 'string', 'description': 'Inhalt der Mail.'},
+                'anhaenge': {
+                    'type': 'array', 'items': {'type': 'string'},
+                    'description': ('PDFs, die angehaengt werden: Pfad aus cowork_datei_suchen (oder Dateiname), '
+                                    'oder "audit:<domain>" fuer ein Website-Audit. Nur PDFs.')
+                }
             },
             'required': ['empfaenger', 'betreff', 'text']
         }
@@ -845,10 +897,13 @@ def _run_siggi_tool_inner(name, tool_input):
             if bad_links:
                 return ('NICHT gesendet: Die Mail verlinkt eine Datei, die kein PDF ist (' + ', '.join(bad_links) +
                         '). Es duerfen nur PDFs verschickt werden. Sag Stefan, dass es dazu kein PDF gibt.')
+            body, files, errors = _prepare_attachments(tool_input['text'], tool_input.get('anhaenge'))
+            if errors:
+                return 'NICHT gesendet: ' + ' | '.join(errors) + ' - sag Stefan Bescheid.'
             trust = get_mail_trust_status()
             if trust['auto_send_enabled']:
-                return send_new_mail(tool_input['empfaenger'], tool_input['betreff'], tool_input['text'], sign=True)
-            draft_id = create_mail_draft(tool_input['empfaenger'], tool_input['betreff'], tool_input['text'])
+                return send_new_mail(tool_input['empfaenger'], tool_input['betreff'], body, sign=True, attachments=files)
+            draft_id = create_mail_draft(tool_input['empfaenger'], tool_input['betreff'], body, files)
             return (
                 f"Entwurf #{draft_id} an {tool_input['empfaenger']} erstellt und wartet auf deine Freigabe im Dashboard "
                 f"(noch {max(trust['threshold'] - trust['count'], 0)} Freigaben bis der Autopilot scharf geschaltet wird)."
@@ -1353,7 +1408,8 @@ def approve_mail_draft(draft_id):
     draft = dict(row)
 
     try:
-        result = send_new_mail(draft['to_addr'], draft['subject'], draft['body'], sign=True)
+        files = [p for p in json.loads(draft.get('attachments') or '[]') if os.path.isfile(p)]
+        result = send_new_mail(draft['to_addr'], draft['subject'], draft['body'], sign=True, attachments=files)
     except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
