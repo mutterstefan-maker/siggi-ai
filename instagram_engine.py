@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 import requests as req
 import settings_store
+import agents_engine as agents
 
 ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
@@ -482,6 +483,11 @@ Vorgaben:
         return default_caption
 
 
+def _ig_plan(*states):
+    labels = ['Beschreibung & Hashtags schreiben', 'Auf Instagram veröffentlichen', 'Auf Facebook teilen', 'Bild archivieren']
+    return [{'label': l, 'state': st} for l, st in zip(labels, states)]
+
+
 def post_next_in_queue(public_base_url):
     """Postet das erste Bild aus der Warteschlange. public_base_url ist die von außen
     erreichbare Basis-URL des Servers (z.B. https://www.stean.info), damit Meta das Bild
@@ -491,15 +497,18 @@ def post_next_in_queue(public_base_url):
         return {'success': False, 'error': 'Keine Bilder in der Warteschlange.'}
 
     filename = queue[0]
+    agents.start('instagram', f'Schreibe die Beschreibung für {filename} …', plan=_ig_plan('active', 'open', 'open', 'open'))
     s = _ig_settings()
     caption = _generate_caption_from_filename(filename, s.get('default_caption', ''))
     image_url = f"{public_base_url.rstrip('/')}/api/instagram/media/{quote(filename)}"
 
+    agents.step('instagram', f'Veröffentliche {filename} auf Instagram …', plan=_ig_plan('done', 'active', 'open', 'open'))
     result = _publish_image(image_url, caption)
 
     if result['success']:
         _log_post(filename, caption, 'posted', media_id=result.get('media_id'))
 
+        agents.step('instagram', 'Teile den Post auf Facebook …', plan=_ig_plan('done', 'done', 'active', 'open'))
         fb_result = _publish_to_facebook_page(image_url, caption)
         if not fb_result['success']:
             print(f"[Facebook] Post fehlgeschlagen: {fb_result.get('error')}")
@@ -515,9 +524,15 @@ def post_next_in_queue(public_base_url):
         ig_settings = settings.setdefault('instagram_settings', {})
         ig_settings['last_posted'] = datetime.now().isoformat()
         _save_settings(settings)
+        fb_note = 'auch auf Facebook' if fb_result['success'] else 'Facebook fehlgeschlagen'
+        agents.done('instagram', f'{filename} gepostet ({fb_note})',
+                    problems=[] if fb_result['success'] else [f"Facebook: {str(fb_result.get('error'))[:200]}"],
+                    plan=_ig_plan('done', 'done', 'done' if fb_result['success'] else 'error', 'done'))
         return {'success': True, 'filename': filename, 'facebook_posted': fb_result['success']}
     else:
         _log_post(filename, caption, 'error', result.get('error'))
+        agents.fail('instagram', f"Instagram-Post fehlgeschlagen: {str(result.get('error'))[:200]}",
+                    plan=_ig_plan('done', 'error', 'open', 'open'))
         return {'success': False, 'error': result.get('error')}
 
 
@@ -528,7 +543,7 @@ def maybe_auto_post(public_base_url):
     aktiv ist und die aktuelle Zeit einem konfigurierten Post-Slot entspricht - dedupliziert
     über 'auto_post_last_slot' in settings.json, damit nicht doppelt gepostet wird."""
     s = _ig_settings()
-    if s.get('auto_enabled') != '1':
+    if s.get('auto_enabled') != '1' or agents.is_paused('instagram'):
         return
 
     now = datetime.now()
@@ -553,3 +568,5 @@ def maybe_auto_post(public_base_url):
 
     if get_ig_queue():
         post_next_in_queue(public_base_url)
+    else:
+        agents.event('instagram', f'Post-Zeit {current_hm}: keine Bilder in der Warteschlange – nichts gepostet', 'warn')

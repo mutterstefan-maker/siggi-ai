@@ -365,7 +365,23 @@ def get_progress():
     }
 
 
+def run_as_agent():
+    """Taeglicher Lauf (Cron 08:00) bzw. 'Jetzt starten' in der Agenten-Zentrale."""
+    import agents_engine as agents
+    plan = lambda *st: [{'label': l, 'state': x} for l, x in zip(
+        ['Deine bisherigen Posts und Bewertungen lesen', 'Thema wählen und Entwurf schreiben', 'Zur Freigabe vorlegen'], st)]
+    if not agents.start('linkedin', 'Schreibe einen LinkedIn-Entwurf in deinem Stil …', plan=plan('done', 'active', 'open')):
+        return None
+    try:
+        init_table()
+        new_id = generate_draft()
+    except Exception as e:
+        agents.fail('linkedin', e, plan=plan('done', 'error', 'open'))
+        raise
+    agents.done('linkedin', 'Neuer Entwurf liegt zur Freigabe bereit', plan=plan('done', 'done', 'done'))
+    return new_id
+
+
 if __name__ == '__main__':
-    init_table()
-    new_id = generate_draft()
+    new_id = run_as_agent()
     print(f'Neuer Entwurf erzeugt: id={new_id}')

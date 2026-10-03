@@ -171,7 +171,70 @@ server = {
     ),
 }
 
-for fname, wf in (("watch.json", watch), ("server.json", server)):
+# ── Wochenbericht ─────────────────────────────────────────────────────
+REPORT_PLAN = lambda a, b, c, d: ("[{label:'Zahlen der Woche bei Siggi holen', state:'" + a + "'},"
+                                   "{label:'Bericht schreiben', state:'" + b + "'},"
+                                   "{label:'Per Mail an Stefan schicken', state:'" + c + "'},"
+                                   "{label:'Fertig', state:'" + d + "'}]")
+report_nodes = [
+    note("## Wochenbericht\nJeden Montag 07:30: holt die Zahlen der letzten 7 Tage aus Siggi (Mails, Posts, Kontakte, Probleme der Agenten, Server) und schickt eine Zusammenfassung per Mail.\n\nOhne KI – kostet nichts.", [-40, -260], 520, 200),
+    {"id": str(uuid.uuid4()), "name": "Jeden Montag 7:30", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2,
+     "position": [0, 0], "parameters": {"rule": {"interval": [{"field": "cronExpression", "expression": "30 7 * * 1"}]}}},
+    webhook("Start aus Siggi", "siggi-report-run", [0, 200]),
+    http("Bei Siggi anmelden", "report", "{type:'start', bubble:'Sammle die Zahlen der Woche …', text:'Wochenbericht gestartet'}", [260, 100]),
+    code("Pausiert?", "// Pausiert? Dann hier aufhören.\nreturn $json.run ? [$input.first()] : [];", [500, 100]),
+    http("Fortschritt: sammeln", "report", "{type:'status', status:'working', bubble:'Sammle die Zahlen der Woche …', plan: " + REPORT_PLAN('active', 'open', 'open', 'open') + "}", [740, 100]),
+    http("Zahlen holen", "report", "{type:'report_data'}", [980, 100]),
+    code("Bericht schreiben", """const s = $json.stats;
+const n = v => (v === null || v === undefined) ? '–' : v;
+const from = new Date(Date.now() - 7 * 86400000).toLocaleDateString('de-DE');
+const to = new Date().toLocaleDateString('de-DE');
+const lines = [];
+lines.push(`Hallo Stefan,`, ``, `hier ist dein Siggi-Wochenbericht (${from} – ${to}).`, ``);
+lines.push(`MAILS`);
+lines.push(`- ${n(s.mails_eingang)} eingegangen, davon ${n(s.mails_auto_beantwortet)} automatisch beantwortet, ${n(s.mails_spam)} Spam`);
+lines.push(`- ${n(s.mails_gesendet)} Mails verschickt`);
+lines.push(`- ${n(s.neue_kontakte)} neue Kontakte`);
+if (s.mail_entwuerfe_offen) lines.push(`- ${s.mail_entwuerfe_offen} Mail-Entwürfe warten auf deine Freigabe`);
+lines.push(``, `SOCIAL MEDIA`);
+lines.push(`- Instagram: ${n(s.instagram_posts)} Bilder gepostet${s.instagram_fehler ? `, ${s.instagram_fehler} fehlgeschlagen` : ''}`);
+lines.push(`- Stories/Reels: ${n(s.stories_gepostet)} gepostet`);
+lines.push(`- LinkedIn: ${n(s.linkedin_entwuerfe)} Entwürfe, ${n(s.linkedin_gepostet)} gepostet${s.linkedin_offen ? `, ${s.linkedin_offen} warten auf Freigabe` : ''}`);
+lines.push(`- Bilder: ${n(s.bilder_erzeugt)} erzeugt${s.bilder_fehlgeschlagen ? `, ${s.bilder_fehlgeschlagen} fehlgeschlagen` : ''}`);
+if (s.audits) lines.push(``, `WEBSITE-AUDITS`, `- ${s.audits} Audits erstellt`);
+lines.push(``, `PROBLEME DER AGENTEN`);
+const probs = s.agenten_probleme || [];
+if (!probs.length) lines.push('- keine 🎉');
+for (const p of probs.slice(0, 10)) lines.push(`- ${p.agent}: ${p.text}`);
+if (s.server) {
+  const m = s.server;
+  lines.push(``, `SERVER`, `- CPU-Last ${Math.round(100 * m.load[1] / m.cpu_count)} %, Arbeitsspeicher ${m.ram_percent} %, Festplatte ${m.disk_percent} % (${m.disk_free_gb} GB frei)`);
+}
+lines.push(``, `Details im Dashboard unter „Agenten“.`, ``, `Siggi`);
+const headline = `${n(s.mails_eingang)} Mails · ${n(s.instagram_posts)} Insta-Posts · ${n(s.linkedin_gepostet)} LinkedIn · ${probs.length} Problem(e)`;
+return [{ json: { subject: `Siggi-Wochenbericht ${from} – ${to}`, body: lines.join('\\n'), headline } }];""", [1220, 100]),
+    http("Fortschritt: senden", "report", "{type:'status', status:'working', bubble:'Schicke dir den Bericht per Mail …', plan: " + REPORT_PLAN('done', 'done', 'active', 'open') + "}", [1460, 100]),
+    http("Mail an Stefan", "report", "{type:'send_mail', subject: $('Bericht schreiben').item.json.subject, body: $('Bericht schreiben').item.json.body}", [1700, 100]),
+    http("Ergebnis an Siggi", "report", "{type:'finish', status:'sleeping', summary: 'Bericht verschickt: ' + $('Bericht schreiben').item.json.headline, bubble: 'Bericht ist raus – ' + $('Bericht schreiben').item.json.headline, plan: " + REPORT_PLAN('done', 'done', 'done', 'done') + "}", [1940, 100]),
+]
+report = {
+    "id": "SiggiWochenBrcht", "versionId": str(uuid.uuid4()),
+    "name": "Wochenbericht", "nodes": report_nodes, "active": False,
+    "settings": {"executionOrder": "v1", "timezone": "Europe/Berlin"},
+    "connections": link(
+        ("Jeden Montag 7:30", "Bei Siggi anmelden"),
+        ("Start aus Siggi", "Bei Siggi anmelden"),
+        ("Bei Siggi anmelden", "Pausiert?"),
+        ("Pausiert?", "Fortschritt: sammeln"),
+        ("Fortschritt: sammeln", "Zahlen holen"),
+        ("Zahlen holen", "Bericht schreiben"),
+        ("Bericht schreiben", "Fortschritt: senden"),
+        ("Fortschritt: senden", "Mail an Stefan"),
+        ("Mail an Stefan", "Ergebnis an Siggi"),
+    ),
+}
+
+for fname, wf in (("watch.json", watch), ("server.json", server), ("report.json", report)):
     with open(fname, "w", encoding="utf-8") as f:
         json.dump(wf, f, ensure_ascii=False, indent=1)
 print("ok")

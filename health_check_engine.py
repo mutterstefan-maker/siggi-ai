@@ -240,7 +240,14 @@ def run_health_check(send_alert=True):
     init_table()
     settings = load_settings()
     results = []
-    for name, fn in CHECKS:
+    try:
+        import agents_engine as agents
+        agents.start('health', 'Prüfe alle Zugänge und Dienste …', text='Prüfung gestartet')
+    except Exception:
+        agents = None
+    for i, (name, fn) in enumerate(CHECKS):
+        if agents:
+            agents.step('health', f'Prüfe {name} …', progress=i / len(CHECKS))
         try:
             ok, detail = fn(settings)
         except Exception as e:
@@ -260,6 +267,13 @@ def run_health_check(send_alert=True):
     failed = [(r['name'], r['detail']) for r in results if not r['ok'] and not r['muted']]
     if failed and send_alert:
         _send_alert_mail(failed)
+    if agents:
+        plan = [{'label': r['name'], 'state': 'done' if r['ok'] else ('warn' if r['muted'] else 'error'),
+                 'note': 'OK' if r['ok'] else ('stumm' if r['muted'] else 'Problem')} for r in results]
+        summary = f'{len(failed)} Problem(e) gefunden' if failed else f'Alle {len(results)} Prüfungen OK'
+        # Mail verschickt der Health-Check selbst (eigener Absender, auch ohne settings.json)
+        agents.done('health', summary, problems=[f'{n}: {d}' for n, d in failed], plan=plan, notify=False,
+                    status='error' if failed else 'sleeping')
 
     return {'ok': all_ok, 'results': results}
 

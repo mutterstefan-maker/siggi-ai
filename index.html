@@ -4269,7 +4269,7 @@ async function fetchNow() {
   showToast('Abruf gestartet...', 'success');
   const res = await apiFetch('/api/fetch', 'POST');
   if (res) {
-    showToast(`${res.new_mails} neue Mail(s) verarbeitet`, 'success');
+    showToast(res.queued ? 'Abruf läuft – neue Mails erscheinen in Kürze' : `${res.new_mails} neue Mail(s) verarbeitet`, 'success');
     loadCounts();
     if (currentView !== 'settings') renderMailView(currentView);
   }
@@ -4542,7 +4542,15 @@ const AGENT_ICONS = {
   shield: 'M12 2 L21 6 V12 C21 17 17 21 12 22 C7 21 3 17 3 12 V6 Z M8 12 L11 15 L16 9',
   server: 'M4 3 H20 V10 H4 Z M4 14 H20 V21 H4 Z M8 6.5 H8.01 M8 17.5 H8.01 M12 6.5 H16 M12 17.5 H16',
   search: 'M10.5 3 A7.5 7.5 0 1 0 10.5 18 A7.5 7.5 0 1 0 10.5 3 Z M16 16 L22 22',
-  chat: 'M3 5 H21 V16 H9 L4 20 V16 H3 Z',
+  chat: 'M3 5 H21 V16 H9 L4 20 V16 H3 Z M8 10.5 H8.01 M12 10.5 H12.01 M16 10.5 H16.01',
+  mail: 'M3 5 H21 V19 H3 Z M3 6 L12 13 L21 6',
+  camera: 'M3 7 H7 L9 4 H15 L17 7 H21 V20 H3 Z M12 10 A3.5 3.5 0 1 0 12 17 A3.5 3.5 0 1 0 12 10 Z',
+  film: 'M4 3 H20 V21 H4 Z M8 3 V21 M16 3 V21 M4 8 H8 M4 16 H8 M16 8 H20 M16 16 H20 M10.5 9.5 L14 12 L10.5 14.5 Z',
+  image: 'M3 4 H21 V20 H3 Z M3 16 L9 11 L13 15 L16 12 L21 16 M15.5 7.5 A1.5 1.5 0 1 0 15.5 10.5 A1.5 1.5 0 1 0 15.5 7.5 Z',
+  briefcase: 'M3 7 H21 V20 H3 Z M8 7 V4 H16 V7 M3 12 H21',
+  bulb: 'M9 18 H15 M10 21 H14 M12 3 A6 6 0 0 0 8 13.5 C8.8 14.3 9 15 9 16 H15 C15 15 15.2 14.3 16 13.5 A6 6 0 0 0 12 3 Z',
+  pulse: 'M2 12 H6 L9 4 L13 20 L16 12 H22',
+  chart: 'M3 21 H21 M6 17 V11 M11 17 V6 M16 17 V13 M21 17 V9',
 };
 let agentsTimer = null;
 let agentsSelected = null;
@@ -4617,7 +4625,7 @@ function agentCardInner(a) {
       </div>
       <div class="ag-role">${escHtml(a.role)}</div>
       ${pct != null ? `<div class="ag-bar"><div style="width:${pct}%;background:${st.color}"></div></div>` : ''}
-      <div class="ag-next">${a.paused ? 'Pausiert' : 'Nächster Lauf: ' + escHtml(a.next_run || '–')}</div>
+      <div class="ag-next">${a.paused ? 'Pausiert – macht nichts, bis du fortsetzt' : 'Nächster Lauf: ' + escHtml(a.next_run || '–')}</div>
     </div>`;
 }
 
@@ -4660,9 +4668,10 @@ function agentDetailHTML(a, d) {
         <div class="ag-detail-name">${escHtml(a.name)}</div>
       </div>
       <div class="ag-actions">
-        <button class="btn btn-primary" onclick="runAgentNow('${a.id}')" ${a.paused || a.status === 'working' ? 'disabled' : ''}>Jetzt starten</button>
+        ${a.view && a.pending_approvals ? `<button class="btn btn-primary" onclick="showView('${a.view}')">Zur Freigabe (${a.pending_approvals})</button>` : ''}
+        ${a.runnable ? `<button class="btn ${a.view && a.pending_approvals ? 'btn-ghost' : 'btn-primary'}" onclick="runAgentNow('${a.id}')" ${a.paused || a.status === 'working' ? 'disabled' : ''}>Jetzt starten</button>` : ''}
         <button class="btn btn-ghost" onclick="toggleAgentPause('${a.id}', ${!a.paused})">${a.paused ? 'Fortsetzen' : 'Pausieren'}</button>
-        <a class="btn btn-ghost" href="${d.n8n_url}" target="_blank" rel="noopener">In n8n öffnen</a>
+        ${a.kind === 'n8n' ? `<a class="btn btn-ghost" href="${d.n8n_url}" target="_blank" rel="noopener">In n8n öffnen</a>` : a.view ? `<button class="btn btn-ghost" onclick="showView('${a.view}')">Bereich öffnen</button>` : ''}
       </div>
     </div>
     ${approvals.length ? `<div class="ag-approvals">

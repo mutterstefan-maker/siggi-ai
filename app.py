@@ -2137,9 +2137,14 @@ def empty_trash():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+MAIL_FETCH_TRIGGER = '/opt/stean/.mail_fetch_now'
+
 @app.route('/api/fetch', methods=['POST'])
 def manual_fetch():
-    return jsonify({'success': True, 'new_mails': 0})
+    # Abruf laeuft im eigenen Dienst (mail_loop.py); der prueft diese Datei alle 15 s.
+    # Frueher war das ein Platzhalter, der nichts abgerufen hat.
+    open(MAIL_FETCH_TRIGGER, 'w').close()
+    return jsonify({'success': True, 'queued': True})
 
 @app.route('/api/linkedin/auth')
 def linkedin_auth():
@@ -2177,9 +2182,84 @@ def agents_hook(agent_id):
     body, status = agents_engine.handle_hook(agent_id, request.get_json(silent=True) or {})
     return jsonify(body), status
 
+def _next_slot(times, days):
+    """Naechster Post-Zeitpunkt aus 'HH:MM,HH:MM' und 'mon,tue,...' als Text."""
+    day_map = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    names = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+    slots = sorted(t.strip() for t in (times or '').split(',') if re.match(r'^\d{1,2}:\d{2}$', t.strip()))
+    active = [d for d in (days or ','.join(day_map)).split(',') if d in day_map]
+    if not slots or not active:
+        return None
+    now = datetime.now()
+    for add in range(8):
+        day = now + timedelta(days=add)
+        if day_map[day.weekday()] not in active:
+            continue
+        for t in slots:
+            h, m = map(int, t.split(':'))
+            when = day.replace(hour=h, minute=m, second=0, microsecond=0)
+            if when > now:
+                label = 'heute' if add == 0 else 'morgen' if add == 1 else names[when.weekday()]
+                return f'{label} {when.strftime("%H:%M")}'
+    return None
+
+
+def _agent_extras():
+    """Freigabe-Zaehler und naechste Laeufe der internen Agenten (liegen in den Engines)."""
+    extras = {}
+
+    def safe(fn, default=None):
+        try:
+            return fn()
+        except Exception:
+            return default
+
+    def count_mail_drafts():
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            return conn.execute("SELECT COUNT(*) FROM mail_drafts WHERE status='pending'").fetchone()[0]
+        finally:
+            conn.close()
+
+    settings = load_settings()
+    extras['mail'] = {'pending': safe(count_mail_drafts, 0),
+                      'next_run': f"alle {settings.get('interval_minutes', 21)} Minuten"}
+    ig = settings.get('instagram_settings', {})
+    if INSTAGRAM_AVAILABLE:
+        q = safe(lambda: len(instagram_engine.get_ig_queue()), 0)
+        extras['instagram'] = {
+            'next_run': (safe(lambda: _next_slot(ig.get('post_times', '09:00'), ig.get('post_days'))) or '–') if ig.get('auto_enabled') == '1' else 'Auto-Post ist aus',
+            'idle': f'{q} Bild(er) in der Warteschlange' if q else 'Warteschlange ist leer – keine Bilder zum Posten',
+        }
+    rs = settings.get('reels_settings', {})
+    if REELS_AVAILABLE:
+        extras['reels'] = {
+            'pending': safe(lambda: len(reels_engine.get_pending_reels()), 0),
+            'next_run': (safe(lambda: _next_slot(rs.get('post_times', '11:00'), rs.get('post_days'))) or '–') if rs.get('auto_enabled') == '1' else 'Auto-Post ist aus',
+            'idle': f"{safe(lambda: len(reels_engine.get_reels_queue()), 0)} freigegebene(s) Video(s) bereit",
+        }
+    extras['bild'] = {'pending': safe(lambda: len(instagram_flyer_engine.get_pending()), 0)}
+    extras['linkedin'] = {'pending': safe(lambda: len(linkedin_pipeline_engine.get_drafts('pending')), 0)}
+    extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
+    return extras
+
+
+# Interne Agenten, die man per "Jetzt starten" anstossen darf (nichts davon postet oeffentlich)
+def _start_mail_fetch():
+    open(MAIL_FETCH_TRIGGER, 'w').close()
+
+INTERNAL_AGENT_RUNNERS = {
+    'mail': _start_mail_fetch,
+    'bild': lambda: instagram_flyer_engine.run_as_agent(),
+    'linkedin': lambda: linkedin_pipeline_engine.run_as_agent(),
+    'improve': lambda: self_improve_engine.run_as_agent(),
+    'health': lambda: health_check_engine.run_health_check(),
+}
+
+
 @app.route('/api/agents')
 def agents_overview():
-    return jsonify(agents_engine.overview())
+    return jsonify(agents_engine.overview(_agent_extras()))
 
 @app.route('/api/agents/<agent_id>/pause', methods=['POST'])
 def agents_pause(agent_id):
@@ -2188,6 +2268,17 @@ def agents_pause(agent_id):
 
 @app.route('/api/agents/<agent_id>/run', methods=['POST'])
 def agents_run(agent_id):
+    if agent_id in INTERNAL_AGENT_RUNNERS:
+        if agents_engine.is_paused(agent_id):
+            return jsonify({'success': False, 'error': 'Agent ist pausiert'})
+
+        def _bg():
+            try:
+                INTERNAL_AGENT_RUNNERS[agent_id]()
+            except Exception as e:
+                print(f'[Agenten] {agent_id} fehlgeschlagen: {e}')
+        threading.Thread(target=_bg, daemon=True).start()
+        return jsonify({'success': True})
     return jsonify(agents_engine.run_now(agent_id))
 
 @app.route('/api/agents/<agent_id>/config', methods=['POST'])
@@ -2197,7 +2288,10 @@ def agents_config(agent_id):
 
 @app.route('/api/agents/approvals/<int:approval_id>', methods=['POST'])
 def agents_approval(approval_id):
-    ok = agents_engine.decide_approval(approval_id, bool((request.get_json(silent=True) or {}).get('approve')))
+    try:
+        ok = agents_engine.decide_approval(approval_id, bool((request.get_json(silent=True) or {}).get('approve')))
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)[:300]}), 500
     return jsonify({'success': ok}), (200 if ok else 404)
 
 @app.route('/health')
@@ -2379,6 +2473,9 @@ def _suggest_instagram_reply(comment_text, settings):
 def _check_instagram_comments():
     if not INSTAGRAM_AVAILABLE or not instagram_engine.is_configured():
         return
+    if not agents_engine.start('comments', 'Schaue nach neuen Instagram-Kommentaren …', quiet=True):
+        return  # in der Agenten-Zentrale pausiert
+    new_comments = 0
     settings = load_settings()
     seen_data = _load_json_file(IG_SEEN_COMMENTS_PATH)
     seen = set(seen_data.get('ids', []))
@@ -2396,8 +2493,14 @@ def _check_instagram_comments():
             if not cid or cid in seen:
                 continue
             new_seen.add(cid)
-
+            new_comments += 1
+            agents_engine.step('comments', f"Schreibe einen Antwortvorschlag für @{c.get('username', 'jemand')} …")
             suggestion = _suggest_instagram_reply(c.get('text', ''), settings)
+            if not suggestion.startswith('('):
+                agents_engine.request_approval(
+                    'comments', f"Antwort an @{c.get('username', 'jemand')}",
+                    f"Kommentar: „{c.get('text', '')}“\n\nVorschlag: „{suggestion}“",
+                    {'comment_id': cid, 'media_id': media['id'], 'text': suggestion})
             body = (
                 f"Neuer Kommentar zu deinem Instagram-Post:\n\n"
                 f"\"{c.get('text', '')}\" — {c.get('username', 'jemand')}\n\n"
@@ -2412,6 +2515,18 @@ def _check_instagram_comments():
 
     if new_seen != seen:
         _save_json_file(IG_SEEN_COMMENTS_PATH, {'ids': list(new_seen)})
+    agents_engine.done('comments', f'{new_comments} neue(r) Kommentar(e) – Antwort wartet auf dich' if new_comments else 'Keine neuen Kommentare',
+                       quiet=not new_comments, bubble=None if new_comments else 'Keine neuen Kommentare – schaue in 5 Min. wieder')
+
+
+def _approve_comment_reply(payload):
+    """Freigabe in der Agenten-Zentrale -> Antwort wirklich auf Instagram posten."""
+    msg = instagram_engine.reply_to_comment(payload['comment_id'], payload['text'])
+    if 'gepostet' not in msg:
+        raise RuntimeError(msg)
+    agents_engine.event('comments', 'Antwort auf Instagram gepostet', 'success')
+
+agents_engine.APPROVAL_ACTIONS['comments'] = _approve_comment_reply
 
 
 def _instagram_comment_loop():
@@ -2427,6 +2542,7 @@ def _instagram_comment_loop():
             _check_instagram_comments()
         except Exception as e:
             print(f'[Instagram] Kommentar-Loop-Fehler: {e}')
+            agents_engine.fail('comments', e)
         time.sleep(300)  # alle 5 Minuten
 
 

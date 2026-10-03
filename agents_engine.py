@@ -14,6 +14,8 @@ Hook-Nachrichten (JSON-Feld "type"):
   approval -> {"title", "body", "payload"} legt eine Freigabe an (wartet auf Stefan).
   metrics  -> liefert Server-Kennzahlen dieses Hosts (fuer den Server-Waechter, der
               im Container selbst nur seine eigene Sandbox sieht).
+  report_data -> Kennzahlen der letzten 7 Tage fuer den Wochenbericht.
+  send_mail -> {"subject", "body"} Mail an Stefan (Empfaenger fest - nie an Dritte).
   site_check -> {"url"} prueft eine Website (Status, Ladezeit, Tage bis SSL-Ablauf) -
               das SSL-Ablaufdatum kann n8n selbst nicht auslesen.
   "quiet": true bei start/finish schreibt Routine-Laeufe nicht in den Verlauf (Server-
@@ -46,9 +48,52 @@ MAIL_REPEAT_HOURS = 6     # gleiche Problem-Mail pro Agent hoechstens so oft
 
 STATUSES = {'working', 'planning', 'waiting', 'ready', 'sleeping', 'error'}
 
-# Bekannte Agenten. Neue Agenten kommen hier dazu, sobald ihr n8n-Workflow existiert.
+# Bekannte Agenten in Anzeige-Reihenfolge. kind 'internal' = laeuft direkt in Siggi und meldet
+# sich ueber start()/step()/done() unten; sonst ein n8n-Workflow mit Start-Webhook 'trigger'.
+# 'view' = Dashboard-Ansicht, in der Freigaben dieses Agenten liegen.
 AGENTS = {
+    'mail': {
+        'kind': 'internal', 'name': 'Mail-Agent', 'icon': 'mail', 'view': 'mail_drafts', 'runnable': True,
+        'role': 'Ruft Mails ab, sortiert sie und beantwortet sie',
+        'default_config': {}, 'next_run': 'alle 21 Minuten',
+    },
+    'instagram': {
+        'kind': 'internal', 'name': 'Instagram-Agent', 'icon': 'camera', 'view': 'instagram', 'runnable': False,
+        'role': 'Postet Bilder aus der Warteschlange zu deinen Zeiten (auch auf Facebook)',
+        'default_config': {}, 'next_run': '–',
+    },
+    'reels': {
+        'kind': 'internal', 'name': 'Reels-Agent', 'icon': 'film', 'view': 'instagram', 'runnable': False,
+        'role': 'Baut Reels, legt sie dir zur Freigabe vor, postet sie als Story',
+        'default_config': {}, 'next_run': '–',
+    },
+    'bild': {
+        'kind': 'internal', 'name': 'Bild-Agent', 'icon': 'image', 'view': 'flyer_pipeline', 'runnable': True,
+        'role': 'Entwirft jeden Morgen ein neues Bild für Instagram',
+        'default_config': {}, 'next_run': 'täglich 09:00',
+    },
+    'linkedin': {
+        'kind': 'internal', 'name': 'LinkedIn-Agent', 'icon': 'briefcase', 'view': 'linkedin_pipeline', 'runnable': True,
+        'role': 'Schreibt jeden Morgen einen Post-Entwurf in deinem Stil',
+        'default_config': {}, 'next_run': 'täglich 08:00',
+    },
+    'comments': {
+        'kind': 'internal', 'name': 'Kommentar-Agent', 'icon': 'chat', 'view': None, 'runnable': False,
+        'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',
+        'default_config': {}, 'next_run': 'alle 5 Minuten',
+    },
+    'improve': {
+        'kind': 'internal', 'name': 'Selbstverbesserung', 'icon': 'bulb', 'view': 'improvements', 'runnable': True,
+        'role': 'Sucht Wissenslücken und Fehler in Siggi und schlägt Verbesserungen vor',
+        'default_config': {}, 'next_run': 'täglich 05:30',
+    },
+    'health': {
+        'kind': 'internal', 'name': 'Health-Check', 'icon': 'pulse', 'view': 'health_check', 'runnable': True,
+        'role': 'Prüft Zugänge, Tokens, Mail-Konten und Dienste',
+        'default_config': {}, 'next_run': 'alle 4 Stunden',
+    },
     'watch': {
+        'kind': 'n8n', 'view': None, 'runnable': True,
         'name': 'Website-Wächter',
         'role': 'Prüft Websites: erreichbar, SSL-Zertifikat, Ladezeit',
         'icon': 'shield',
@@ -57,12 +102,22 @@ AGENTS = {
         'next_run': 'Mo 08:00 (wöchentlich)',
     },
     'server': {
+        'kind': 'n8n', 'view': None, 'runnable': True,
         'name': 'Server-Wächter',
         'role': 'Überwacht CPU, Arbeitsspeicher, Festplatte und Dienste',
         'icon': 'server',
         'trigger': '/webhook/siggi-server-run',
         'default_config': {'cpu_warn': 85, 'ram_warn': 90, 'disk_warn': 85},
         'next_run': 'alle 10 Minuten',
+    },
+    'report': {
+        'kind': 'n8n', 'view': None, 'runnable': True,
+        'name': 'Wochenbericht',
+        'role': 'Fasst montags die Woche zusammen: Mails, Posts, Leads, Probleme',
+        'icon': 'chart',
+        'trigger': '/webhook/siggi-report-run',
+        'default_config': {},
+        'next_run': 'Mo 07:30 (wöchentlich)',
     },
 }
 
@@ -235,6 +290,15 @@ def handle_hook(agent_id, data):
         if kind == 'site_check':
             return check_site(str(data.get('url', ''))), 200
 
+        if kind == 'report_data':
+            return {'stats': weekly_stats()}, 200
+
+        if kind == 'send_mail':
+            _send_mail(str(data.get('subject', 'Siggi'))[:200], str(data.get('body', ''))[:20000])
+            _log(c, agent_id, 'success', f"Mail an Stefan: {str(data.get('subject', ''))[:120]}")
+            c.commit()
+            return {'ok': True}, 200
+
         return {'error': f'Unbekannter type: {kind}'}, 400
     finally:
         c.close()
@@ -250,6 +314,57 @@ def _mail_due(c, agent_id, problems):
     c.execute("INSERT INTO agent_events (agent_id, level, text, created_at) VALUES (?, 'mailkey', ?, ?)", (agent_id, key, _now()))
     c.commit()
     return True
+
+
+def weekly_stats(days=7):
+    """Zahlen fuer den Wochenbericht. Jede Zahl einzeln abgesichert - fehlt eine Tabelle,
+    steht dort None statt dass der ganze Bericht scheitert."""
+    # Nur das Datum vergleichen: die Tabellen speichern teils '2026-10-03T06:00', teils '2026-10-03 06:00'
+    since = since_iso = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    def q(db, sql, args=()):
+        try:
+            conn = sqlite3.connect(f'file:{os.path.join(BASE_DIR, db)}?mode=ro', uri=True, timeout=10)
+            try:
+                return conn.execute(sql, args).fetchone()[0]
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
+    stats = {
+        'zeitraum_tage': days,
+        'mails_eingang': q('mails.db', 'SELECT COUNT(*) FROM mails WHERE created_at >= ?', (since,)),
+        'mails_auto_beantwortet': q('mails.db', 'SELECT COUNT(*) FROM mails WHERE created_at >= ? AND sent=1', (since,)),
+        'mails_gesendet': q('mails.db', 'SELECT COUNT(*) FROM sent_mails WHERE sent_at >= ?', (since,)),
+        'mails_spam': q('mails.db', 'SELECT COUNT(*) FROM mails WHERE created_at >= ? AND is_spam=1', (since,)),
+        'mail_entwuerfe_offen': q('mails.db', "SELECT COUNT(*) FROM mail_drafts WHERE status='pending'"),
+        'neue_kontakte': q('mails.db', 'SELECT COUNT(*) FROM contacts WHERE first_contact >= ?', (since,)),
+        'audits': q('mails.db', 'SELECT COUNT(*) FROM audit_history WHERE created_at >= ?', (since,)),
+        'instagram_posts': q('instagram.db', "SELECT COUNT(*) FROM ig_posts WHERE status='posted' AND posted_at >= ?", (since_iso,)),
+        'instagram_fehler': q('instagram.db', "SELECT COUNT(*) FROM ig_posts WHERE status='error' AND posted_at >= ?", (since_iso,)),
+        'stories_gepostet': q('reels.db', "SELECT COUNT(*) FROM reels_posts WHERE status='posted' AND posted_at >= ?", (since_iso,)),
+        'linkedin_entwuerfe': q('mails.db', 'SELECT COUNT(*) FROM linkedin_drafts WHERE created_at >= ?', (since,)),
+        'linkedin_gepostet': q('mails.db', "SELECT COUNT(*) FROM linkedin_drafts WHERE status='approved_posted' AND decided_at >= ?", (since,)),
+        'linkedin_offen': q('mails.db', "SELECT COUNT(*) FROM linkedin_drafts WHERE status='pending'"),
+        'bilder_erzeugt': q('mails.db', "SELECT COUNT(*) FROM flyer_history WHERE created_at >= ? AND status != 'failed'", (since,)),
+        'bilder_fehlgeschlagen': q('mails.db', "SELECT COUNT(*) FROM flyer_history WHERE created_at >= ? AND status = 'failed'", (since,)),
+    }
+    try:
+        c = _conn()
+        stats['agenten_probleme'] = [dict(r) for r in c.execute(
+            "SELECT agent_id, text, created_at FROM agent_events WHERE level IN ('warn','error') AND created_at >= ? ORDER BY id DESC LIMIT 15",
+            (since_iso,))]
+        for r in stats['agenten_probleme']:
+            r['agent'] = AGENTS.get(r.pop('agent_id'), {}).get('name', '?')
+        c.close()
+    except Exception:
+        stats['agenten_probleme'] = []
+    try:
+        stats['server'] = host_metrics()
+    except Exception:
+        stats['server'] = None
+    return stats
 
 
 def check_site(url):
@@ -304,6 +419,78 @@ def _clean_plan(plan):
     return out
 
 
+# ─── Melde-API fuer Agenten, die direkt in Siggi laufen ──────────────
+# Jeder Aufruf ist abgesichert: ein Fehler beim Melden darf nie die eigentliche
+# Arbeit (Posten, Mailen ...) abbrechen.
+
+def _emit(agent_id, data):
+    try:
+        body, _ = handle_hook(agent_id, data)
+        return body
+    except Exception as e:
+        print(f'[Agenten] Meldung {agent_id}/{data.get("type")} fehlgeschlagen: {e}')
+        return {}
+
+
+def is_paused(agent_id):
+    try:
+        c = _conn()
+        row = c.execute('SELECT paused FROM agent_state WHERE agent_id=?', (agent_id,)).fetchone()
+        c.close()
+        return bool(row and row['paused'])
+    except Exception:
+        return False
+
+
+def start(agent_id, bubble, plan=None, quiet=False, text=None):
+    """Lauf beginnt. False, wenn der Agent pausiert ist - dann nichts tun."""
+    body = _emit(agent_id, {'type': 'start', 'bubble': bubble, 'quiet': quiet, 'text': text})
+    if body.get('run') is False:
+        return False
+    if plan:
+        step(agent_id, bubble, plan=plan)
+    return True
+
+
+def step(agent_id, bubble, plan=None, progress=None):
+    data = {'type': 'status', 'status': 'working', 'bubble': bubble}
+    if plan is not None:
+        data['plan'] = plan
+    if progress is not None:
+        data['progress'] = progress
+    _emit(agent_id, data)
+
+
+def event(agent_id, text, level='info'):
+    _emit(agent_id, {'type': 'event', 'level': level, 'text': text})
+
+
+def done(agent_id, summary, problems=None, plan=None, quiet=False, notify=False, bubble=None, status='sleeping'):
+    data = {'type': 'finish', 'status': status, 'summary': summary, 'problems': problems or [],
+            'quiet': quiet, 'notify': notify, 'bubble': bubble or summary}
+    if plan is not None:
+        data['plan'] = plan
+    _emit(agent_id, data)
+
+
+def fail(agent_id, error, plan=None):
+    """Lauf abgebrochen: Figur zeigt 'Problem', Fehler steht im Verlauf."""
+    data = {'type': 'finish', 'status': 'error', 'summary': f'Fehler: {error}'[:300], 'problems': [],
+            'notify': False, 'bubble': f'Fehler: {error}'[:300]}
+    if plan is not None:
+        data['plan'] = plan
+    _emit(agent_id, data)
+    event(agent_id, f'Fehler: {error}', 'error')
+
+
+def request_approval(agent_id, title, body, payload):
+    return _emit(agent_id, {'type': 'approval', 'title': title, 'body': body, 'payload': payload}).get('approval_id')
+
+
+# Aktionen nach einer Freigabe in der Zentrale: agent_id -> Funktion(payload). app.py registriert sie.
+APPROVAL_ACTIONS = {}
+
+
 # ─── Server-Kennzahlen (fuer den Server-Waechter) ────────────────────
 
 def _cpu_percent(interval=1.0):
@@ -354,7 +541,10 @@ def host_metrics():
 
 # ─── Dashboard (Session-Login) ───────────────────────────────────────
 
-def overview():
+def overview(extras=None):
+    """extras: {agent_id: {'pending': n, 'next_run': str, 'idle': str}} - von app.py berechnet,
+    weil die Zaehler in den jeweiligen Engines liegen."""
+    extras = extras or {}
     c = _conn()
     try:
         agents = []
@@ -367,10 +557,18 @@ def overview():
                 if age > STALE_SECONDS:
                     status, bubble = 'error', f'Keine Meldung seit {int(age // 60)} Minuten – hängt der Lauf?'
             pending = c.execute("SELECT COUNT(*) FROM agent_approvals WHERE agent_id=? AND status='pending'", (agent_id,)).fetchone()[0]
+            ex = extras.get(agent_id) or {}
+            pending += int(ex.get('pending') or 0)
+            if pending and status in ('sleeping', 'ready'):
+                status = 'waiting'
+                bubble = f'{pending} warte{"t" if pending == 1 else "n"} auf deine Freigabe'
+            elif status == 'sleeping' and ex.get('idle') and not bubble:
+                bubble = ex['idle']
             agents.append({
                 'id': agent_id, 'name': meta['name'], 'role': meta['role'], 'icon': meta['icon'],
                 'status': status, 'bubble': bubble or '', 'progress': r['progress'],
-                'plan': json.loads(r['plan'] or '[]'), 'next_run': r['next_run'] or meta['next_run'],
+                'plan': json.loads(r['plan'] or '[]'), 'next_run': ex.get('next_run') or r['next_run'] or meta['next_run'],
+                'kind': meta.get('kind', 'n8n'), 'view': meta.get('view'), 'runnable': meta.get('runnable', True),
                 'gauges': json.loads(r['gauges'] or '[]'),
                 'paused': bool(r['paused']), 'config': json.loads(r['config'] or '{}'),
                 'last_summary': r['last_summary'], 'last_run_at': r['last_run_at'], 'updated_at': r['updated_at'],
@@ -425,7 +623,7 @@ def set_config(agent_id, config):
 def run_now(agent_id):
     """Startet den n8n-Workflow sofort (Webhook nur intern erreichbar, siehe nginx)."""
     meta = AGENTS.get(agent_id)
-    if not meta:
+    if not meta or meta.get('kind') == 'internal':
         return {'success': False, 'error': 'Unbekannter Agent'}
     try:
         r = requests.post(N8N_INTERNAL + meta['trigger'], json={'source': 'siggi'}, timeout=10)
@@ -442,6 +640,13 @@ def decide_approval(approval_id, approve):
     if not row:
         c.close()
         return False
+    if approve and row['agent_id'] in APPROVAL_ACTIONS:
+        try:
+            APPROVAL_ACTIONS[row['agent_id']](json.loads(row['payload'] or '{}'))
+        except Exception as e:
+            c.close()
+            event(row['agent_id'], f"Freigabe konnte nicht ausgeführt werden: {e}", 'error')
+            raise
     c.execute('UPDATE agent_approvals SET status=?, decided_at=? WHERE id=?',
               ('approved' if approve else 'rejected', _now(), approval_id))
     _log(c, row['agent_id'], 'success' if approve else 'info',

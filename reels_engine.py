@@ -28,6 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import instagram_engine
 import settings_store
+import agents_engine as agents
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REELS_DB_PATH = os.path.join(BASE_DIR, 'reels.db')
@@ -463,11 +464,17 @@ def maybe_auto_refill_pending(minimum=1):
     muss erst per approve_reel() freigegeben werden."""
     if len(get_pending_reels()) >= minimum:
         return
+    if not agents.start('reels', 'Baue ein neues Reel aus deinen Bildern …', text='Baue neues Reel'):
+        return  # in der Agenten-Zentrale pausiert
     result = generate_reel_from_images()
     if result['success']:
         print(f"[Reels] Neues Reel zur Freigabe erstellt: {result['filename']}")
+        agents.done('reels', f"Neues Reel zur Freigabe gebaut: {result['filename']}")
     elif 'Nicht genug' not in result.get('error', ''):
         print(f"[Reels] Auto-Generierung fehlgeschlagen: {result.get('error')}")
+        agents.fail('reels', f"Reel bauen fehlgeschlagen: {str(result.get('error'))[:200]}")
+    else:
+        agents.done('reels', 'Zu wenige Bilder für ein neues Reel', bubble='Zu wenige Quellbilder für ein neues Reel')
 
 
 # ─── Graph API ──────────────────────────────────────────────────────
@@ -556,10 +563,14 @@ def post_next_reel_in_queue(public_base_url):
         return {'success': False, 'error': 'Keine freigegebenen Videos in der Reels-Warteschlange. Bitte zuerst ein Reel erzeugen und freigeben.'}
 
     filename = queue[0]
+    plan = lambda *st: [{'label': l, 'state': x} for l, x in zip(
+        ['Video an Instagram übergeben', 'Warten, bis Instagram es verarbeitet hat', 'Auf Facebook teilen'], st)]
+    agents.start('reels', f'Lade {filename} zu Instagram hoch …', plan=plan('active', 'open', 'open'))
     s = _reels_settings()
     caption = instagram_engine._generate_caption_from_filename(filename, s.get('default_caption', ''))
     video_url = f"{public_base_url.rstrip('/')}/api/instagram/reels/media/{quote(filename)}"
 
+    agents.step('reels', f'Instagram verarbeitet {filename} – das dauert 1–2 Minuten …', plan=plan('done', 'active', 'open'))
     result = _publish_reel(video_url, caption)
 
     if result['success']:
@@ -576,12 +587,17 @@ def post_next_reel_in_queue(public_base_url):
         rs['last_posted'] = datetime.now().isoformat()
         _save_settings(settings)
 
+        agents.step('reels', 'Teile das Video auf Facebook …', plan=plan('done', 'done', 'active'))
         fb_result = _publish_to_facebook_page(video_url, caption)
         if not fb_result['success']:
             print(f"[Facebook] Reel-Cross-Post fehlgeschlagen: {fb_result.get('error')}")
+        agents.done('reels', f"{filename} als Story gepostet ({'auch auf Facebook' if fb_result['success'] else 'Facebook fehlgeschlagen'})",
+                    problems=[] if fb_result['success'] else [f"Facebook: {str(fb_result.get('error'))[:200]}"],
+                    plan=plan('done', 'done', 'done' if fb_result['success'] else 'error'))
         return {'success': True, 'filename': filename, 'facebook_posted': fb_result['success']}
     else:
         _log_post(filename, caption, 'error', result.get('error'))
+        agents.fail('reels', f"Story-Post fehlgeschlagen: {str(result.get('error'))[:200]}", plan=plan('done', 'error', 'open'))
         return {'success': False, 'error': result.get('error')}
 
 
@@ -589,7 +605,7 @@ def post_next_reel_in_queue(public_base_url):
 
 def maybe_auto_post(public_base_url):
     s = _reels_settings()
-    if s.get('auto_enabled') != '1':
+    if s.get('auto_enabled') != '1' or agents.is_paused('reels'):
         return
 
     now = datetime.now()
@@ -617,3 +633,6 @@ def maybe_auto_post(public_base_url):
     maybe_auto_refill_pending()
     if get_reels_queue():
         post_next_reel_in_queue(public_base_url)
+    else:
+        agents.done('reels', f'Post-Zeit {current_hm}: kein freigegebenes Reel – nichts gepostet',
+                    bubble='Kein freigegebenes Reel – nichts gepostet')

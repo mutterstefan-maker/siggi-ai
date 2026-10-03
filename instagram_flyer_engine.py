@@ -519,6 +519,35 @@ def generate_flyer():
     }
 
 
+def run_as_agent():
+    """Taeglicher Lauf (Cron 09:00) bzw. 'Jetzt starten' in der Agenten-Zentrale."""
+    import agents_engine as agents
+    plan = lambda *st: [{'label': l, 'state': x} for l, x in zip(
+        ['Thema und Überschrift planen', 'Bild erzeugen (OpenAI)', 'Zur Freigabe vorlegen'], st)]
+    if not agents.start('bild', 'Plane Thema und Überschrift für das Tagesbild …', plan=plan('active', 'open', 'open')):
+        return None
+    try:
+        init_table()
+        result = generate_flyer()
+    except Exception as e:
+        agents.fail('bild', e, plan=plan('error', 'open', 'open'))
+        raise
+    if result.get('success'):
+        agents.done('bild', f"Bild „{(result.get('headline') or '').replace(chr(10), ' ')}“ ({result.get('topic')}) wartet auf Freigabe",
+                    plan=plan('done', 'done', 'done'))
+    else:
+        err = str(result.get('error', 'unbekannt'))
+        img_failed = err.startswith('Bildgenerierung')
+        hint = ' – vermutlich ist das OpenAI-Guthaben leer' if img_failed and ('quota' in err or 'billing' in err or '429' in err or 'insufficient' in err) else ''
+        muted = _load_settings().get('health_alert_openai') is False
+        if hint and muted:
+            # Stefan laedt bewusst kein Guthaben auf und hat den Alarm stummgeschaltet - ruhig anzeigen
+            agents.done('bild', 'Kein Bild – OpenAI-Guthaben leer', plan=plan('done', 'warn', 'open'),
+                        bubble='Kein Bild heute – OpenAI-Guthaben ist leer (Alarm stumm)')
+        else:
+            agents.fail('bild', err[:220] + hint, plan=plan('done', 'error', 'open') if img_failed else plan('error', 'open', 'open'))
+    return result
+
+
 if __name__ == '__main__':
-    init_table()
-    print(generate_flyer())
+    print(run_as_agent())

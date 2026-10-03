@@ -245,6 +245,23 @@ def dismiss_suggestion(suggestion_id):
     return bool(affected)
 
 
+def run_as_agent():
+    """Taeglicher Lauf (Cron 05:30) bzw. 'Jetzt starten' in der Agenten-Zentrale."""
+    import agents_engine as agents
+    plan = lambda *st: [{'label': l, 'state': x} for l, x in zip(
+        ['Wissenslücken und Werkzeug-Fehler sammeln', 'Verbesserungen ableiten', 'Eindeutige Fixes übernehmen, Rest vorschlagen'], st)]
+    if not agents.start('improve', 'Untersuche, wo Siggi zuletzt Probleme hatte …', plan=plan('active', 'open', 'open')):
+        return 0, 0
+    try:
+        n, a = run_analysis()
+    except Exception as e:
+        agents.fail('improve', e, plan=plan('error', 'open', 'open'))
+        raise
+    agents.done('improve', f'{n} neue Vorschläge, {a} davon automatisch übernommen' if n else 'Keine neuen Verbesserungen nötig',
+                plan=plan('done', 'done', 'done'))
+    return n, a
+
+
 if __name__ == '__main__':
-    n, a = run_analysis()
+    n, a = run_as_agent()
     print(f'Self-Improve-Check: {n} neue Vorschläge, davon {a} automatisch übernommen.')
