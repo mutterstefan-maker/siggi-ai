@@ -115,7 +115,7 @@ def find_candidates(cfg=None):
     cfg = cfg or config()
     _init()
     settings = settings_store.load_or_empty()
-    own = {a.lower() for a in (settings.get('accounts') or {})} | {'mutter.stefan@hotmail.com'}
+    own = {a.lower() for a in (settings.get('accounts') or {})} | {'mutter.stefan@hotmail.com', 'mutterstefan77@gmail.com'}  # Stefans private Adressen
     now = datetime.now()
     newest = (now - timedelta(days=cfg['days'])).isoformat()
     oldest = (now - timedelta(days=cfg['max_age_days'])).isoformat()
