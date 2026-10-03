@@ -471,8 +471,16 @@ def maybe_auto_refill_pending(minimum=1):
     if result['success']:
         print(f"[Reels] Neues Reel zur Freigabe erstellt: {result['filename']}")
         agents.done('reels', f"Neues Reel zur Freigabe gebaut: {result['filename']}")
-        agents.notify_stefan(f"🎬 Neues Reel wartet auf deine Freigabe: {result['filename']}\n\n👉 https://stean.info → Social → Instagram",
-                             mail_subject='Freigabe nötig: neues Reel')
+        sent = False
+        try:
+            import telegram_engine  # Video zum Anschauen + Knoepfe
+            sent = telegram_engine.status().get('paired') and telegram_engine.send_video_for_approval(
+                result['path'], f"🎬 Neues Reel wartet auf deine Freigabe: {result['filename']}", 'reel', result['filename'])
+        except Exception as e:
+            print(f'[Reels] Telegram-Video fehlgeschlagen: {e}')
+        if not sent:
+            agents.notify_stefan(f"🎬 Neues Reel wartet auf deine Freigabe: {result['filename']}",
+                                 mail_subject='Freigabe nötig: neues Reel', approve=('reel', result['filename']))
     elif 'Nicht genug' not in result.get('error', ''):
         print(f"[Reels] Auto-Generierung fehlgeschlagen: {result.get('error')}")
         agents.fail('reels', f"Reel bauen fehlgeschlagen: {str(result.get('error'))[:200]}")

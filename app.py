@@ -370,8 +370,9 @@ def create_mail_draft(to_addr, subject, body, attachments=None):
     conn.close()
     names = ', '.join(os.path.basename(p) for p in attachments or [])
     agents_engine.notify_stefan(f"✉️ Mail-Entwurf wartet auf deine Freigabe\nAn: {to_addr}\nBetreff: {subject}"
-                                + (f"\nAnhang: {names}" if names else '') + "\n\n👉 https://stean.info → Mail → Mail-Entwürfe",
-                                mail_subject=f'Freigabe nötig: Mail an {to_addr}')
+                                + (f"\nAnhang: {names}" if names else '') + f"\n\n{body[:2500]}\n\n"
+                                "(Freigeben verschickt die Mail mit deiner Signatur. Ändern: https://stean.info → Mail-Entwürfe)",
+                                mail_subject=f'Freigabe nötig: Mail an {to_addr}', approve=('mail', draft_id))
     return draft_id
 
 _SIGNOFF_LINE = re.compile(
@@ -2735,6 +2736,31 @@ def _telegram_chat(text, attachment=None):
     return data.get('reply') or 'Erledigt!', data.get('actions') or []
 
 
+def _telegram_action(kind, ref, approve):
+    """Freigeben/Ablehnen per Telegram-Knopf. Nutzt dieselben Wege wie das Dashboard."""
+    if kind == 'agent':
+        ok = agents_engine.decide_approval(int(ref), approve)
+        return ('✅ Freigegeben und ausgeführt.' if approve else '❌ Abgelehnt.') if ok else 'Das war schon entschieden.'
+    if kind == 'reel':
+        res = reels_engine.approve_reel(ref) if approve else reels_engine.reject_reel(ref)
+        if not res.get('success'):
+            return f"⚠️ {res.get('error', 'Nicht mehr vorhanden.')}"
+        return '✅ Reel ist in der Warteschlange.' if approve else '❌ Reel verworfen.'
+    paths = {'mail': f'/api/mail-drafts/{int(ref)}/', 'linkedin': f'/api/linkedin/pipeline/drafts/{int(ref)}/'}
+    if kind not in paths:
+        return '⚠️ Unbekannte Freigabe.'
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['logged_in'] = True
+        r = client.post(paths[kind] + ('approve' if approve else 'reject'), json={})
+        data = r.get_json() or {}
+    if r.status_code >= 400 or data.get('error'):
+        return f"⚠️ {data.get('error') or 'Hat nicht geklappt.'}"
+    if kind == 'mail':
+        return '✅ Mail ist raus.' if approve else '❌ Entwurf verworfen.'
+    return f"✅ {data.get('message', 'In der Warteschlange.')}" if approve else '❌ Entwurf abgelehnt.'
+
+
 def _telegram_loop():
     if not TELEGRAM_AVAILABLE:
         return
@@ -2744,7 +2770,7 @@ def _telegram_loop():
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (ImportError, OSError):
         return  # anderer Worker hält den Lock bereits
-    telegram_engine.poll_forever(_telegram_chat, _strip_markdown_for_tts)
+    telegram_engine.poll_forever(_telegram_chat, _strip_markdown_for_tts, _telegram_action)
 
 threading.Thread(target=_telegram_loop, daemon=True).start()
 

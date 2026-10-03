@@ -84,15 +84,88 @@ def status():
 
 # ─── Senden ──────────────────────────────────────────────────────────
 
-def send(text, chat_id=None):
+def send(text, chat_id=None, buttons=None):
+    """buttons: Inline-Tastatur (Liste von Zeilen) - haengt an der letzten Teilnachricht."""
     cfg = _cfg()
     chat_id = chat_id or cfg.get('chat_id')
     if not (cfg.get('bot_token') and chat_id):
         return False
     text = text or '…'
-    for i in range(0, len(text), 4000):  # Telegram-Limit 4096 Zeichen
-        _call(cfg['bot_token'], 'sendMessage', chat_id=chat_id, text=text[i:i + 4000])
+    chunks = [text[i:i + 4000] for i in range(0, len(text), 4000)]  # Telegram-Limit 4096 Zeichen
+    for n, chunk in enumerate(chunks):
+        params = {'chat_id': chat_id, 'text': chunk}
+        if buttons and n == len(chunks) - 1:
+            params['reply_markup'] = {'inline_keyboard': buttons}
+        _call(cfg['bot_token'], 'sendMessage', **params)
     return True
+
+
+# ─── Freigeben per Knopf ─────────────────────────────────────────────
+# Telegram erlaubt nur 64 Byte Knopf-Daten - deshalb ein kurzes Kennzeichen, das auf die eigentliche
+# Aufgabe zeigt (Art + Referenz, z.B. Mail-Entwurf 12 oder Reel-Dateiname).
+ACTIONS_PATH = os.path.join(BASE_DIR, 'telegram_actions.json')
+
+
+def _load_actions():
+    try:
+        with open(ACTIONS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def approval_buttons(kind, ref):
+    actions = _load_actions()
+    token = secrets.token_hex(5)
+    actions[token] = {'kind': kind, 'ref': ref, 'at': time.time()}
+    if len(actions) > 300:  # alte Eintraege wegwerfen
+        actions = dict(sorted(actions.items(), key=lambda kv: kv[1].get('at', 0))[-300:])
+    with open(ACTIONS_PATH, 'w') as f:
+        json.dump(actions, f)
+    return [[{'text': '✅ Freigeben', 'callback_data': f'a:{token}:y'},
+             {'text': '❌ Ablehnen', 'callback_data': f'a:{token}:n'}]]
+
+
+def send_video_for_approval(path, caption, kind, ref):
+    """Video (z.B. neues Reel) zum Anschauen schicken, mit Freigabe-Knoepfen."""
+    cfg = _cfg()
+    if not (cfg.get('bot_token') and cfg.get('chat_id')) or os.path.getsize(path) > MAX_SEND:
+        return False
+    with open(path, 'rb') as f:
+        r = requests.post(API.format(token=cfg['bot_token'], method='sendVideo'),
+                          data={'chat_id': cfg['chat_id'], 'caption': caption[:1000],
+                                'reply_markup': json.dumps({'inline_keyboard': approval_buttons(kind, ref)})},
+                          files={'video': (os.path.basename(path), f)}, timeout=300)
+    return bool(r.json().get('ok'))
+
+
+def _handle_callback(cq, action_fn):
+    cfg = _cfg()
+    msg = cq.get('message') or {}
+    chat_id = (msg.get('chat') or {}).get('id')
+    token = cfg.get('bot_token')
+    if not cfg.get('chat_id') or chat_id != cfg['chat_id'] or (cq.get('from') or {}).get('id') != cfg['chat_id']:
+        _call(token, 'answerCallbackQuery', callback_query_id=cq['id'], text='Nicht erlaubt.')
+        return
+    parts = (cq.get('data') or '').split(':')
+    actions = _load_actions()
+    entry = actions.pop(parts[1], None) if len(parts) == 3 and parts[0] == 'a' else None
+    if not entry:
+        _call(token, 'answerCallbackQuery', callback_query_id=cq['id'], text='Schon erledigt oder abgelaufen.')
+        _call(token, 'editMessageReplyMarkup', chat_id=chat_id, message_id=msg.get('message_id'), reply_markup={'inline_keyboard': []})
+        return
+    with open(ACTIONS_PATH, 'w') as f:  # Knopf wirkt nur einmal - auch beim Gegenstueck (Ablehnen/Freigeben)
+        json.dump({k: v for k, v in actions.items() if not (v['kind'] == entry['kind'] and v['ref'] == entry['ref'])}, f)
+    approve = parts[2] == 'y'
+    _call(token, 'answerCallbackQuery', callback_query_id=cq['id'], text='Wird erledigt …')
+    _call(token, 'editMessageReplyMarkup', chat_id=chat_id, message_id=msg.get('message_id'), reply_markup={'inline_keyboard': []})
+    try:
+        result = action_fn(entry['kind'], entry['ref'], approve)
+    except Exception as e:
+        result = f'⚠️ Hat nicht geklappt: {e}'
+    agents.event('telegram', f"Per Telegram {'freigegeben' if approve else 'abgelehnt'}: {entry['kind']} {entry['ref']} → {str(result)[:120]}",
+                 'success' if not str(result).startswith('⚠️') else 'warn')
+    send(result)
 
 
 def _ffmpeg():
@@ -346,7 +419,7 @@ def _handle(update, chat_fn, clean_fn=None):
     agents.done('telegram', f'Erledigt: {text[:80]}', bubble=IDLE_BUBBLE, status='ready')
 
 
-def poll_forever(chat_fn, clean_fn=None):
+def poll_forever(chat_fn, clean_fn=None, action_fn=None):
     """Endlosschleife (Thread in app.py). Ohne Token wartet sie einfach."""
     offset = _load_offset()
     while True:
@@ -358,7 +431,8 @@ def poll_forever(chat_fn, clean_fn=None):
         try:
             # Long-Polling: Telegram haelt die Anfrage bis zu 50 s offen, bis eine Nachricht kommt
             r = requests.post(API.format(token=token, method='getUpdates'),
-                              json={'offset': offset, 'timeout': 50, 'allowed_updates': ['message']}, timeout=60)
+                              json={'offset': offset, 'timeout': 50, 'allowed_updates': ['message', 'callback_query']},
+                              timeout=60)
             updates = r.json().get('result', [])
         except Exception as e:
             print(f'[Telegram] Abruf-Fehler: {e}')
@@ -368,6 +442,10 @@ def poll_forever(chat_fn, clean_fn=None):
             offset = upd['update_id'] + 1
             _save_offset(offset)  # vor der Verarbeitung: eine kaputte Nachricht blockiert nicht ewig
             try:
+                if 'callback_query' in upd:
+                    if action_fn:
+                        _handle_callback(upd['callback_query'], action_fn)
+                    continue
                 _handle(upd, chat_fn, clean_fn)
             except Exception as e:
                 print(f'[Telegram] Verarbeitungs-Fehler: {e}')

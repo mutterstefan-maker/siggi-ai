@@ -299,8 +299,8 @@ def handle_hook(agent_id, data):
             c.commit()
             if data.get('notify', True):
                 notify_stefan(f"🟡 {AGENTS[agent_id]['name']} wartet auf deine Freigabe: {str(data.get('title', ''))[:150]}\n\n"
-                              f"{str(data.get('body', ''))[:600]}\n\n👉 https://stean.info → Agenten → {AGENTS[agent_id]['name']} → Details",
-                              mail_subject=f"Freigabe nötig: {AGENTS[agent_id]['name']}")
+                              f"{str(data.get('body', ''))[:1500]}",
+                              mail_subject=f"Freigabe nötig: {AGENTS[agent_id]['name']}", approve=('agent', aid))
             return {'ok': True, 'approval_id': aid}, 200
 
         if kind == 'metrics':
@@ -700,12 +700,14 @@ def is_n8n_up():
         return False
 
 
-def notify_stefan(text, mail_subject=None):
+def notify_stefan(text, mail_subject=None, approve=None):
     """Hinweis mit Handlungsbedarf an Stefan: per Telegram (kostenlos, aufs Handy); nur wenn Telegram
-    nicht verbunden ist oder scheitert, per Mail. Liefert 'telegram', 'mail' oder None."""
+    nicht verbunden ist oder scheitert, per Mail. approve=(art, referenz) haengt die Knoepfe
+    'Freigeben'/'Ablehnen' an (Ausfuehrung: _telegram_action in app.py). Liefert 'telegram', 'mail' oder None."""
     try:
         import telegram_engine  # spaet importieren: telegram_engine importiert agents_engine
-        if telegram_engine.status().get('paired') and telegram_engine.send(text):
+        buttons = telegram_engine.approval_buttons(*approve) if approve else None
+        if telegram_engine.status().get('paired') and telegram_engine.send(text, buttons=buttons):
             return 'telegram'
     except Exception as e:
         print(f'[Hinweis] Telegram fehlgeschlagen, nehme Mail: {e}')
