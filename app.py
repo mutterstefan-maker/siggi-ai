@@ -480,14 +480,18 @@ SIGGI_TOOLS = [
     },
     {
         'name': 'setze_erinnerung',
-        'description': 'Setzt eine Erinnerung, die zu einer bestimmten Zeit als Windows-Benachrichtigung ausgelöst wird.',
+        'description': ('Setzt eine Erinnerung. Sie kommt zum Zeitpunkt per Telegram (ohne Telegram per Mail). '
+                        'Rechne den genauen Zeitpunkt selbst aus dem aktuellen Datum (JETZT) aus und gib ihn in '
+                        '"zeitpunkt" an - z.B. "morgen 13 Uhr" -> naechster Tag 13:00, "Mittwoch" -> der kommende '
+                        'Mittwoch. Ohne Uhrzeitangabe 09:00. Nenne Stefan danach Wochentag, Datum und Uhrzeit.'),
         'input_schema': {
             'type': 'object',
             'properties': {
                 'nachricht': {'type': 'string', 'description': 'Woran erinnert werden soll.'},
-                'wann': {'type': 'string', 'description': 'Natürlichsprachliche Zeitangabe auf Deutsch, z.B. "in 30 minuten", "morgen um 08:00", "heute abend".'}
+                'zeitpunkt': {'type': 'string', 'description': 'Genauer Zeitpunkt "YYYY-MM-DD HH:MM" (deutsche Zeit).'},
+                'wann': {'type': 'string', 'description': 'Die Zeitangabe so, wie Stefan sie gesagt hat (z.B. "morgen um 13 Uhr").'}
             },
-            'required': ['nachricht', 'wann']
+            'required': ['nachricht', 'zeitpunkt']
         }
     },
     {
@@ -803,11 +807,24 @@ def _run_siggi_tool_inner(name, tool_input):
             return f"Eintrag {tool_input['id']} gelöscht."
 
         if name == 'setze_erinnerung':
-            remind_at = memory_engine.parse_reminder_time(tool_input['wann'])
+            remind_at = None
+            if tool_input.get('zeitpunkt'):
+                for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S'):
+                    try:
+                        remind_at = datetime.strptime(tool_input['zeitpunkt'].strip(), fmt)
+                        break
+                    except ValueError:
+                        pass
+            if not remind_at and tool_input.get('wann'):
+                remind_at = memory_engine.parse_reminder_time(tool_input['wann'])
             if not remind_at:
-                return f"Konnte die Zeitangabe '{tool_input['wann']}' nicht verstehen."
+                return f"Konnte den Zeitpunkt nicht verstehen ({tool_input.get('zeitpunkt') or tool_input.get('wann')}). Frag Stefan nach."
+            if remind_at <= datetime.now():
+                return f"Der Zeitpunkt {remind_at.strftime('%d.%m.%Y %H:%M')} liegt in der Vergangenheit - bitte nachrechnen oder nachfragen."
             memory_engine.save_reminder(tool_input['nachricht'], remind_at.isoformat())
-            return f"Erinnerung gesetzt: {tool_input['nachricht']} um {remind_at.strftime('%d.%m.%Y %H:%M')}"
+            wd = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'][remind_at.weekday()]
+            via = 'per Telegram' if TELEGRAM_AVAILABLE and telegram_engine.status().get('paired') else 'per Mail'
+            return f"Erinnerung gesetzt: {tool_input['nachricht']} - {wd}, {remind_at.strftime('%d.%m.%Y um %H:%M')} Uhr ({via})"
 
         if name == 'todo_hinzufuegen':
             settings = load_settings()
@@ -2793,10 +2810,19 @@ def health():
 
 def _fire_due_reminders():
     for r in memory_engine.get_due_reminders():
-        try:
-            send_new_mail(SIGGI_SEND_ACCOUNT, f"⏰ Erinnerung: {r['message']}", r['message'])
-        except Exception as e:
-            print(f'[Reminder] Mail-Fehler: {e}')
+        # Per Telegram aufs Handy (kostenlos); nur ohne verbundenes Telegram oder bei Fehler per Mail
+        sent = False
+        if TELEGRAM_AVAILABLE and telegram_engine.status().get('paired'):
+            try:
+                sent = telegram_engine.send(f"⏰ Erinnerung: {r['message']}")
+                agents_engine.event('telegram', f"Erinnerung geschickt: {r['message'][:150]}", 'success')
+            except Exception as e:
+                print(f'[Reminder] Telegram-Fehler: {e}')
+        if not sent:
+            try:
+                send_new_mail(SIGGI_SEND_ACCOUNT, f"⏰ Erinnerung: {r['message']}", r['message'])
+            except Exception as e:
+                print(f'[Reminder] Mail-Fehler: {e}')
         memory_engine.mark_reminder_done(r['id'])
 
 def _reminder_loop():

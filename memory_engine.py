@@ -208,7 +208,8 @@ def parse_reminder_time(text):
             return dt
 
     # explizites Datum "DD.MM.YYYY" oder "DD.MM." (optional mit "um HH:MM")
-    m = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})?\b', text)
+    # Jahr samt Wortgrenze optional - sonst greift "12.10." (ohne Jahr, danach Leerzeichen) nicht
+    m = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(?:(\d{4}|\d{2})\b)?', text)
     if m:
         day, month = int(m.group(1)), int(m.group(2))
         year_part = m.group(3)
@@ -243,29 +244,53 @@ def parse_reminder_time(text):
     if m:
         return now + timedelta(days=int(m.group(1)))
 
-    # "um HH:MM"
-    m = re.search(r'um (\d{1,2})[:\.](\d{2})', text)
-    if m:
-        h, mi = int(m.group(1)), int(m.group(2))
-        dt = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+    # Erst den TAG bestimmen, dann die Uhrzeit. Frueher wurde "um HH:MM" zuerst geprueft - dabei gingen
+    # Wochentage verloren ("Mittwoch um 15:00" -> naechster Tag) und "morgen um 21:00" wurde abends zu heute.
+    # Uhrzeit: "um 13:00", "13:30 Uhr", "um 13 Uhr", "13 uhr"
+    tm = re.search(r'\b(\d{1,2})[:\.](\d{2})\b', text) or re.search(r'\b(\d{1,2})\s*uhr\b', text)
+    hour = minute = None
+    if tm:
+        hour, minute = int(tm.group(1)), int(tm.group(2)) if tm.lastindex and tm.lastindex >= 2 else 0
+        if hour > 23 or minute > 59:
+            hour = minute = None
+    if hour is not None and re.search(r'\b(abends?|nachmittags?)\b', text) and hour < 12:
+        hour += 12
+
+    WEEKDAYS = ['montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag', 'sonntag']
+    day = None
+    if 'übermorgen' in text or 'uebermorgen' in text:
+        day = (now + timedelta(days=2)).date()
+    elif re.search(r'\bmorgen\b', text) and not re.search(r'\b(am|jeden|heute)\s+morgen\b', text):
+        day = (now + timedelta(days=1)).date()
+    elif re.search(r'\bheute\b', text):
+        day = now.date()
+    else:
+        for i, name in enumerate(WEEKDAYS):
+            if re.search(r'\b' + name + r'\b', text):
+                ahead = (i - now.weekday()) % 7
+                if 'nächste' in text or 'naechste' in text:
+                    ahead = ahead or 7
+                elif ahead == 0 and (hour is None or now.replace(hour=hour, minute=minute or 0) <= now):
+                    ahead = 7  # heutiger Wochentag, Uhrzeit schon vorbei -> naechste Woche
+                day = (now + timedelta(days=ahead)).date()
+                break
+
+    if day is not None:
+        if hour is None:
+            if 'früh' in text or 'frueh' in text:
+                hour, minute = 8, 0
+            elif 'abend' in text:
+                hour, minute = 18, 0
+            else:
+                hour, minute = 9, 0
+        return datetime(day.year, day.month, day.day, hour, minute or 0)
+
+    # nur eine Uhrzeit: heute, oder morgen wenn schon vorbei
+    if hour is not None:
+        dt = now.replace(hour=hour, minute=minute or 0, second=0, microsecond=0)
         if dt <= now:
             dt += timedelta(days=1)
         return dt
-
-    # "morgen um HH:MM"
-    m = re.search(r'morgen.*?um (\d{1,2})[:\.](\d{2})', text)
-    if m:
-        h, mi = int(m.group(1)), int(m.group(2))
-        dt = (now + timedelta(days=1)).replace(hour=h, minute=mi, second=0, microsecond=0)
-        return dt
-
-    # "heute abend" → 18:00
-    if 'heute abend' in text or 'heut abend' in text:
-        return now.replace(hour=18, minute=0, second=0, microsecond=0)
-
-    # "morgen früh" → 08:00
-    if 'morgen früh' in text or 'morgen fruh' in text:
-        return (now + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
 
     return None
 
