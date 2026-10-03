@@ -191,6 +191,60 @@ def save_uploaded_reel(filename, data):
     return _fit_story_limits(tmp_path, filename)
 
 
+# ─── Komprimieren im Hintergrund ─────────────────────────────────────
+# Frueher lief ffmpeg direkt im Upload-Request: 3 grosse Videos gleichzeitig = 3 ffmpeg auf 4 Kernen
+# (Last 30) und 3 von 4 Web-Threads blockiert -> Dashboard haengt. Jetzt: Upload kehrt sofort zurueck,
+# ein einziger Hintergrund-Thread rechnet nacheinander und mit niedriger Prioritaet um.
+import queue as _queue
+import threading as _threading
+
+_compress_jobs = _queue.Queue()
+_compress_worker = None
+_compress_lock = _threading.Lock()
+
+
+def _ensure_compress_worker():
+    global _compress_worker
+    with _compress_lock:
+        if _compress_worker and _compress_worker.is_alive():
+            return
+        _compress_worker = _threading.Thread(target=_compress_loop, daemon=True, name='reels-compress')
+        _compress_worker.start()
+
+
+def _compress_loop():
+    while True:
+        tmp_path, filename, duration = _compress_jobs.get()
+        try:
+            agents.start('reels', f'Bringe {filename} aufs Story-Format … (noch {_compress_jobs.qsize()} danach)',
+                         text=f'Verkleinere {filename}')
+            res = _compress(tmp_path, filename, duration)
+            if res.get('success'):
+                agents.done('reels', f"{res['filename']} ist bereit ({res.get('note', '')})",
+                            bubble=f"{res['filename']} liegt in der Warteschlange")
+            else:
+                agents.fail('reels', f"{filename}: {res.get('error', '')[:200]}")
+        except Exception as e:
+            agents.fail('reels', f'{filename}: {e}')
+
+
+def resume_pending_compressions():
+    """Nach einem Neustart: halbfertige Uploads (.part) wieder einreihen, Reste (.enc) wegraeumen."""
+    try:
+        d = pool_dir()
+        for name in os.listdir(d):
+            path = os.path.join(d, name)
+            if name.endswith('.part.enc'):
+                os.remove(path)
+            elif name.endswith('.part'):
+                original = name.rsplit('.', 3)[0]  # "<datei>.<pid>.<zeit>.part"
+                _compress_jobs.put((path, original, _video_duration(path)))
+        if not _compress_jobs.empty():
+            _ensure_compress_worker()
+    except Exception as e:
+        print(f'[Reels] Wiederaufnahme fehlgeschlagen: {e}')
+
+
 def _video_duration(path):
     """Dauer in Sekunden aus der ffmpeg-Ausgabe (imageio-ffmpeg liefert kein ffprobe mit)."""
     try:
@@ -215,20 +269,33 @@ def _fit_story_limits(tmp_path, filename):
         os.replace(tmp_path, os.path.join(pool_dir(), filename))
         return {'success': True, 'filename': filename}
 
+    # Umrechnen dauert pro Video 1-2 Min. und braucht viel CPU -> im Hintergrund, nacheinander
+    _compress_jobs.put((tmp_path, filename, duration))
+    _ensure_compress_worker()
+    waiting = _compress_jobs.qsize()
+    return {'success': True, 'filename': os.path.splitext(filename)[0] + '.mp4', 'processing': True,
+            'note': 'wird im Hintergrund aufs Story-Format gebracht und erscheint in ein paar Minuten'
+                    + (f' ({waiting} Video(s) vor dir)' if waiting > 1 else '')}
+
+
+def _compress(tmp_path, filename, duration):
+    too_long = duration is not None and duration > STORY_MAX_SECONDS
     out_name = os.path.splitext(filename)[0] + '.mp4'
     out_path = os.path.join(pool_dir(), out_name)
     # Erst in eine Temp-Datei kodieren und am Ende atomar umbenennen - sonst liest die
     # Vorschau (oder Meta) während der Kodierung ein halbfertiges MP4 ohne moov-Atom.
     enc_path = tmp_path + '.enc'
-    cmd = [_ffmpeg_binary(), '-y', '-i', tmp_path, '-t', str(STORY_MAX_SECONDS),
+    # nice + 2 Threads: laesst dem Dashboard und den anderen Diensten genug Rechenzeit
+    cmd = ['nice', '-n', '15', _ffmpeg_binary(), '-y', '-i', tmp_path, '-t', str(STORY_MAX_SECONDS),
            '-map', '0:v:0', '-map', '0:a:0?',
            '-vf', 'scale=w=1080:h=1920:force_original_aspect_ratio=decrease:force_divisible_by=2',
            '-c:v', 'libx264', '-preset', 'veryfast', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+           '-threads', '2',
            '-crf', '23', '-maxrate', '8M', '-bufsize', '16M', '-r', '30',
            '-c:a', 'aac', '-b:a', '128k', '-ar', '48000',
            '-movflags', '+faststart', '-f', 'mp4', enc_path]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=480)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
         if result.returncode != 0 or not os.path.exists(enc_path):
             return {'success': False, 'error': f'Video-Komprimierung fehlgeschlagen: {result.stderr[-800:]}'}
         os.replace(enc_path, out_path)

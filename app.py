@@ -3155,6 +3155,9 @@ def _reels_auto_post_loop():
         time.sleep(60)
 
 threading.Thread(target=_reels_auto_post_loop, daemon=True).start()
+if REELS_AVAILABLE:
+    # nach einem Neustart liegengebliebene Video-Uploads weiter verkleinern
+    threading.Thread(target=reels_engine.resume_pending_compressions, daemon=True).start()
 
 if __name__ == '__main__':
     if socketio:
