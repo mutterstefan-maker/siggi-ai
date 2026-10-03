@@ -135,10 +135,12 @@ if (cpu5 > cpuWarn) problems.push(`CPU: ${cpu5} % Auslastung (Grenze ${cpuWarn} 
 if (m.ram_percent > ramWarn) problems.push(`Arbeitsspeicher: ${m.ram_percent} % belegt (Grenze ${ramWarn} %)`);
 if (m.disk_percent > diskWarn) problems.push(`Festplatte: ${m.disk_percent} % voll, nur noch ${m.disk_free_gb} GB frei`);
 if (down.length) problems.push(`Dienste: ${down.join(', ')} läuft nicht`);
+// Ampel: rot ab Warngrenze, gelb ab 80 % der Grenze ("grenzwertig"), sonst gruen
+const lvl = (v, w) => v > w ? 'error' : v >= 0.8 * w ? 'warn' : 'done';
 const plan = [
-  { label: 'CPU-Auslastung (5 Min.)', state: cpu5 > cpuWarn ? 'error' : 'done', note: `${cpu5} %` },
-  { label: 'Arbeitsspeicher', state: m.ram_percent > ramWarn ? 'error' : 'done', note: `${m.ram_used_gb} / ${m.ram_total_gb} GB` },
-  { label: 'Festplatte', state: m.disk_percent > diskWarn ? 'error' : 'done', note: `${m.disk_percent} % · ${m.disk_free_gb} GB frei` },
+  { label: 'CPU-Auslastung (5 Min.)', state: lvl(cpu5, cpuWarn), note: `${cpu5} %` },
+  { label: 'Arbeitsspeicher', state: lvl(m.ram_percent, ramWarn), note: `${m.ram_used_gb} / ${m.ram_total_gb} GB` },
+  { label: 'Festplatte', state: lvl(m.disk_percent, diskWarn), note: `${m.disk_percent} % · ${m.disk_free_gb} GB frei` },
   { label: 'Dienste: Siggi, Mail, nginx, Docker', state: down.length ? 'error' : 'done', note: down.length ? down.length + ' aus' : 'alle aktiv' },
   { label: 'Server läuft seit', state: 'done', note: `${m.uptime_days} Tagen` },
 ];
@@ -146,6 +148,11 @@ return [{ json: {
   type: 'finish', quiet: true, status: problems.length ? 'error' : 'ready', problems,
   summary: problems.length ? `${problems.length} Problem(e)` : 'Alles im grünen Bereich',
   bubble: `CPU ${cpu5} % · RAM ${m.ram_percent} % · Platte ${m.disk_percent} %`,
+  gauges: [
+    { label: 'CPU', value: cpu5, warn: cpuWarn, detail: `Last über 5 Min., ${m.cpu_count} Kerne` },
+    { label: 'RAM', value: m.ram_percent, warn: ramWarn, detail: `${m.ram_used_gb} von ${m.ram_total_gb} GB` },
+    { label: 'Platte', value: m.disk_percent, warn: diskWarn, detail: `${m.disk_free_gb} GB frei` },
+  ],
   plan,
 } }];""", [980, 100]),
     http("Ergebnis an Siggi", "server", "$json", [1220, 100]),

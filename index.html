@@ -904,7 +904,16 @@ input:checked + .slider:before { transform: translateX(16px); }
 .ag-dot.open { border: 2px dashed; background: transparent; }
 .ag-step-label { font-size: 14px; color: var(--text); min-width: 0; }
 .ag-step-label.open { color: var(--text2); }
-.ag-step-label.active, .ag-step-label.wait, .ag-step-label.error { font-weight: 700; }
+.ag-step-label.active, .ag-step-label.wait, .ag-step-label.warn, .ag-step-label.error { font-weight: 700; }
+.ag-bubble.has-gauges { display: block; padding: 10px 12px; }
+.ag-gauges { display: flex; flex-direction: column; gap: 7px; width: 100%; }
+.ag-gauge-top { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ag-gauge-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.ag-gauge-label { font-weight: 700; color: var(--text); }
+.ag-gauge-val { margin-left: auto; font-family: var(--font-mono, monospace); font-weight: 700; }
+.ag-gauge-bar { position: relative; height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--text2) 18%, transparent); margin-top: 3px; }
+.ag-gauge-bar > div { height: 100%; border-radius: 99px; transition: width .5s, background .5s; }
+.ag-gauge-mark { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text2); border-radius: 1px; transform: translateX(-1px); }
 .ag-step-note { margin-left: auto; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); white-space: nowrap; }
 .ag-config { border-top: 1px solid var(--border); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
 .ag-config:empty { display: none; }
@@ -4577,11 +4586,29 @@ function agentFigure(a) {
     </div>`;
 }
 
+// Ampel für Messwerte: rot ab Warngrenze, gelb ab 80 % davon ("grenzwertig"), sonst grün
+const GAUGE_LEVELS = { ok: { color: '#1f9d55', word: 'OK' }, warn: { color: '#d18a00', word: 'grenzwertig' }, bad: { color: '#e0453a', word: 'zu hoch' } };
+function gaugeLevel(g) { return g.value > g.warn ? 'bad' : g.value >= 0.8 * g.warn ? 'warn' : 'ok'; }
+
+function agentGaugesHTML(gauges) {
+  return `<div class="ag-gauges">${gauges.map(g => {
+    const lv = GAUGE_LEVELS[gaugeLevel(g)];
+    const v = Math.round(g.value);
+    return `<div class="ag-gauge" title="${escHtml(g.label)}: ${v} % – ${lv.word} (Warnung ab ${g.warn} %)${g.detail ? ' · ' + escHtml(g.detail) : ''}">
+      <div class="ag-gauge-top"><span class="ag-gauge-dot" style="background:${lv.color}"></span><span class="ag-gauge-label">${escHtml(g.label)}</span><span class="ag-gauge-val" style="color:${lv.color}">${v} %</span></div>
+      <div class="ag-gauge-bar"><div style="width:${Math.min(100, Math.max(2, v))}%;background:${lv.color}"></div><span class="ag-gauge-mark" style="left:${Math.min(100, g.warn)}%"></span></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
 function agentCardInner(a) {
   const st = AGENT_STATUS[a.status] || AGENT_STATUS.sleeping;
   const pct = a.status === 'working' && a.progress != null ? Math.round(a.progress * 100) : null;
+  const gauges = a.gauges && a.gauges.length && a.status !== 'paused' ? a.gauges : null;
+  const worst = gauges ? (gauges.some(g => gaugeLevel(g) === 'bad') ? 'bad' : gauges.some(g => gaugeLevel(g) === 'warn') ? 'warn' : 'ok') : null;
+  const bubbleColor = worst ? GAUGE_LEVELS[worst].color : st.color;
   return `
-    <div class="ag-bubble" style="background:color-mix(in srgb, ${st.color} 14%, var(--surface));color:var(--text)">${escHtml(a.bubble || st.label)}</div>
+    <div class="ag-bubble${gauges ? ' has-gauges' : ''}" style="background:color-mix(in srgb, ${bubbleColor} 14%, var(--surface));color:var(--text)">${gauges ? agentGaugesHTML(gauges) : escHtml(a.bubble || st.label)}</div>
     <div class="ag-stage">${agentFigure(a)}</div>
     <div class="ag-info">
       <div class="ag-head">
@@ -4596,9 +4623,9 @@ function agentCardInner(a) {
 
 function agentPlanHTML(a) {
   if (!a.plan || !a.plan.length) return '<div class="ag-muted">Noch kein Lauf – der Plan erscheint, sobald der Agent loslegt.</div>';
-  const col = { done: '#0f9a8c', active: (AGENT_STATUS[a.status] || {}).color || '#3b7cf0', wait: '#d18a00', error: '#e0453a', open: 'var(--text3)' };
-  const mark = { done: '✓', active: '●', wait: '!', error: '!', open: '' };
-  const word = { done: 'erledigt', active: 'läuft', wait: 'wartet auf dich', error: 'Problem', open: 'geplant' };
+  const col = { done: '#1f9d55', active: (AGENT_STATUS[a.status] || {}).color || '#3b7cf0', wait: '#d18a00', warn: '#d18a00', error: '#e0453a', open: 'var(--text3)' };
+  const mark = { done: '✓', active: '●', wait: '!', warn: '!', error: '!', open: '' };
+  const word = { done: 'erledigt', active: 'läuft', wait: 'wartet auf dich', warn: 'grenzwertig', error: 'Problem', open: 'geplant' };
   return a.plan.map(p => `
     <div class="ag-step">
       <span class="ag-dot ${p.state === 'open' ? 'open' : ''}" style="${p.state === 'open' ? 'border-color:' + col.open + ';color:' + col.open : 'background:' + col[p.state]}">${mark[p.state]}</span>

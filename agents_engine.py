@@ -107,6 +107,9 @@ def init_table():
             decided_at TEXT
         );
     ''')
+    cols = [r[1] for r in c.execute('PRAGMA table_info(agent_state)')]
+    if 'gauges' not in cols:
+        c.execute('ALTER TABLE agent_state ADD COLUMN gauges TEXT')
     for agent_id, meta in AGENTS.items():
         c.execute(
             'INSERT OR IGNORE INTO agent_state (agent_id, config, next_run, updated_at) VALUES (?, ?, ?, ?)',
@@ -175,6 +178,8 @@ def handle_hook(agent_id, data):
                 fields.append('progress=?'); vals.append(None if p is None else max(0.0, min(1.0, float(p))))
             if isinstance(data.get('plan'), list):
                 fields.append('plan=?'); vals.append(json.dumps(_clean_plan(data['plan']), ensure_ascii=False))
+            if isinstance(data.get('gauges'), list):
+                fields.append('gauges=?'); vals.append(json.dumps(_clean_gauges(data['gauges']), ensure_ascii=False))
             if data.get('next_run'):
                 fields.append('next_run=?'); vals.append(str(data['next_run'])[:80])
             fields.append('updated_at=?'); vals.append(_now())
@@ -196,6 +201,9 @@ def handle_hook(agent_id, data):
             if isinstance(data.get('plan'), list):
                 c.execute('UPDATE agent_state SET plan=? WHERE agent_id=?',
                           (json.dumps(_clean_plan(data['plan']), ensure_ascii=False), agent_id))
+            if isinstance(data.get('gauges'), list):
+                c.execute('UPDATE agent_state SET gauges=? WHERE agent_id=?',
+                          (json.dumps(_clean_gauges(data['gauges']), ensure_ascii=False), agent_id))
             had_problems = bool(row['last_summary']) and row['last_summary'].startswith('Problem')
             if problems or not data.get('quiet') or had_problems:
                 for p in problems:
@@ -272,11 +280,26 @@ def check_site(url):
     return result
 
 
+def _clean_gauges(gauges):
+    """Messwerte fuer die Ampel-Anzeige: Wert und Warngrenze in Prozent."""
+    out = []
+    for g in gauges[:8]:
+        if not isinstance(g, dict):
+            continue
+        try:
+            value, warn = float(g.get('value', 0)), float(g.get('warn', 100))
+        except (TypeError, ValueError):
+            continue
+        out.append({'label': str(g.get('label', ''))[:30], 'value': round(value, 1), 'warn': warn,
+                    'detail': str(g.get('detail', ''))[:60]})
+    return out
+
+
 def _clean_plan(plan):
     out = []
     for p in plan[:20]:
         if isinstance(p, dict):
-            state = p.get('state') if p.get('state') in ('done', 'active', 'wait', 'open', 'error') else 'open'
+            state = p.get('state') if p.get('state') in ('done', 'active', 'wait', 'warn', 'open', 'error') else 'open'
             out.append({'label': str(p.get('label', ''))[:150], 'state': state, 'note': str(p.get('note', ''))[:60]})
     return out
 
@@ -348,6 +371,7 @@ def overview():
                 'id': agent_id, 'name': meta['name'], 'role': meta['role'], 'icon': meta['icon'],
                 'status': status, 'bubble': bubble or '', 'progress': r['progress'],
                 'plan': json.loads(r['plan'] or '[]'), 'next_run': r['next_run'] or meta['next_run'],
+                'gauges': json.loads(r['gauges'] or '[]'),
                 'paused': bool(r['paused']), 'config': json.loads(r['config'] or '{}'),
                 'last_summary': r['last_summary'], 'last_run_at': r['last_run_at'], 'updated_at': r['updated_at'],
                 'pending_approvals': pending,
