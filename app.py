@@ -19,7 +19,10 @@ import health_check_engine
 import settings_store
 import agents_engine
 
-app = Flask(__name__, static_folder='/opt/stean', static_url_path='')
+# Kein Static-Ordner: frueher war /opt/stean komplett als Webordner freigegeben (inkl. config/.env,
+# auth.py, settings.json, Datenbanken) und nur durch den Login geschuetzt. Die Oberflaeche braucht nur
+# die expliziten Routen / und /login - alles andere bleibt so auch nach dem Login unerreichbar.
+app = Flask(__name__, static_folder=None)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1 GB für Handy-Rohvideos - reels_engine komprimiert sie danach auf Story-Größe (muss zu client_max_body_size in nginx passen)
 CORS(app, origins=['https://stean.info', 'https://www.stean.info'])
 
