@@ -4749,6 +4749,11 @@ async function refreshAgents() {
   document.getElementById('ag-banner').innerHTML = d.n8n_up ? '' :
     '<div class="ag-warn">n8n ist gerade nicht erreichbar – die Agenten laufen nicht. Der Health-Check meldet das ebenfalls.</div>';
 
+  // Aktuelle Agenten nach vorn: arbeitet > wartet auf dich > Problem > plant > bereit > schläft > pausiert,
+  // innerhalb einer Gruppe der zuletzt aktive zuerst
+  const prio = { working: 0, waiting: 1, error: 2, planning: 3, ready: 4, sleeping: 5, paused: 6 };
+  d.agents.sort((x, y) => ((prio[x.status] ?? 9) - (prio[y.status] ?? 9)) || String(y.updated_at || '').localeCompare(String(x.updated_at || '')));
+
   const grid = document.getElementById('ag-grid');
   d.agents.forEach(a => {
     let wrap = grid.querySelector(`[data-agent-id="${a.id}"]`);
@@ -4786,6 +4791,10 @@ async function refreshAgents() {
       agentsRendered['state-' + a.id] = a.status;
     }
   });
+  // Nur umsortieren, wenn sich die Reihenfolge wirklich geändert hat (Verschieben startet Animationen neu)
+  const wanted = d.agents.map(a => a.id).join(',');
+  const current = [...grid.children].map(el => el.dataset.agentId).join(',');
+  if (wanted !== current) d.agents.forEach(a => grid.appendChild(grid.querySelector(`[data-agent-id="${a.id}"]`)));
 
   const sel = d.agents.find(a => a.id === agentsSelected);
   const detail = document.getElementById('ag-detail');
