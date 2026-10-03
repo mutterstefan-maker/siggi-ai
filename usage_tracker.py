@@ -171,12 +171,14 @@ def summary():
                               'GROUP BY source ORDER BY SUM(usd) DESC', (month0,)).fetchall()
     finally:
         c.close()
-    # Hochrechnung: Durchschnitt pro Tag seit Erfassungsbeginn (innerhalb des Monats) x Tage im Monat
+    # Hochrechnung: Durchschnitt pro Tag seit Erfassungsbeginn (innerhalb des Monats) x Tage im Monat.
+    # Erst ab einem vollen erfassten Tag - eine Stunde auf einen Monat hochzurechnen ergibt Unsinn
+    # (z.B. ein Testabend mit vielen Nachrichten -> "50 EUR/Monat").
     start = max(datetime.fromisoformat(first) if first else now, now.replace(day=1, hour=0, minute=0, second=0))
-    days_tracked = max((now - start).total_seconds() / 86400, 1 / 24)
+    days_tracked = (now - start).total_seconds() / 86400
     next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
     days_in_month = (next_month - now.replace(day=1)).days
-    projection = t_month / days_tracked * days_in_month if first else 0
+    projection = t_month / days_tracked * days_in_month if first and days_tracked >= 1 else None
 
     names = {a: n for _, a, n in SOURCES}
     names[FALLBACK_SOURCE[0]] = FALLBACK_SOURCE[1]
@@ -187,7 +189,7 @@ def summary():
         'today': eur(t_day) if rate else round(t_day, 4), 'today_calls': n_day,
         'week': eur(t_week) if rate else round(t_week, 4),
         'month': eur(t_month) if rate else round(t_month, 4), 'month_calls': n_month,
-        'month_projection': eur(projection) if rate else round(projection, 4),
+        'month_projection': None if projection is None else (eur(projection) if rate else round(projection, 4)),
         'projection_reliable': days_tracked >= 3,
         'since': first,
         'by_source': [{'id': s, 'name': names.get(s, s), 'amount': eur(u) if rate else round(u, 4), 'calls': n}

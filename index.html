@@ -4718,7 +4718,9 @@ function agentCostsHTML(c) {
         <div class="ag-cost-tile"><div class="ag-cost-num">${fmtMoney(c.today, cur)}</div><div class="ag-muted">heute · ${c.today_calls} Aufrufe</div></div>
         <div class="ag-cost-tile"><div class="ag-cost-num">${fmtMoney(c.week, cur)}</div><div class="ag-muted">letzte 7 Tage</div></div>
         <div class="ag-cost-tile"><div class="ag-cost-num">${fmtMoney(c.month, cur)}</div><div class="ag-muted">diesen Monat</div></div>
-        <div class="ag-cost-tile"><div class="ag-cost-num">${c.projection_reliable ? '' : '≈ '}${fmtMoney(c.month_projection, cur)}</div><div class="ag-muted">hochgerechnet Monat${c.projection_reliable ? '' : ' (noch ungenau)'}</div></div>
+        <div class="ag-cost-tile">${c.month_projection == null
+          ? `<div class="ag-cost-num">–</div><div class="ag-muted">Hochrechnung ab morgen (braucht 1 voller Tag)</div>`
+          : `<div class="ag-cost-num">${c.projection_reliable ? '' : '≈ '}${fmtMoney(c.month_projection, cur)}</div><div class="ag-muted">hochgerechnet Monat${c.projection_reliable ? '' : ' (noch ungenau)'}</div>`}</div>
       </div>
       ${rows ? `<div class="ag-cost-rows"><div class="ag-section">Diesen Monat nach Verursacher</div>${rows}</div>` : ''}
     </div>`;
