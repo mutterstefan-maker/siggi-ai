@@ -1026,44 +1026,58 @@ def jarvis_chat():
     try:
         mail_stats = get_mail_stats()
 
-        # Build system prompt with all available data
-        system_prompt = settings.get('ai_character', 'Du bist SIGGI')
-        system_prompt += "\n\nSTATUS:\n"
-        system_prompt += f"- Ungelesene Mails: {mail_stats.get('inbox', 0)}\n"
-        system_prompt += f"- Callbacks: {mail_stats.get('callbacks', 0)}\n"
-        system_prompt += f"- Total: {mail_stats.get('total', 0)}\n"
-
-        # Add Calendar if available
+        # System-Prompt in drei Stufen, damit der Prompt-Cache greift (Cache = Praefix-Treffer,
+        # jede Aenderung entwertet alles danach). Frueher stand alles in einem Block, inkl. sich
+        # staendig aendernder Teile (ungelesene Mails, letzte Chats) - dadurch wurde der ganze
+        # Kontext bei jeder Nachricht neu bezahlt (+25 % Cache-Schreibaufschlag), nie gelesen.
+        # 1) fest: Charakter, Anweisungen, Terminregeln (+ davor die Tools) - 1h gecacht
+        stable_prompt = settings.get('ai_character', 'Du bist SIGGI')
+        stable_prompt += (
+            "\n\nANWEISUNG: Keine Signatur! Antworte direkt. "
+            "Nutze die verfügbaren Tools proaktiv, wenn Stefan dir etwas zum Merken, Vergessen, "
+            "Erinnern, als Todo oder als zu versendende Mail sagt - frag nicht erst nach, sondern handle direkt."
+        )
         if CALENDAR_AVAILABLE:
             try:
-                cal_context = get_calendar_context()
-                system_prompt += f"\n{cal_context}\n"
-                system_prompt += f"\n{get_scheduling_rules_text()}\n"
-            except:
+                stable_prompt += f"\n\n{get_scheduling_rules_text()}\n"
+            except Exception:
                 pass
 
-        # Add Chat History & Memories
-        system_prompt += get_chat_context(3)
-        system_prompt += get_siggi_memories()
-        system_prompt += get_recent_mail_draft_feedback()
-        system_prompt += "\n" + memory_engine.get_memory_context()
-        system_prompt += "\n" + memory_engine.get_upcoming_reminders()
+        # 2) aendert sich selten: Gedaechtnis & Feedback - eigener Cache-Abschnitt
+        memory_prompt = get_siggi_memories()
+        memory_prompt += get_recent_mail_draft_feedback()
+        memory_prompt += "\n" + memory_engine.get_memory_context()
+
+        # 3) aendert sich staendig: Status, Kalender, letzte Chats, Erinnerungen - nie gecacht
+        live_prompt = "STATUS:\n"
+        live_prompt += f"- Ungelesene Mails: {mail_stats.get('inbox', 0)}\n"
+        live_prompt += f"- Callbacks: {mail_stats.get('callbacks', 0)}\n"
+        live_prompt += f"- Total: {mail_stats.get('total', 0)}\n"
+        if CALENDAR_AVAILABLE:
+            try:
+                live_prompt += f"\n{get_calendar_context()}\n"
+            except Exception:
+                pass
+        live_prompt += get_chat_context(3)
+        live_prompt += "\n" + memory_engine.get_upcoming_reminders()
         if GSC_AVAILABLE:
             try:
-                system_prompt += "\n" + gsc_engine.get_gsc_context()
-            except:
+                live_prompt += "\n" + gsc_engine.get_gsc_context()
+            except Exception:
                 pass
         if GA4_AVAILABLE:
             try:
                 from ga4_engine import get_ga4_context
-                system_prompt += "\n" + get_ga4_context()
-            except:
+                live_prompt += "\n" + get_ga4_context()
+            except Exception:
                 pass
-        system_prompt += (
-            "\nANWEISUNG: Keine Signatur! Antworte direkt. "
-            "Nutze die verfügbaren Tools proaktiv, wenn Stefan dir etwas zum Merken, Vergessen, "
-            "Erinnern, als Todo oder als zu versendende Mail sagt - frag nicht erst nach, sondern handle direkt."
-        )
+
+        system_blocks = [
+            {'type': 'text', 'text': stable_prompt, 'cache_control': {'type': 'ephemeral', 'ttl': '1h'}},
+            {'type': 'text', 'text': memory_prompt.strip() or '(Noch keine Erinnerungen.)',
+             'cache_control': {'type': 'ephemeral', 'ttl': '1h'}},
+            {'type': 'text', 'text': live_prompt},
+        ]
 
         headers = {
             'Content-Type': 'application/json',
@@ -1081,7 +1095,7 @@ def jarvis_chat():
                 json={
                     'model': 'claude-sonnet-5',
                     'max_tokens': 1500,
-                    'system': [{'type': 'text', 'text': system_prompt, 'cache_control': {'type': 'ephemeral'}}],
+                    'system': system_blocks,
                     'tools': SIGGI_TOOLS,
                     'messages': messages
                 },
