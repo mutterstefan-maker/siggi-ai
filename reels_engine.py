@@ -28,6 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import instagram_engine
 import settings_store
+import siggi_time
 import agents_engine as agents
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -345,7 +346,7 @@ def _pick_themed_group(files, count):
             json={
                 'model': instagram_engine.ANTHROPIC_MODEL,
                 'max_tokens': 200,
-                'messages': [{'role': 'user', 'content': prompt}]
+                'messages': [{'role': 'user', 'content': siggi_time.now_line() + '\n\n' + prompt}]
             },
             timeout=20
         )

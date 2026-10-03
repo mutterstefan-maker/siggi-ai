@@ -13,6 +13,7 @@ ChatGPT-Projekt "Sarkastische Bilderserie" erzeugt). Laeuft taeglich per Cron:
 Das Bild wird NICHT automatisch gepostet - das erledigt bereits
 instagram_engine.post_next_in_queue() ueber den bestehenden Cron/Loop.
 """
+import siggi_time
 import base64
 import json
 import os
@@ -472,7 +473,7 @@ def generate_flyer():
         'VOM NUTZER VORGESCHLAGENE THEMEN-IDEEN (bevorzugt EINS davon verwenden, '
         'sofern nicht in BISHER VERWENDET schon kuerzlich behandelt):\n- ' + '\n- '.join(custom_topics)
     ) if custom_topics else ''
-    prompt = MASTER_PROMPT.format(history=_recent_history(), custom_topics=custom_topics_text)
+    prompt = siggi_time.now_line() + '\n\n' + MASTER_PROMPT.format(history=_recent_history(), custom_topics=custom_topics_text)
 
     plan = None
     last_error = None

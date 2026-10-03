@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import siggi_time
 import imaplib
 import email
 from email.header import decode_header
@@ -290,7 +291,7 @@ def send_followups():
                     'https://api.anthropic.com/v1/messages',
                     headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
                     json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 300,
-                          'messages': [{'role': 'user', 'content': f'Schreib eine kurze freundliche Nachfass-Mail auf Deutsch fuer unbeantwortete Anfrage: {subject}. Ticket: {ticket_nr}. Max 4 Saetze.'}]},
+                          'messages': [{'role': 'user', 'content': f'{siggi_time.now_line()} Schreib eine kurze freundliche Nachfass-Mail auf Deutsch fuer unbeantwortete Anfrage: {subject}. Ticket: {ticket_nr}. Max 4 Saetze.'}]},
                     timeout=20
                 )
                 followup_text = strip_ai_disclaimer(resp.json()['content'][0]['text'])
@@ -397,7 +398,8 @@ knowledge_gap=true NUR wenn du wirklich nicht weisst was zu tun ist."""
             json={
                 'model': 'claude-haiku-4-5-20251001',
                 'max_tokens': 1000,
-                'system': system_prompt,
+                # Datum vorn: sonst raet das Modell bei "naechsten Dienstag" o.ae. den Wochentag
+                'system': siggi_time.now_line() + '\n\n' + system_prompt,
                 'messages': [{'role': 'user', 'content': f"Von: {from_addr}\nBetreff: {subject}\nTicket: {ticket_nr}\n\n{body[:2000]}"}]
             },
             timeout=30

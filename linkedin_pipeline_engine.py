@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 import linkedin_engine
 import settings_store
+import siggi_time
 
 load_dotenv('/opt/stean/config/.env')
 
@@ -211,7 +212,9 @@ def _recent_feedback_block(limit=6):
 def _build_system_prompt(examples, format_style):
     examples_block = '\n\n---\n\n'.join(examples) if examples else '(noch keine Beispiel-Posts vorhanden)'
     feedback_block = _recent_feedback_block()
-    return f"""Du schreibst LinkedIn-Posts fuer Stefan Mutter, Inhaber der Agentur ChefBlick
+    return f"""{siggi_time.now_line()} (Jahreszeit, Feiertage und "letzte Woche" daran ausrichten.)
+
+Du schreibst LinkedIn-Posts fuer Stefan Mutter, Inhaber der Agentur ChefBlick
 (Website-Erstellung, E-Commerce-Beratung, Digitalisierung fuer Unternehmer).
 
 THEMENFOKUS:

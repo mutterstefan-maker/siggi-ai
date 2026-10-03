@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 import requests as req
 import settings_store
+import siggi_time
 import agents_engine as agents
 
 ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
@@ -469,7 +470,7 @@ Vorgaben:
             json={
                 'model': ANTHROPIC_MODEL,
                 'max_tokens': 300,
-                'messages': [{'role': 'user', 'content': prompt}]
+                'messages': [{'role': 'user', 'content': siggi_time.now_line() + '\n\n' + prompt}]
             },
             timeout=30
         )
