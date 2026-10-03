@@ -13,7 +13,8 @@ TEXT_EXTENSIONS = {'.md', '.txt', '.py', '.json', '.csv', '.log', '.yml', '.yaml
 def _safe_join(rel_path):
     """Verhindert Path-Traversal - gibt None zurück, wenn der Pfad den Cowork-Ordner verlässt."""
     full = os.path.normpath(os.path.join(COWORK_DIR, rel_path))
-    if not full.startswith(os.path.normpath(COWORK_DIR)):
+    # mit Trenner vergleichen - sonst kaeme man z.B. ueber '../cowork2/...' in Nachbarordner
+    if not full.startswith(os.path.normpath(COWORK_DIR) + os.sep):
         return None
     return full
 

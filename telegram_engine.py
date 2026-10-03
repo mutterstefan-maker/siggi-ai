@@ -33,7 +33,9 @@ IDLE_BUBBLE = 'Bereit – höre auf deine Nachrichten'
 VOICE_MAX_CHARS = 700  # laengere Antworten: Anfang vorlesen, Rest steht im Text
 HELP = ('Schreib oder sprich mir einfach, was ich tun soll – z. B. „Erinnere mich morgen um 9 an den Anruf bei '
         'Fischmann“, „Was steht heute im Kalender?“ oder „Schreib Kunde X, dass das Angebot kommt“.\n\n'
-        'Alles, was ich im Dashboard-Chat kann, geht auch hier. Auf Sprachnachrichten antworte ich mit '
+        'Alles, was ich im Dashboard-Chat kann, geht auch hier. Schick mir auch Fotos, PDFs oder Videos '
+        '(„fass zusammen“, „ab in die Instagram-Warteschlange“) oder lass dir Dateien schicken '
+        '(„schick mir das Audit von chefblick.de“). Auf Sprachnachrichten antworte ich mit '
         'Sprachnachricht – mit /stimme bekommst du auch auf Textnachrichten eine.')
 
 
@@ -158,6 +160,76 @@ def _transcribe(token, file_id):
         os.remove(path)
 
 
+# ─── Dateien ─────────────────────────────────────────────────────────
+
+INBOX_DIR = os.path.join(BASE_DIR, 'telegram_inbox')  # was Stefan per Telegram schickt
+MAX_DOWNLOAD = 20 * 1024 * 1024   # Bot-API-Grenze fuers Herunterladen
+MAX_SEND = 50 * 1024 * 1024       # Bot-API-Grenze fuers Senden
+PENDING_SECONDS = 30 * 60         # Datei ohne Text: die naechste Nachricht in dieser Zeit bezieht sich darauf
+
+
+def _safe_name(name):
+    name = os.path.basename(name or 'datei')
+    name = re.sub(r'[^\w.\- ]+', '_', name).strip(' .') or 'datei'
+    return name[:120]
+
+
+def inbox_path(name):
+    """Absoluter Pfad einer Datei in der Telegram-Ablage - None, wenn der Name aus der Ablage herausfuehrt."""
+    full = os.path.realpath(os.path.join(INBOX_DIR, os.path.basename(name or '')))
+    if not full.startswith(os.path.realpath(INBOX_DIR) + os.sep) or not os.path.isfile(full):
+        return None
+    return full
+
+
+def _incoming_file(msg):
+    """Datei-Anhang einer Nachricht (Foto, Dokument, Video) - Sprachnachrichten laufen separat."""
+    if msg.get('photo'):
+        p = msg['photo'][-1]  # groesste Aufloesung
+        return {'file_id': p['file_id'], 'name': f"foto_{time.strftime('%Y%m%d_%H%M%S')}.jpg", 'size': p.get('file_size', 0)}
+    for key in ('document', 'video', 'animation'):
+        d = msg.get(key)
+        if d:
+            ext = {'video': '.mp4', 'animation': '.mp4'}.get(key, '')
+            return {'file_id': d['file_id'], 'name': d.get('file_name') or f'{key}_{time.strftime("%Y%m%d_%H%M%S")}{ext}',
+                    'size': d.get('file_size', 0)}
+    return None
+
+
+def _download_to_inbox(token, file_id, name):
+    info = _call(token, 'getFile', file_id=file_id)
+    data = requests.get(FILE_API.format(token=token, path=info['file_path']), timeout=120).content
+    os.makedirs(INBOX_DIR, exist_ok=True)
+    stem, ext = os.path.splitext(_safe_name(name))
+    path = os.path.join(INBOX_DIR, f'{stem}{ext}')
+    n = 2
+    while os.path.exists(path):  # nichts ueberschreiben
+        path = os.path.join(INBOX_DIR, f'{stem}_{n}{ext}')
+        n += 1
+    with open(path, 'wb') as f:
+        f.write(data)
+    return path
+
+
+def send_document(path, caption=None, chat_id=None):
+    """Schickt Stefan eine Datei (bis 50 MB) per Telegram."""
+    cfg = _cfg()
+    chat_id = chat_id or cfg.get('chat_id')
+    if not (cfg.get('bot_token') and chat_id):
+        raise RuntimeError('Telegram ist nicht verbunden.')
+    size = os.path.getsize(path)
+    if size > MAX_SEND:
+        raise RuntimeError(f'Datei ist {size // 1024 // 1024} MB groß – Telegram-Bots dürfen höchstens 50 MB senden.')
+    with open(path, 'rb') as f:
+        r = requests.post(API.format(token=cfg['bot_token'], method='sendDocument'),
+                          data={'chat_id': chat_id, 'caption': (caption or '')[:1000]},
+                          files={'document': (os.path.basename(path), f)}, timeout=300)
+    if not r.json().get('ok'):
+        raise RuntimeError(r.json().get('description', 'sendDocument fehlgeschlagen'))
+    agents.event('telegram', f'Datei an Stefan geschickt: {os.path.basename(path)}', 'success')
+    return True
+
+
 def _handle(update, chat_fn, clean_fn=None):
     msg = update.get('message') or {}
     chat_id = (msg.get('chat') or {}).get('id')
@@ -192,8 +264,38 @@ def _handle(update, chat_fn, clean_fn=None):
         return
 
     heard = ''
-    voice = msg.get('voice') or msg.get('audio')
-    if voice:
+    attachment = None
+    incoming = _incoming_file(msg)
+    if incoming:
+        agents.start('telegram', f"Lade deine Datei herunter: {incoming['name']} …", text=f"Datei erhalten: {incoming['name']}")
+        if incoming['size'] and incoming['size'] > MAX_DOWNLOAD:
+            agents.done('telegram', 'Datei zu groß für Telegram-Bots', bubble=IDLE_BUBBLE, status='ready')
+            send(f"📎 {incoming['name']} ist {incoming['size'] // 1024 // 1024} MB groß – Telegram lässt Bots nur Dateien "
+                 f"bis 20 MB herunterladen. Lad sie bitte im Dashboard hoch.")
+            return
+        try:
+            path = _download_to_inbox(token, incoming['file_id'], incoming['name'])
+        except Exception as e:
+            agents.fail('telegram', f'Datei konnte nicht geladen werden: {e}')
+            send('⚠️ Die Datei konnte ich leider nicht herunterladen. Versuch es bitte nochmal.')
+            return
+        attachment = {'path': path, 'name': os.path.basename(path)}
+        text = (msg.get('caption') or '').strip()
+        if not text:
+            # Ohne Begleittext: merken und nachfragen - die naechste Nachricht bezieht sich darauf
+            cfg['pending_file'] = {'path': path, 'name': attachment['name'], 'at': time.time()}
+            _save_cfg(cfg)
+            agents.done('telegram', f"Datei abgelegt: {attachment['name']}", bubble=IDLE_BUBBLE, status='ready')
+            send(f"📎 Hab ich: {attachment['name']} – liegt in meiner Ablage.\n\nWas soll ich damit machen? Zum Beispiel "
+                 f"zusammenfassen, in die Instagram-Warteschlange legen oder ein Reel daraus machen.")
+            return
+        cfg.pop('pending_file', None)
+        _save_cfg(cfg)
+
+    voice = None if attachment else (msg.get('voice') or msg.get('audio'))
+    if attachment:
+        agents.step('telegram', f"Schaue mir {attachment['name']} an …")
+    elif voice:
         agents.start('telegram', 'Höre deine Sprachnachricht ab …', text='Sprachnachricht erhalten')
         _call(token, 'sendChatAction', chat_id=chat_id, action='typing')
         try:
@@ -210,14 +312,22 @@ def _handle(update, chat_fn, clean_fn=None):
     elif text:
         agents.start('telegram', 'Lese deine Nachricht …', text='Nachricht erhalten')
     else:
-        send('Ich verstehe bisher Text- und Sprachnachrichten.')
+        send('Das kann ich noch nicht verarbeiten – schick mir Text, Sprache, Fotos, Videos oder Dateien.')
         return
 
-    agents.event('telegram', f'Aufgabe von Stefan: {text[:200]}')
+    # Datei kam vorhin ohne Text? Dann bezieht sich diese Nachricht darauf (einmalig, max. 30 Min.)
+    pending = cfg.get('pending_file')
+    if not attachment and pending and time.time() - pending.get('at', 0) < PENDING_SECONDS and os.path.isfile(pending['path']):
+        attachment = {'path': pending['path'], 'name': pending['name']}
+    if pending:
+        cfg.pop('pending_file', None)
+        _save_cfg(cfg)
+
+    agents.event('telegram', f'Aufgabe von Stefan: {text[:200]}' + (f" (Datei: {attachment['name']})" if attachment else ''))
     agents.step('telegram', f'Kümmere mich darum: „{text[:70]}“ …')
     _call(token, 'sendChatAction', chat_id=chat_id, action='typing')
     try:
-        reply, actions = chat_fn(text)
+        reply, actions = chat_fn(text, attachment)
     except Exception as e:
         agents.fail('telegram', f'Siggi konnte nicht antworten: {e}')
         send(heard + '⚠️ Da ist gerade etwas schiefgegangen – versuch es bitte gleich nochmal.')

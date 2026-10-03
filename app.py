@@ -368,13 +368,32 @@ def create_mail_draft(to_addr, subject, body):
     conn.close()
     return draft_id
 
-def send_new_mail(to_addr, subject, body):
-    """Verschickt eine neue E-Mail immer über SIGGI_SEND_ACCOUNT."""
+_SIGNOFF_LINE = re.compile(
+    r'^(mit\s+)?(freundlichen|viele[n]?|beste[n]?|liebe|herzliche[n]?|sonnige|schöne)?\s*'
+    r'(grüße|gruß|grüsse|gruss)[,.!]*$|^(lg|vg|mfg)[,.!]*$|^(dein|euer|ihr)?\s*siggi[,.!]*$', re.IGNORECASE)
+
+
+def _strip_signoff(body):
+    """Entfernt eine selbst geschriebene Grussformel/Unterschrift am Ende (v.a. "Grüße / SIGGI") -
+    die echte Signatur des Postfachs wird danach angehaengt."""
+    lines = (body or '').rstrip().split('\n')
+    while lines and (not lines[-1].strip() or _SIGNOFF_LINE.match(lines[-1].strip())):
+        lines.pop()
+    return '\n'.join(lines).rstrip()
+
+
+def send_new_mail(to_addr, subject, body, sign=False):
+    """Verschickt eine neue E-Mail immer über SIGGI_SEND_ACCOUNT.
+    sign=True: Mail an Dritte in Stefans Namen - Siggis eigene Grussformel weg, echte Signatur des
+    Postfachs dran (wie bei den automatischen Antworten). Interne Hinweise an Stefan bleiben ohne."""
     settings = load_settings()
     accounts = settings.get('accounts', {})
     if SIGGI_SEND_ACCOUNT not in accounts:
         return f'Postfach {SIGGI_SEND_ACCOUNT} ist nicht konfiguriert.'
     account = accounts[SIGGI_SEND_ACCOUNT]
+    if sign:
+        signature = (account.get('signature') or '').strip()
+        body = _strip_signoff(body) + (f'\n\n{signature}' if signature else '')
 
     import smtplib
     from email.message import EmailMessage as _EmailMessage
@@ -432,6 +451,40 @@ SIGGI_TOOLS = [
             'type': 'object',
             'properties': {'text': {'type': 'string'}},
             'required': ['text']
+        }
+    },
+    {
+        'name': 'datei_senden',
+        'description': (
+            'Schickt Stefan eine Datei per Telegram. quelle: "cowork" (Datei aus dem COWORK-Ordner - name = Pfad aus '
+            'cowork_datei_suchen oder ein Suchbegriff), "audit" (Website-Audit als PDF - name = Domain, z.B. chefblick.de), '
+            '"instagram" bzw. "reels" (Bild/Video aus der Warteschlange - name = Dateiname oder "naechstes"), '
+            '"telegram_ablage" (eine Datei, die Stefan geschickt hat).'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'quelle': {'type': 'string', 'enum': ['cowork', 'audit', 'instagram', 'reels', 'telegram_ablage']},
+                'name': {'type': 'string'},
+                'nachricht': {'type': 'string', 'description': 'Optionaler kurzer Begleittext'}
+            },
+            'required': ['quelle', 'name']
+        }
+    },
+    {
+        'name': 'datei_ablegen',
+        'description': (
+            'Legt eine Datei, die Stefan per Telegram geschickt hat, in eine Warteschlange: ziel "instagram" '
+            '(Bild wird nach Zeitplan gepostet) oder "reels" (Video wird auf Story-Format gebracht und nach Zeitplan '
+            'als Story gepostet). Nur wenn Stefan das ausdruecklich will.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'name': {'type': 'string', 'description': 'Dateiname in der Telegram-Ablage'},
+                'ziel': {'type': 'string', 'enum': ['instagram', 'reels']}
+            },
+            'required': ['name', 'ziel']
         }
     },
     {
@@ -496,7 +549,9 @@ SIGGI_TOOLS = [
             'sondern als Entwurf gespeichert und wartet auf manuelle Freigabe von Stefan im Dashboard. '
             'Nur aufrufen, wenn Stefan im Chat ausdrücklich sagt, dass eine Mail verschickt werden soll '
             '(z.B. "schreib X eine Mail dass..."). Wenn nur ein Name genannt wird, ERST kontakt_suchen aufrufen '
-            'um die E-Mail-Adresse zu finden. Bei fehlenden Angaben (Empfänger, Inhalt) nachfragen statt zu raten.'
+            'um die E-Mail-Adresse zu finden. Bei fehlenden Angaben (Empfänger, Inhalt) nachfragen statt zu raten. '
+            'Die Mail geht in Stefans Namen raus: KEINE Grußformel und KEINE Unterschrift schreiben, niemals mit '
+            '"SIGGI" unterschreiben - Stefans offizielle Signatur wird automatisch angehängt.'
         ),
         'input_schema': {
             'type': 'object',
@@ -706,6 +761,31 @@ def _run_siggi_tool_inner(name, tool_input):
             save_settings(settings)
             return f"Todo hinzugefügt: {tool_input['text']}"
 
+        if name == 'datei_senden':
+            if not TELEGRAM_AVAILABLE or not telegram_engine.status().get('paired'):
+                return 'Telegram ist nicht verbunden - Senden geht nur dorthin.'
+            path = _resolve_send_file(tool_input['quelle'], tool_input.get('name', ''))
+            if isinstance(path, str) and not os.path.isabs(path):
+                return path  # Fehlermeldung
+            telegram_engine.send_document(path, tool_input.get('nachricht'))
+            return f'Gesendet: {os.path.basename(path)}'
+
+        if name == 'datei_ablegen':
+            src = telegram_engine.inbox_path(tool_input['name']) if TELEGRAM_AVAILABLE else None
+            if not src:
+                return f"'{tool_input['name']}' liegt nicht in der Telegram-Ablage."
+            with open(src, 'rb') as f:
+                raw = f.read()
+            if tool_input['ziel'] == 'instagram':
+                res = instagram_engine.save_uploaded_flyer(os.path.basename(src), raw)
+                where = 'Instagram-Warteschlange'
+            else:
+                res = reels_engine.save_uploaded_reel(os.path.basename(src), raw)
+                where = 'Reels-Warteschlange'
+            if not res.get('success'):
+                return f"Ablegen fehlgeschlagen: {res.get('error')}"
+            return f"In der {where}: {res['filename']}" + (f" ({res['note']})" if res.get('note') else '')
+
         if name == 'todos_anzeigen':
             todos = load_settings().get('daily_todos', [])
             return '\n'.join(f'{i}. {t}' for i, t in enumerate(todos, 1)) if todos else 'Die Todo-Liste ist leer.'
@@ -760,7 +840,7 @@ def _run_siggi_tool_inner(name, tool_input):
         if name == 'sende_mail':
             trust = get_mail_trust_status()
             if trust['auto_send_enabled']:
-                return send_new_mail(tool_input['empfaenger'], tool_input['betreff'], tool_input['text'])
+                return send_new_mail(tool_input['empfaenger'], tool_input['betreff'], tool_input['text'], sign=True)
             draft_id = create_mail_draft(tool_input['empfaenger'], tool_input['betreff'], tool_input['text'])
             return (
                 f"Entwurf #{draft_id} an {tool_input['empfaenger']} erstellt und wartet auf deine Freigabe im Dashboard "
@@ -1012,6 +1092,44 @@ def voice_speak():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def _chat_user_content(message, attachment_name):
+    """Nutzer-Nachricht fuer Claude - mit Datei aus der Telegram-Ablage als Bild, PDF oder Text.
+    Nur Dateien aus der Ablage (Pfad wird geprueft), damit niemand ueber den Chat beliebige
+    Server-Dateien an Claude schicken kann."""
+    if not attachment_name or not TELEGRAM_AVAILABLE:
+        return message
+    path = telegram_engine.inbox_path(attachment_name)
+    if not path:
+        return message
+    name, size = os.path.basename(path), os.path.getsize(path)
+    ext = os.path.splitext(name)[1].lower()
+    note = (f"[Stefan hat per Telegram die Datei '{name}' geschickt ({size // 1024} KB). Sie liegt in der Telegram-Ablage. "
+            f"Mit dem Werkzeug datei_ablegen kannst du sie in die Instagram- oder Reels-Warteschlange legen, "
+            f"mit datei_senden wieder zurueckschicken.]")
+    blocks = []
+    try:
+        if ext in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+            from PIL import Image
+            img = Image.open(path)
+            img.thumbnail((1568, 1568))  # groesser bringt Claude nichts und kostet nur Tokens
+            buf = io.BytesIO()
+            img.convert('RGB').save(buf, 'JPEG', quality=85)
+            blocks.append({'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
+                                                        'data': base64.b64encode(buf.getvalue()).decode()}})
+        elif ext == '.pdf' and size <= 10 * 1024 * 1024:
+            with open(path, 'rb') as f:
+                blocks.append({'type': 'document', 'source': {'type': 'base64', 'media_type': 'application/pdf',
+                                                               'data': base64.b64encode(f.read()).decode()}})
+        elif ext in ('.txt', '.md', '.csv', '.json', '.log', '.xml', '.html', '.ics'):
+            with open(path, encoding='utf-8', errors='replace') as f:
+                blocks.append({'type': 'text', 'text': f'Inhalt von {name}:\n\n' + f.read(20000)})
+        else:
+            note += ' (Diesen Dateityp kannst du nicht selbst ansehen - nur ablegen oder weiterleiten.)'
+    except Exception as e:
+        note += f' (Datei konnte nicht geoeffnet werden: {e})'
+    return blocks + [{'type': 'text', 'text': note + '\n\n' + (message or 'Was ist das?')}]
+
+
 @app.route('/api/jarvis/chat', methods=['POST'])
 def jarvis_chat():
     data = request.json or {}
@@ -1093,7 +1211,7 @@ def jarvis_chat():
             'x-api-key': api_key,
             'anthropic-version': '2023-06-01'
         }
-        messages = [{'role': 'user', 'content': message}]
+        messages = [{'role': 'user', 'content': _chat_user_content(message, data.get('attachment'))}]
 
         # Tool-Use-Loop: SIGGI darf mehrfach Tools aufrufen bevor er final antwortet
         reply = ''
@@ -1225,7 +1343,7 @@ def approve_mail_draft(draft_id):
     draft = dict(row)
 
     try:
-        result = send_new_mail(draft['to_addr'], draft['subject'], draft['body'])
+        result = send_new_mail(draft['to_addr'], draft['subject'], draft['body'], sign=True)
     except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
@@ -2386,6 +2504,39 @@ def _agent_extras():
     return extras
 
 
+def _resolve_send_file(source, name):
+    """Absoluter Pfad der Datei, die Siggi schicken soll - oder ein Fehlertext."""
+    name = (name or '').strip()
+    if source == 'cowork':
+        path = cowork_engine.get_download_path(name)
+        if not path:
+            hits = cowork_engine.search_files(name, limit=5)
+            if not hits:
+                return f"Im COWORK-Ordner nichts gefunden zu '{name}'."
+            if len(hits) > 1 and not any(h['name'].lower() == os.path.basename(name).lower() for h in hits):
+                return 'Mehrere Treffer, bitte genauer: ' + ', '.join(h['path'] for h in hits)
+            path = cowork_engine.get_download_path(hits[0]['path'])
+        return path or 'Datei nicht gefunden.'
+    if source == 'audit':
+        conn = sqlite3.connect(DB_PATH)
+        row = conn.execute("SELECT pdf_path_customer, pdf_path FROM audit_history WHERE url LIKE ? AND status='done' "
+                           "ORDER BY created_at DESC LIMIT 1", (f'%{name}%',)).fetchone()
+        conn.close()
+        for p in (row or ()):
+            if p and os.path.isfile(p):
+                return p
+        return f"Kein fertiges Audit-PDF zu '{name}' gefunden."
+    if source in ('instagram', 'reels'):
+        eng = instagram_engine if source == 'instagram' else reels_engine
+        queue = eng.get_ig_queue() if source == 'instagram' else eng.get_reels_queue()
+        pick = queue[0] if name.lower() in ('', 'naechstes', 'nächstes', 'next') and queue else os.path.basename(name)
+        path = os.path.join(eng.pool_dir(), pick) if pick else None
+        return path if path and os.path.isfile(path) else 'Datei nicht in der Warteschlange.'
+    if source == 'telegram_ablage':
+        return telegram_engine.inbox_path(name) or f"'{name}' liegt nicht in der Telegram-Ablage."
+    return 'Unbekannte Quelle.'
+
+
 def _agents_status_text():
     """Kompakter Klartext-Stand fuer Siggis Werkzeug agenten_status."""
     out = []
@@ -2465,12 +2616,15 @@ except Exception as _e:
     TELEGRAM_AVAILABLE = False
 
 
-def _telegram_chat(text):
+def _telegram_chat(text, attachment=None):
     """Telegram-Nachricht durch Siggis normalen Chat (gleiche Werkzeuge, gleiches Gedaechtnis)."""
+    payload = {'message': text, 'channel': 'telegram'}
+    if attachment:
+        payload['attachment'] = attachment['name']  # Name in der Telegram-Ablage
     with app.test_client() as client:
         with client.session_transaction() as sess:
             sess['logged_in'] = True
-        data = client.post('/api/jarvis/chat', json={'message': text, 'channel': 'telegram'}).get_json() or {}
+        data = client.post('/api/jarvis/chat', json=payload).get_json() or {}
     return data.get('reply') or 'Erledigt!', data.get('actions') or []
 
 
