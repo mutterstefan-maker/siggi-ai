@@ -154,18 +154,23 @@ server_nodes = [
     code("Auswerten", """const m = $json.metrics;
 const cfg = $('Bei Siggi anmelden').first().json.config || {};
 const cpuWarn = cfg.cpu_warn || 85, ramWarn = cfg.ram_warn || 90, diskWarn = cfg.disk_warn || 85;
-// CPU über 5 Minuten gemittelt (Load / Kerne) - ein Einzelwert schwankt zu stark
+// Auslastung = Load / Kerne. Anzeige: letzte Minute (reagiert sofort, max. 100 %).
+// Alarm nur bei ANHALTENDER Ueberlast: letzte Minute UND 5-Minuten-Schnitt ueber der Grenze -
+// sonst meldet z.B. ein kurzes Video-Umrechnen Alarm bzw. die Karte bleibt nach Abklingen minutenlang rot.
+const cpu1raw = Math.round(100 * m.load[0] / m.cpu_count);
 const cpu5 = Math.round(100 * m.load[1] / m.cpu_count);
+const cpuNow = Math.min(100, cpu1raw);
+const cpuAlarm = cpu1raw > cpuWarn && cpu5 > cpuWarn;
 const down = Object.entries(m.services).filter(([, s]) => s !== 'active').map(([u, s]) => `${u.replace('.service', '')} (${s})`);
 const problems = [];
-if (cpu5 > cpuWarn) problems.push(`CPU: ${cpu5} % Auslastung (Grenze ${cpuWarn} %)`);
+if (cpuAlarm) problems.push(`CPU: Server seit mehreren Minuten überlastet (${cpu5} % im 5-Minuten-Schnitt, Grenze ${cpuWarn} %)`);
 if (m.ram_percent > ramWarn) problems.push(`Arbeitsspeicher: ${m.ram_percent} % belegt (Grenze ${ramWarn} %)`);
 if (m.disk_percent > diskWarn) problems.push(`Festplatte: ${m.disk_percent} % voll, nur noch ${m.disk_free_gb} GB frei`);
 if (down.length) problems.push(`Dienste: ${down.join(', ')} läuft nicht`);
 // Ampel: rot ab Warngrenze, gelb ab 80 % der Grenze ("grenzwertig"), sonst gruen
 const lvl = (v, w) => v > w ? 'error' : v >= 0.8 * w ? 'warn' : 'done';
 const plan = [
-  { label: 'CPU-Auslastung (5 Min.)', state: lvl(cpu5, cpuWarn), note: `${cpu5} %` },
+  { label: 'CPU-Auslastung', state: cpuAlarm ? 'error' : lvl(cpuNow, cpuWarn) === 'error' ? 'warn' : lvl(cpuNow, cpuWarn), note: `jetzt ${cpuNow} % · 5 Min. ${Math.min(cpu5, 999)} %` },
   { label: 'Arbeitsspeicher', state: lvl(m.ram_percent, ramWarn), note: `${m.ram_used_gb} / ${m.ram_total_gb} GB` },
   { label: 'Festplatte', state: lvl(m.disk_percent, diskWarn), note: `${m.disk_percent} % · ${m.disk_free_gb} GB frei` },
   { label: 'Dienste: Siggi, Mail, nginx, Docker', state: down.length ? 'error' : 'done', note: down.length ? down.length + ' aus' : 'alle aktiv' },
@@ -174,9 +179,9 @@ const plan = [
 return [{ json: {
   type: 'finish', quiet: true, status: problems.length ? 'error' : 'ready', problems,
   summary: problems.length ? `${problems.length} Problem(e)` : 'Alles im grünen Bereich',
-  bubble: `CPU ${cpu5} % · RAM ${m.ram_percent} % · Platte ${m.disk_percent} %`,
+  bubble: `CPU ${cpuNow} % · RAM ${m.ram_percent} % · Platte ${m.disk_percent} %`,
   gauges: [
-    { label: 'CPU', value: cpu5, warn: cpuWarn, detail: `Last über 5 Min., ${m.cpu_count} Kerne` },
+    { label: 'CPU', value: cpuNow, warn: cpuWarn, detail: `letzte Minute; 5-Min.-Schnitt ${cpu5} %, ${m.cpu_count} Kerne` },
     { label: 'RAM', value: m.ram_percent, warn: ramWarn, detail: `${m.ram_used_gb} von ${m.ram_total_gb} GB` },
     { label: 'Platte', value: m.disk_percent, warn: diskWarn, detail: `${m.disk_free_gb} GB frei` },
   ],
