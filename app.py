@@ -2327,7 +2327,7 @@ def _telegram_loop():
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (ImportError, OSError):
         return  # anderer Worker hält den Lock bereits
-    telegram_engine.poll_forever(_telegram_chat)
+    telegram_engine.poll_forever(_telegram_chat, _strip_markdown_for_tts)
 
 threading.Thread(target=_telegram_loop, daemon=True).start()
 

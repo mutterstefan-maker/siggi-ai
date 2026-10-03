@@ -4,13 +4,16 @@
 - Nur EIN Telegram-Chat darf Siggi steuern: gekoppelt per Einmal-Code (/start <code>),
   alle anderen Absender werden ignoriert.
 - Abruf per Long-Polling (getUpdates) statt Webhook - kein oeffentlicher Endpunkt noetig.
-- Sprachnachrichten werden lokal transkribiert (stt_transcribe.py, faster-whisper).
+- Sprachnachrichten werden lokal transkribiert (stt_transcribe.py, faster-whisper) und
+  per Sprachnachricht in Siggis Stimme beantwortet (edge-tts, wie im Dashboard). /stimme
+  schaltet Sprachantworten auch fuer Textnachrichten an/aus.
 - Die eigentliche Antwort kommt aus Siggis normalem Chat (inkl. aller Werkzeuge) - app.py
   uebergibt dafuer chat_fn an poll_forever().
 - Laeuft als Agent 'telegram' in der Agenten-Zentrale.
 """
 import json
 import os
+import re
 import secrets
 import subprocess
 import tempfile
@@ -27,9 +30,11 @@ VENV_PY = os.path.join(BASE_DIR, 'venv', 'bin', 'python3')
 API = 'https://api.telegram.org/bot{token}/{method}'
 FILE_API = 'https://api.telegram.org/file/bot{token}/{path}'
 IDLE_BUBBLE = 'Bereit – höre auf deine Nachrichten'
+VOICE_MAX_CHARS = 700  # laengere Antworten: Anfang vorlesen, Rest steht im Text
 HELP = ('Schreib oder sprich mir einfach, was ich tun soll – z. B. „Erinnere mich morgen um 9 an den Anruf bei '
         'Fischmann“, „Was steht heute im Kalender?“ oder „Schreib Kunde X, dass das Angebot kommt“.\n\n'
-        'Alles, was ich im Dashboard-Chat kann, geht auch hier.')
+        'Alles, was ich im Dashboard-Chat kann, geht auch hier. Auf Sprachnachrichten antworte ich mit '
+        'Sprachnachricht – mit /stimme bekommst du auch auf Textnachrichten eine.')
 
 
 def _cfg():
@@ -88,6 +93,40 @@ def send(text, chat_id=None):
     return True
 
 
+def _ffmpeg():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return 'ffmpeg'
+
+
+def send_voice(text, clean_fn=None, chat_id=None):
+    # Antwort als Telegram-Sprachnachricht in Siggis Stimme (edge-tts -> OGG/Opus)
+    cfg = _cfg()
+    chat_id = chat_id or cfg.get('chat_id')
+    settings = settings_store.load_or_empty()
+    spoken = clean_fn(text) if clean_fn else text
+    spoken = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27bf\ufe0f]', '', spoken).strip()  # Emojis nicht vorlesen
+    if len(spoken) > VOICE_MAX_CHARS:
+        spoken = spoken[:VOICE_MAX_CHARS].rsplit(' ', 1)[0] + ' … den Rest habe ich dir aufgeschrieben.'
+    if not spoken:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        mp3, ogg = os.path.join(tmp, 'a.mp3'), os.path.join(tmp, 'a.ogg')
+        subprocess.run(['edge-tts', '--voice', settings.get('tts_voice', 'de-DE-ConradNeural'),
+                        f"--pitch={settings.get('tts_pitch', '+0Hz')}", f"--rate={settings.get('tts_rate', '+0%')}",
+                        '--text', spoken, '--write-media', mp3], check=True, capture_output=True, timeout=90)
+        subprocess.run([_ffmpeg(), '-y', '-loglevel', 'error', '-i', mp3, '-c:a', 'libopus', '-b:a', '32k', '-ac', '1', ogg],
+                       check=True, capture_output=True, timeout=60)
+        with open(ogg, 'rb') as f:
+            r = requests.post(API.format(token=cfg['bot_token'], method='sendVoice'),
+                              data={'chat_id': chat_id}, files={'voice': ('siggi.ogg', f, 'audio/ogg')}, timeout=60)
+        if not r.json().get('ok'):
+            raise RuntimeError(r.json().get('description', 'sendVoice fehlgeschlagen'))
+    return True
+
+
 # ─── Empfangen ───────────────────────────────────────────────────────
 
 def _load_offset():
@@ -119,7 +158,7 @@ def _transcribe(token, file_id):
         os.remove(path)
 
 
-def _handle(update, chat_fn):
+def _handle(update, chat_fn, clean_fn=None):
     msg = update.get('message') or {}
     chat_id = (msg.get('chat') or {}).get('id')
     if not chat_id:
@@ -144,6 +183,12 @@ def _handle(update, chat_fn):
 
     if text in ('/start', '/hilfe', '/help'):
         send(HELP)
+        return
+    if text == '/stimme':
+        cfg['voice_always'] = not cfg.get('voice_always')
+        _save_cfg(cfg)
+        send('🔊 Ab jetzt antworte ich dir immer auch per Sprachnachricht.' if cfg['voice_always']
+             else '🔇 Sprachantworten nur noch, wenn du mir eine Sprachnachricht schickst.')
         return
 
     heard = ''
@@ -179,11 +224,19 @@ def _handle(update, chat_fn):
         return
     if actions:
         reply += '\n\n👉 Das muss ich noch bestätigt bekommen – bitte im Dashboard freigeben.'
+    if voice or cfg.get('voice_always'):
+        agents.step('telegram', 'Spreche dir die Antwort ein …')
+        _call(token, 'sendChatAction', chat_id=chat_id, action='record_voice')
+        try:
+            send_voice(reply, clean_fn)
+        except Exception as e:
+            print(f'[Telegram] Sprachantwort fehlgeschlagen: {e}')
+            agents.event('telegram', f'Sprachantwort fehlgeschlagen, nur Text gesendet: {e}', 'warn')
     send(heard + reply)
     agents.done('telegram', f'Erledigt: {text[:80]}', bubble=IDLE_BUBBLE, status='ready')
 
 
-def poll_forever(chat_fn):
+def poll_forever(chat_fn, clean_fn=None):
     """Endlosschleife (Thread in app.py). Ohne Token wartet sie einfach."""
     offset = _load_offset()
     while True:
@@ -205,7 +258,7 @@ def poll_forever(chat_fn):
             offset = upd['update_id'] + 1
             _save_offset(offset)  # vor der Verarbeitung: eine kaputte Nachricht blockiert nicht ewig
             try:
-                _handle(upd, chat_fn)
+                _handle(upd, chat_fn, clean_fn)
             except Exception as e:
                 print(f'[Telegram] Verarbeitungs-Fehler: {e}')
                 agents.fail('telegram', e)
