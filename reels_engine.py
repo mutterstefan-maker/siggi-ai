@@ -471,6 +471,8 @@ def maybe_auto_refill_pending(minimum=1):
     if result['success']:
         print(f"[Reels] Neues Reel zur Freigabe erstellt: {result['filename']}")
         agents.done('reels', f"Neues Reel zur Freigabe gebaut: {result['filename']}")
+        agents.notify_stefan(f"🎬 Neues Reel wartet auf deine Freigabe: {result['filename']}\n\n👉 https://stean.info → Social → Instagram",
+                             mail_subject='Freigabe nötig: neues Reel')
     elif 'Nicht genug' not in result.get('error', ''):
         print(f"[Reels] Auto-Generierung fehlgeschlagen: {result.get('error')}")
         agents.fail('reels', f"Reel bauen fehlgeschlagen: {str(result.get('error'))[:200]}")

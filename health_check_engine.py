@@ -197,6 +197,16 @@ def _c_mailloop_service(settings):
 
 
 def _send_alert_mail(failed):
+    # Erst Telegram (aufs Handy). Mail bleibt der Ersatzweg - der funktioniert bewusst auch dann, wenn
+    # settings.json (und damit die Telegram-Konfiguration) kaputt ist.
+    try:
+        import agents_engine
+        text = (f"🩺 SIGGI ALARM: {len(failed)} Problem(e) beim Health-Check\n\n"
+                + '\n'.join(f'• {name}: {detail}' for name, detail in failed) + '\n\nDetails: https://stean.info → Health-Check')
+        if agents_engine.notify_stefan(text) == 'telegram':
+            return
+    except Exception as e:
+        print('Telegram-Alarm fehlgeschlagen, sende Mail:', e)
     host = os.environ.get('SMTP_HOST')
     port = int(os.environ.get('SMTP_PORT', 587))
     user = os.environ.get('SMTP_USER')

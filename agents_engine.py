@@ -280,14 +280,14 @@ def handle_hook(agent_id, data):
                 c.execute('UPDATE agent_state SET last_summary=? WHERE agent_id=?', ('Problem: ' + summary, agent_id))
             c.commit()
             if problems and data.get('notify', True) and _mail_due(c, agent_id, problems):
-                _send_mail(f"Siggi-Agent {AGENTS[agent_id]['name']}: {len(problems)} Problem(e)",
-                           'Der Agent hat folgende Probleme gefunden:\n\n' + '\n'.join(f'- {p}' for p in problems)
-                           + '\n\nDetails im Dashboard unter "Agenten".')
-                _log(c, agent_id, 'info', 'Problem-Mail an Stefan gesendet')
+                via = notify_stefan(f"⚠️ {AGENTS[agent_id]['name']}: {len(problems)} Problem(e)\n\n"
+                                    + '\n'.join(f'• {p}' for p in problems) + '\n\nDetails: https://stean.info → Agenten',
+                                    mail_subject=f"Siggi-Agent {AGENTS[agent_id]['name']}: {len(problems)} Problem(e)")
+                _log(c, agent_id, 'info', f'Problem an Stefan gemeldet ({via or "nicht zustellbar"})')
                 c.commit()
             if notices and data.get('notify', True):
-                _send_mail(f"Siggi-Agent {AGENTS[agent_id]['name']}: Entwarnung",
-                           '\n'.join(f'- {n}' for n in notices) + '\n\nDetails im Dashboard unter "Agenten".')
+                notify_stefan(f"✅ {AGENTS[agent_id]['name']}: Entwarnung\n\n" + '\n'.join(f'• {n}' for n in notices),
+                              mail_subject=f"Siggi-Agent {AGENTS[agent_id]['name']}: Entwarnung")
             return {'ok': True}, 200
 
         if kind == 'approval':
@@ -297,6 +297,10 @@ def handle_hook(agent_id, data):
             aid = c.execute('SELECT last_insert_rowid()').fetchone()[0]
             c.execute("UPDATE agent_state SET status='waiting', updated_at=? WHERE agent_id=?", (_now(), agent_id))
             c.commit()
+            if data.get('notify', True):
+                notify_stefan(f"🟡 {AGENTS[agent_id]['name']} wartet auf deine Freigabe: {str(data.get('title', ''))[:150]}\n\n"
+                              f"{str(data.get('body', ''))[:600]}\n\n👉 https://stean.info → Agenten → {AGENTS[agent_id]['name']} → Details",
+                              mail_subject=f"Freigabe nötig: {AGENTS[agent_id]['name']}")
             return {'ok': True, 'approval_id': aid}, 200
 
         if kind == 'metrics':
@@ -694,6 +698,21 @@ def is_n8n_up():
         return requests.get(N8N_INTERNAL + '/healthz', timeout=5).status_code == 200
     except Exception:
         return False
+
+
+def notify_stefan(text, mail_subject=None):
+    """Hinweis mit Handlungsbedarf an Stefan: per Telegram (kostenlos, aufs Handy); nur wenn Telegram
+    nicht verbunden ist oder scheitert, per Mail. Liefert 'telegram', 'mail' oder None."""
+    try:
+        import telegram_engine  # spaet importieren: telegram_engine importiert agents_engine
+        if telegram_engine.status().get('paired') and telegram_engine.send(text):
+            return 'telegram'
+    except Exception as e:
+        print(f'[Hinweis] Telegram fehlgeschlagen, nehme Mail: {e}')
+    if mail_subject:
+        _send_mail(mail_subject, text)
+        return 'mail'
+    return None
 
 
 def _send_mail(subject, body):

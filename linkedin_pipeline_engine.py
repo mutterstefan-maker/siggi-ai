@@ -488,6 +488,9 @@ def run_as_agent():
     problems = _queue_problem(len(get_queue()))
     agents.done('linkedin', 'Neuer Entwurf liegt zur Freigabe bereit', plan=plan('done', 'done', 'done'),
                 problems=problems, notify=True)
+    if new_id and get_progress().get('approved_count', 0) < AUTO_POST_THRESHOLD:
+        agents.notify_stefan(f"📝 Neuer LinkedIn-Entwurf wartet auf deine Freigabe ({len(get_queue())} in der Warteschlange)."
+                             "\n\n👉 https://stean.info → Social → LinkedIn", mail_subject='Freigabe nötig: LinkedIn-Entwurf')
     return new_id
 
 

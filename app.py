@@ -368,6 +368,10 @@ def create_mail_draft(to_addr, subject, body, attachments=None):
     draft_id = c.lastrowid
     conn.commit()
     conn.close()
+    names = ', '.join(os.path.basename(p) for p in attachments or [])
+    agents_engine.notify_stefan(f"✉️ Mail-Entwurf wartet auf deine Freigabe\nAn: {to_addr}\nBetreff: {subject}"
+                                + (f"\nAnhang: {names}" if names else '') + "\n\n👉 https://stean.info → Mail → Mail-Entwürfe",
+                                mail_subject=f'Freigabe nötig: Mail an {to_addr}')
     return draft_id
 
 _SIGNOFF_LINE = re.compile(
@@ -2914,7 +2918,7 @@ def _check_linkedin_comments():
                 f"Wenn dir der Vorschlag gefällt, sag mir im Chat einfach \"antworte auf LinkedIn mit: [Text]\"."
             )
             try:
-                send_new_mail(SIGGI_SEND_ACCOUNT, '💬 Neuer LinkedIn-Kommentar', body)
+                agents_engine.notify_stefan(body, mail_subject='💬 Neuer LinkedIn-Kommentar')
             except Exception as e:
                 print(f'[LinkedIn] Mail-Fehler: {e}')
 
@@ -3022,7 +3026,8 @@ def _check_instagram_comments():
                 f"Wenn dir der Vorschlag gefällt, sag mir im Chat einfach \"antworte auf Instagram mit: [Text]\"."
             )
             try:
-                send_new_mail(SIGGI_SEND_ACCOUNT, '💬 Neuer Instagram-Kommentar', body)
+                if suggestion.startswith('('):  # kein Vorschlag -> keine Freigabe-Meldung, also hier melden
+                    agents_engine.notify_stefan(body, mail_subject='💬 Neuer Instagram-Kommentar')
                 _save_json_file(IG_PENDING_REPLY_PATH, {'comment_id': cid, 'media_id': media['id']})
             except Exception as e:
                 print(f'[Instagram] Mail-Fehler: {e}')

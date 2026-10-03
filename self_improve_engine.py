@@ -257,6 +257,9 @@ def run_as_agent():
     except Exception as e:
         agents.fail('improve', e, plan=plan('error', 'open', 'open'))
         raise
+    if n - a > 0:
+        agents.notify_stefan(f"💡 {n - a} Verbesserungsvorschlag/-vorschläge für Siggi warten auf deine Entscheidung."
+                             "\n\n👉 https://stean.info → Tools → Selbstverbesserung", mail_subject='Siggi: neue Verbesserungsvorschläge')
     agents.done('improve', f'{n} neue Vorschläge, {a} davon automatisch übernommen' if n else 'Keine neuen Verbesserungen nötig',
                 plan=plan('done', 'done', 'done'))
     return n, a
