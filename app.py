@@ -496,16 +496,14 @@ SIGGI_TOOLS = [
     },
     {
         'name': 'setze_erinnerung',
-        'description': ('Setzt eine Erinnerung. Sie kommt zum Zeitpunkt per Telegram (ohne Telegram per Mail). '
-                        'Rechne den genauen Zeitpunkt selbst aus dem aktuellen Datum (JETZT) aus und gib ihn in '
-                        '"zeitpunkt" an - z.B. "morgen 13 Uhr" -> naechster Tag 13:00, "Mittwoch" -> der kommende '
-                        'Mittwoch. Ohne Uhrzeitangabe 09:00. Nenne Stefan danach Wochentag, Datum und Uhrzeit.'),
+        'description': ('Erinnerung per Telegram. Zeitpunkt selbst aus JETZT ausrechnen ("Mittwoch" = kommender '
+                        'Mittwoch, ohne Uhrzeit 09:00) und Stefan danach Wochentag, Datum, Uhrzeit nennen.'),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'nachricht': {'type': 'string', 'description': 'Woran erinnert werden soll.'},
-                'zeitpunkt': {'type': 'string', 'description': 'Genauer Zeitpunkt "YYYY-MM-DD HH:MM" (deutsche Zeit).'},
-                'wann': {'type': 'string', 'description': 'Die Zeitangabe so, wie Stefan sie gesagt hat (z.B. "morgen um 13 Uhr").'}
+                'nachricht': {'type': 'string'},
+                'zeitpunkt': {'type': 'string', 'description': '"YYYY-MM-DD HH:MM", deutsche Zeit'},
+                'wann': {'type': 'string', 'description': 'Zeitangabe wie Stefan sie sagte'}
             },
             'required': ['nachricht', 'zeitpunkt']
         }
@@ -522,18 +520,16 @@ SIGGI_TOOLS = [
     {
         'name': 'datei_senden',
         'description': (
-            'Schickt Stefan eine Datei per Telegram. Dokumente gehen NUR als PDF raus - meldet das Werkzeug "Kein PDF '
-            'gefunden", sag Stefan genau das. quelle: "cowork" (Datei aus dem COWORK-Ordner - name = Pfad aus '
-            'cowork_datei_suchen oder ein Suchbegriff), "audit" (Website-Audit als PDF - name = Domain, z.B. chefblick.de), '
-            '"instagram" bzw. "reels" (Bild/Video aus der Warteschlange - name = Dateiname oder "naechstes"), '
-            '"telegram_ablage" (eine Datei, die Stefan geschickt hat).'
+            'Schickt Stefan eine Datei per Telegram. Dokumente nur als PDF - bei "Kein PDF gefunden" genau das sagen. '
+            'name je quelle: cowork = Pfad aus cowork_datei_suchen oder Suchbegriff; audit = Domain; '
+            'instagram/reels = Dateiname oder "naechstes"; telegram_ablage = Datei, die Stefan geschickt hat.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
                 'quelle': {'type': 'string', 'enum': ['cowork', 'audit', 'instagram', 'reels', 'telegram_ablage']},
                 'name': {'type': 'string'},
-                'nachricht': {'type': 'string', 'description': 'Optionaler kurzer Begleittext'}
+                'nachricht': {'type': 'string', 'description': 'optionaler Begleittext'}
             },
             'required': ['quelle', 'name']
         }
@@ -541,9 +537,8 @@ SIGGI_TOOLS = [
     {
         'name': 'datei_ablegen',
         'description': (
-            'Legt eine Datei, die Stefan per Telegram geschickt hat, in eine Warteschlange: ziel "instagram" '
-            '(Bild wird nach Zeitplan gepostet) oder "reels" (Video wird auf Story-Format gebracht und nach Zeitplan '
-            'als Story gepostet). Nur wenn Stefan das ausdruecklich will.'
+            'Legt eine per Telegram geschickte Datei in die Warteschlange (instagram = Bild-Post, reels = Video als '
+            'Story, beides nach Zeitplan). Nur wenn Stefan das ausdruecklich will.'
         ),
         'input_schema': {
             'type': 'object',
@@ -571,20 +566,17 @@ SIGGI_TOOLS = [
     {
         'name': 'agenten_status',
         'description': (
-            'Live-Stand aller Agenten und des Posting-Zeitplans: was jeder Agent gerade tut, wann er das naechste Mal '
-            'laeuft, was auf Stefans Freigabe wartet - inkl. naechster Instagram-Post (Zeit + Bild), naechstes Reel/Story '
-            '(Zeit + Video, freigegebene/wartende Reels), LinkedIn-Warteschlange und naechster LinkedIn-Post, '
-            'letzte Posts. Nutze das fuer alle Fragen wie "Wann geht das naechste Reel raus?", "Was postest du heute?", '
-            '"Was machen die Agenten?", "Wartet was auf mich?".'
+            'Live-Stand aller Agenten und Posting-Zeitplaene (Instagram, Reels, LinkedIn): was laeuft, wann, was auf '
+            'Freigabe wartet, letzte Posts. Fuer Fragen wie "Wann kommt das naechste Reel?" oder "Wartet was auf mich?".'
         ),
         'input_schema': {'type': 'object', 'properties': {}}
     },
     {
         'name': 'agent_steuern',
         'description': (
-            'Pausiert, setzt fort oder startet einen Agenten. Pausieren stoppt die Automatik wirklich (z.B. kein '
-            'automatisches Posten mehr). Agent-IDs: mail, instagram, reels, bild, linkedin, comments, telegram, improve, '
-            'health, watch, server, report. Starten geht nur bei Agenten, die nichts oeffentlich posten.'
+            'Pausiert, setzt fort oder startet einen Agenten (Pause stoppt die Automatik wirklich). IDs: mail, instagram, '
+            'reels, bild, linkedin, followup, wohnung, comments, telegram, improve, health, watch, server, report. '
+            'Starten nur bei Agenten, die nichts oeffentlich posten.'
         ),
         'input_schema': {
             'type': 'object',
@@ -598,40 +590,34 @@ SIGGI_TOOLS = [
     {
         'name': 'kontakt_suchen',
         'description': (
-            'Durchsucht die hinterlegten Kontakte (Name, E-Mail, Firma, Telefon) nach einem Suchbegriff. '
-            'Immer zuerst aufrufen, wenn Stefan einen Empfänger nur mit Namen nennt (z.B. "Herr Müller", "die Firma Schmidt") '
-            'und du dessen E-Mail-Adresse noch nicht kennst - rate niemals eine E-Mail-Adresse.'
+            'Sucht in den Kontakten (Name, E-Mail, Firma, Telefon). Immer zuerst aufrufen, wenn ein Empfaenger nur mit '
+            'Namen genannt wird - E-Mail-Adressen nie raten.'
         ),
         'input_schema': {
             'type': 'object',
-            'properties': {'query': {'type': 'string', 'description': 'Name, Firma oder Teil der E-Mail-Adresse, nach der gesucht wird.'}},
+            'properties': {'query': {'type': 'string', 'description': 'Name, Firma oder Teil der Adresse'}},
             'required': ['query']
         }
     },
     {
         'name': 'sende_mail',
         'description': (
-            f'Erstellt eine neue E-Mail, die immer von {SIGGI_SEND_ACCOUNT} verschickt wird. '
-            'Solange der Autopilot noch nicht freigeschaltet ist, wird die Mail NICHT direkt verschickt, '
-            'sondern als Entwurf gespeichert und wartet auf manuelle Freigabe von Stefan im Dashboard. '
-            'Nur aufrufen, wenn Stefan im Chat ausdrücklich sagt, dass eine Mail verschickt werden soll '
-            '(z.B. "schreib X eine Mail dass..."). Wenn nur ein Name genannt wird, ERST kontakt_suchen aufrufen '
-            'um die E-Mail-Adresse zu finden. Bei fehlenden Angaben (Empfänger, Inhalt) nachfragen statt zu raten. '
-            'Die Mail geht in Stefans Namen raus: KEINE Grußformel und KEINE Unterschrift schreiben, niemals mit '
-            '"SIGGI" unterschreiben - Stefans offizielle Signatur wird automatisch angehängt. '
-            'Dokumente NIE verlinken (Kunden koennen Siggis Links nicht oeffnen), sondern als PDF ueber "anhaenge" '
-            'anhaengen und im Text "im Anhang" schreiben. Gibt es kein PDF, Stefan das sagen statt die Mail zu schicken.'
+            f'Neue E-Mail von {SIGGI_SEND_ACCOUNT}, in Stefans Namen. Ohne Autopilot-Freigabe wird sie nur als Entwurf '
+            'gespeichert und wartet auf Stefans Freigabe. Nur aufrufen, wenn Stefan ausdruecklich eine Mail will. '
+            'Nur Name genannt -> ERST kontakt_suchen. Empfaenger oder Inhalt unklar -> nachfragen statt raten. '
+            'KEINE Grussformel, KEINE Unterschrift, nie "SIGGI" - Stefans Signatur wird automatisch angehaengt. '
+            'Dokumente NIE verlinken (Kunden koennen Siggis Links nicht oeffnen): als PDF ueber "anhaenge" anhaengen '
+            'und "im Anhang" schreiben. Kein PDF vorhanden -> Stefan das sagen statt die Mail zu schicken.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'empfaenger': {'type': 'string', 'description': 'E-Mail-Adresse des Empfängers.'},
-                'betreff': {'type': 'string', 'description': 'Betreff der Mail.'},
-                'text': {'type': 'string', 'description': 'Inhalt der Mail.'},
+                'empfaenger': {'type': 'string', 'description': 'E-Mail-Adresse'},
+                'betreff': {'type': 'string'},
+                'text': {'type': 'string'},
                 'anhaenge': {
                     'type': 'array', 'items': {'type': 'string'},
-                    'description': ('PDFs, die angehaengt werden: Pfad aus cowork_datei_suchen (oder Dateiname), '
-                                    'oder "audit:<domain>" fuer ein Website-Audit. Nur PDFs.')
+                    'description': 'Nur PDFs: Pfad aus cowork_datei_suchen/Dateiname oder "audit:<domain>".'
                 }
             },
             'required': ['empfaenger', 'betreff', 'text']
@@ -640,41 +626,32 @@ SIGGI_TOOLS = [
     {
         'name': 'cowork_datei_suchen',
         'description': (
-            'Durchsucht Stefans D:\\COWORK-Ordner (auf den Server gespiegelt, funktioniert auch wenn '
-            'sein PC gerade aus ist) nach Dateien anhand des Dateinamens. Nutzen, wenn Stefan nach einer '
-            'Datei fragt, z.B. "such mir die PDF ..." oder "hast du das Dokument über ...". '
-            'Durchsucht NICHT den GRAVEDA-Unterordner (der wird bewusst nicht gespiegelt).'
+            'Sucht Dateien nach Namen in Stefans COWORK-Ordner (Server-Kopie, geht auch bei ausgeschaltetem PC; '
+            'ohne GRAVEDA-Unterordner).'
         ),
         'input_schema': {
             'type': 'object',
-            'properties': {'suchbegriff': {'type': 'string', 'description': 'Ganzer oder teilweiser Dateiname, nach dem gesucht wird.'}},
+            'properties': {'suchbegriff': {'type': 'string', 'description': '(Teil des) Dateinamens'}},
             'required': ['suchbegriff']
         }
     },
     {
         'name': 'cowork_datei_anzeigen',
-        'description': (
-            'Zeigt den Textinhalt einer Datei aus dem COWORK-Ordner an (unterstuetzt PDF, Markdown, Text, Python, JSON, CSV). '
-            'Erst cowork_datei_suchen aufrufen, um den genauen Pfad zu bekommen, dann diesen Pfad hier verwenden.'
-        ),
+        'description': 'Liest den Text einer COWORK-Datei (PDF, Text, Markdown, JSON, CSV, Python). Pfad aus cowork_datei_suchen.',
         'input_schema': {
             'type': 'object',
-            'properties': {'pfad': {'type': 'string', 'description': 'Relativer Pfad der Datei, wie von cowork_datei_suchen zurückgegeben.'}},
+            'properties': {'pfad': {'type': 'string'}},
             'required': ['pfad']
         }
     },
     {
         'name': 'websuche',
-        'description': (
-            'Sucht im Internet nach aktuellen Informationen (Google-Suche), Nachrichten zu einem Thema oder dem aktuellen Wetter. '
-            'Nutzen, wenn Stefan nach etwas fragt, das du nicht aus deinem Wissen/Gedächtnis beantworten kannst - '
-            'z.B. aktuelle Ereignisse, Wetter, Fakten über Dritte, Preise, etc.'
-        ),
+        'description': 'Internetsuche (Google), Nachrichten oder Wetter - fuer alles Aktuelle, das du nicht weisst.',
         'input_schema': {
             'type': 'object',
             'properties': {
-                'art': {'type': 'string', 'enum': ['suche', 'news', 'wetter'], 'description': '"suche" für allgemeine Google-Suche, "news" für aktuelle Nachrichten zu einem Thema, "wetter" für Wettervorhersage.'},
-                'query': {'type': 'string', 'description': 'Suchbegriff, Nachrichten-Thema oder Ort (bei Wetter).'}
+                'art': {'type': 'string', 'enum': ['suche', 'news', 'wetter']},
+                'query': {'type': 'string', 'description': 'Suchbegriff, Thema oder Ort'}
             },
             'required': ['art', 'query']
         }
@@ -682,17 +659,15 @@ SIGGI_TOOLS = [
     {
         'name': 'freie_termine_vorschlagen',
         'description': (
-            'Findet freie Zeitfenster im Kalender der nächsten Tage, unter Beachtung der Terminierungs-Regeln '
-            '(Arbeitszeit, geblockte Zeiten, Freitags-Regel) und bereits belegter Termine. '
-            'Immer aufrufen BEVOR du einen Termin mit jemandem ausmachst, wenn Stefan keine feste Uhrzeit vorgibt '
-            '(z.B. "mach mal einen Termin mit X aus") - schlage dann 2-3 der gefundenen Zeiten vor statt zu raten.'
+            'Freie Zeitfenster der naechsten Tage nach den Terminregeln. Immer zuerst aufrufen, wenn ein Termin ohne '
+            'feste Uhrzeit ausgemacht werden soll, und 2-3 Zeiten vorschlagen statt zu raten.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'dauer_minuten': {'type': 'integer', 'description': 'Gewünschte Termindauer in Minuten, Standard 60.'},
-                'tage_voraus': {'type': 'integer', 'description': 'Wie viele Tage im Voraus gesucht werden soll, Standard 7.'},
-                'notfall': {'type': 'boolean', 'description': 'true wenn es ein dringender Ausnahmefall ist (erlaubt dann auch Freitag).'}
+                'dauer_minuten': {'type': 'integer', 'description': 'Standard 60'},
+                'tage_voraus': {'type': 'integer', 'description': 'Standard 7'},
+                'notfall': {'type': 'boolean', 'description': 'dringend, erlaubt auch Freitag'}
             },
             'required': []
         }
@@ -700,52 +675,43 @@ SIGGI_TOOLS = [
     {
         'name': 'termin_anlegen',
         'description': (
-            'Legt einen neuen Termin in Stefans Google Kalender an. Die Zeit wird automatisch gegen die '
-            'Terminierungs-Regeln geprüft (nie vor 8 Uhr, nicht 11-14 Uhr, freitags nur im Notfall) - '
-            'bei einem Verstoß wird NICHTS angelegt, sondern der Grund zurückgegeben. Private Termine (privat=true) '
-            'sind von diesen Regeln ausgenommen und dürfen jederzeit angelegt werden. Nutze bei unklarer Zeit '
-            'zuerst freie_termine_vorschlagen.'
+            'Legt einen Termin in Stefans Google Kalender an. Geschaeftstermine werden gegen die Terminregeln geprueft '
+            '(bei Verstoss wird nichts angelegt, der Grund kommt zurueck); private Termine (privat=true) gehen jederzeit. '
+            'Bei unklarer Zeit zuerst freie_termine_vorschlagen.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'titel': {'type': 'string', 'description': 'Titel des Termins.'},
-                'wann': {'type': 'string', 'description': 'Natürlichsprachliche Zeitangabe auf Deutsch, z.B. "morgen um 14:00", "in 2 stunden", "heute abend".'},
-                'dauer_minuten': {'type': 'integer', 'description': 'Dauer in Minuten, Standard 60.'},
-                'beschreibung': {'type': 'string', 'description': 'Optionale Beschreibung/Notiz zum Termin.'},
-                'notfall': {'type': 'boolean', 'description': 'true wenn es ein dringender Ausnahmefall ist (erlaubt dann auch Freitag).'},
-                'privat': {'type': 'boolean', 'description': 'true wenn es ein privater Termin ist - dann gelten die Arbeitszeit-Regeln nicht, private Termine dürfen jederzeit angelegt werden.'}
+                'titel': {'type': 'string'},
+                'wann': {'type': 'string', 'description': 'z.B. "morgen um 14:00", "in 2 stunden"'},
+                'dauer_minuten': {'type': 'integer', 'description': 'Standard 60'},
+                'beschreibung': {'type': 'string'},
+                'notfall': {'type': 'boolean', 'description': 'dringend, erlaubt auch Freitag'},
+                'privat': {'type': 'boolean', 'description': 'privater Termin, Arbeitszeit-Regeln gelten nicht'}
             },
             'required': ['titel', 'wann']
         }
     },
     {
         'name': 'oeffne_im_browser',
-        'description': (
-            'Öffnet eine Webseite in einem neuen Browser-Tab bei Stefan (z.B. ein Suchergebnis, eine Kunden-Website, '
-            'ein Dokument). Nur mit einer vollständigen, echten URL aufrufen (https://...), die entweder von Stefan '
-            'genannt wurde oder aus einer vorherigen Websuche stammt - niemals eine erfundene URL.'
-        ),
+        'description': ('Oeffnet eine Webseite in einem neuen Tab bei Stefan. Nur echte https-URLs von Stefan oder '
+                        'aus einer Websuche - nie erfundene.'),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'url': {'type': 'string', 'description': 'Vollständige URL, die geöffnet werden soll.'},
-                'titel': {'type': 'string', 'description': 'Kurzer Titel/Grund, warum die Seite geöffnet wird.'}
+                'url': {'type': 'string'},
+                'titel': {'type': 'string', 'description': 'kurzer Grund'}
             },
             'required': ['url']
         }
     },
     {
         'name': 'linkedin_posten',
-        'description': (
-            'Veröffentlicht einen Text-Beitrag auf Stefans LinkedIn-Profil (nicht als offizielle Unternehmensseite, '
-            'sondern als Person Stefan Mutter - technische Einschränkung von LinkedIn). '
-            'Nur aufrufen wenn Stefan ausdrücklich sagt, dass etwas auf LinkedIn gepostet werden soll. '
-            'Zeig ihm den Text vorher nicht zwingend, aber fasse kurz zusammen was du gepostet hast.'
-        ),
+        'description': ('Postet sofort einen Text auf Stefans persoenlichem LinkedIn-Profil. Nur wenn Stefan das '
+                        'ausdruecklich will; danach kurz zusammenfassen, was gepostet wurde.'),
         'input_schema': {
             'type': 'object',
-            'properties': {'text': {'type': 'string', 'description': 'Der vollständige Beitragstext.'}},
+            'properties': {'text': {'type': 'string'}},
             'required': ['text']
         }
     },
@@ -775,12 +741,9 @@ SIGGI_TOOLS = [
     {
         'name': 'desktop_agent_action',
         'description': (
-            'Führt eine Aktion auf Stefans lokalem Windows-Desktop über den verbundenen Desktop-Agenten aus. '
-            'Unkritische Aktionen (screenshot, read_file, list_dir) werden sofort ausgeführt. '
-            'Kritische Aktionen (write_file, open_app, office_write, click, type_text, close_app) werden NICHT sofort '
-            'ausgeführt, sondern erzeugen eine Bestätigungskarte im Chat - frag Stefan vorher IMMER kurz im Klartext, '
-            'ob er die geplante Aktion wirklich so ausführen möchte, bevor du dieses Tool mit einer kritischen Aktion aufrufst. '
-            'Wenn kein Desktop-Agent verbunden ist, informiere Stefan darüber statt es erneut zu versuchen.'
+            'Aktion auf Stefans Windows-PC ueber den Desktop-Agenten. screenshot/read_file/list_dir laufen sofort; alle '
+            'anderen erzeugen eine Bestaetigungskarte - vorher IMMER kurz im Klartext fragen, ob Stefan das so will. '
+            'Ist kein Desktop-Agent verbunden, das sagen statt es erneut zu versuchen.'
         ),
         'input_schema': {
             'type': 'object',
@@ -1228,6 +1191,20 @@ def _chat_user_content(message, attachment_name):
     return blocks + [{'type': 'text', 'text': note + '\n\n' + (message or 'Was ist das?')}]
 
 
+CHAT_MODEL_FAST = 'claude-haiku-4-5'
+CHAT_MODEL_SMART = 'claude-sonnet-5'
+# Werkzeuge, deren Text Kunden/Oeffentlichkeit lesen - nie von Haiku formulieren lassen
+CHAT_SMART_TOOLS = {'sende_mail', 'linkedin_posten', 'linkedin_kommentieren', 'instagram_kommentieren'}
+_CHAT_SMART_WORDS = re.compile(
+    r'mail|schreib|antwort|formulier|anschreib|angebot|kunde|kundin|akquise|recherch|lead|nachfass|'
+    r'linkedin|kommentar|beitrag|post', re.IGNORECASE)
+
+
+def _chat_model_for(message):
+    """Sonnet fuer Mails/Kunden/Recherche/Texte, Haiku fuer Befehle (Erinnerung, Todo, Datei, Status ...)."""
+    return CHAT_MODEL_SMART if _CHAT_SMART_WORDS.search(message or '') else CHAT_MODEL_FAST
+
+
 @app.route('/api/jarvis/chat', methods=['POST'])
 def jarvis_chat():
     data = request.json or {}
@@ -1311,20 +1288,23 @@ def jarvis_chat():
         }
         messages = [{'role': 'user', 'content': _chat_user_content(message, data.get('attachment'))}]
 
-        # Tool-Use-Loop: SIGGI darf mehrfach Tools aufrufen bevor er final antwortet
+        # Tool-Use-Loop: SIGGI darf mehrfach Tools aufrufen bevor er final antwortet.
+        # Befehle laufen auf Haiku (halber Preis); alles, was Kunden lesen (Mails, Kommentare, Posts) oder
+        # Urteilsvermoegen braucht (Kunden-Recherche), schreibt Sonnet.
+        model = _chat_model_for(message)
         reply = ''
-        for _ in range(5):
+        for _ in range(6):
             response = requests.post(
                 'https://api.anthropic.com/v1/messages',
                 headers=headers,
                 json={
-                    'model': 'claude-sonnet-5',
+                    'model': model,
                     'max_tokens': 1500,
                     'system': system_blocks,
                     'tools': SIGGI_TOOLS,
                     'messages': messages
                 },
-                timeout=15
+                timeout=30
             )
 
             if response.status_code != 200:
@@ -1333,6 +1313,11 @@ def jarvis_chat():
 
             result = response.json()
             content_blocks = result.get('content', [])
+            if model != CHAT_MODEL_SMART and any(
+                    b.get('type') == 'tool_use' and b.get('name') in CHAT_SMART_TOOLS for b in content_blocks):
+                # Haiku will etwas schreiben, das Kunden lesen -> diesen Schritt neu mit Sonnet
+                model = CHAT_MODEL_SMART
+                continue
             messages.append({'role': 'assistant', 'content': content_blocks})
 
             if result.get('stop_reason') == 'tool_use':
