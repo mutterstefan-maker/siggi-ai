@@ -2952,8 +2952,17 @@ def _suggest_linkedin_reply(comment_text, settings):
         return f'(Vorschlag fehlgeschlagen: {e})'
 
 
+# LinkedIn gibt normalen Apps kein Recht, Kommentare zu lesen (403 ACCESS_DENIED auf socialActions) -
+# ohne Sperre lief das alle 5 Min. fuer 5 Posts ins Leere (~1.500 Fehlzeilen am Tag). Nach einem 403
+# einen Tag Pause, dann ein neuer Versuch (falls die App das Recht doch bekommt).
+_LINKEDIN_COMMENTS_PAUSED_UNTIL = 0
+
+
 def _check_linkedin_comments():
+    global _LINKEDIN_COMMENTS_PAUSED_UNTIL
     if not LINKEDIN_AVAILABLE or not linkedin_engine.is_connected():
+        return
+    if time.time() < _LINKEDIN_COMMENTS_PAUSED_UNTIL:
         return
     settings = load_settings()
     seen = _load_seen_comment_ids()
@@ -2963,6 +2972,10 @@ def _check_linkedin_comments():
         try:
             comments = linkedin_engine.fetch_comments_raw(post['urn'])
         except Exception as e:
+            if '403' in str(e):
+                _LINKEDIN_COMMENTS_PAUSED_UNTIL = time.time() + 86400
+                print('[LinkedIn] Kommentare lesen nicht erlaubt (403) - naechster Versuch in 24 h')
+                return
             print(f'[LinkedIn] Fehler beim Lesen der Kommentare: {e}')
             continue
 
