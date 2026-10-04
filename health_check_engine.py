@@ -129,6 +129,41 @@ def _c_instagram(settings):
         return False, f'Verbindung fehlgeschlagen: {e}'
 
 
+# Rechte, ohne die Posten scheitert. Fehlt eines, merkt man es sonst erst am naechsten Post -
+# so geschehen 2026-09-28: neuer Token aus einer App ohne pages_manage_posts, Facebook-Posts
+# scheiterten eine Woche lang still, Instagram lief weiter.
+NEEDED_META_SCOPES = {
+    'instagram_content_publish': 'Instagram-Posts',
+    'pages_manage_posts': 'Facebook-Posts',
+}
+
+
+@check('Meta-Token-Rechte (Instagram + Facebook posten)')
+def _c_meta_scopes(settings):
+    ig = (settings or {}).get('instagram_settings', {})
+    token = ig.get('access_token', '')
+    if not token:
+        return False, 'Kein Access-Token hinterlegt'
+    if not ig.get('fb_page_id'):
+        return False, 'Keine Facebook-Seiten-ID hinterlegt - Facebook-Posts scheitern'
+    try:
+        r = requests.get('https://graph.facebook.com/v19.0/debug_token',
+                         params={'input_token': token, 'access_token': token}, timeout=20)
+        data = r.json().get('data') or {}
+        if not data.get('is_valid'):
+            return False, f"Token ungueltig: {(data.get('error') or {}).get('message', r.text[:150])}"
+        scopes = set(data.get('scopes') or [])
+        missing = [f'{s} ({what})' for s, what in NEEDED_META_SCOPES.items() if s not in scopes]
+        if missing:
+            return False, 'Token fehlt das Recht ' + ', '.join(missing) + ' - Token aus der App "Chefblick Core Bot" verwenden'
+        expires = data.get('expires_at') or 0
+        if expires and expires - time.time() < 7 * 86400:
+            return False, f"Token laeuft am {datetime.fromtimestamp(expires).strftime('%d.%m.%Y')} ab"
+        return True, 'OK'
+    except Exception as e:
+        return False, f'Pruefung fehlgeschlagen: {e}'
+
+
 @check('LinkedIn-Verbindung')
 def _c_linkedin(settings):
     try:
