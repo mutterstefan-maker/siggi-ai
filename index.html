@@ -874,6 +874,11 @@ input:checked + .slider:before { transform: translateX(16px); }
 .ag-cost-tile { background: var(--surface2); border-radius: 12px; padding: 12px 14px; min-width: 0; }
 .ag-cost-num { font-size: 20px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 .ag-cost-rows { display: flex; flex-direction: column; gap: 6px; }
+.ag-collapse { display: flex; align-items: center; gap: 6px; background: none; border: 0; padding: 0; margin-bottom: 0; cursor: pointer; font-family: inherit; text-align: left; }
+.ag-collapse:hover { color: var(--text); }
+.ag-collapse-chev { display: inline-block; transition: transform .15s; }
+.ag-collapse-chev.open { transform: rotate(90deg); }
+.ag-collapse-hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .ag-cost-row { display: grid; grid-template-columns: minmax(90px, 160px) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
 .ag-cost-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-cost-bar { height: 8px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
@@ -4723,8 +4728,26 @@ function agentCostsHTML(c) {
           ? `<div class="ag-cost-num">–</div><div class="ag-muted">Hochrechnung ab morgen (braucht 1 voller Tag)</div>`
           : `<div class="ag-cost-num">${c.projection_reliable ? '' : '≈ '}${fmtMoney(c.month_projection, cur)}</div><div class="ag-muted">hochgerechnet Monat${c.projection_reliable ? '' : ' (noch ungenau)'}</div>`}</div>
       </div>
-      ${rows ? `<div class="ag-cost-rows"><div class="ag-section">Diesen Monat nach Verursacher</div>${rows}</div>` : ''}
+      ${rows ? `<div class="ag-cost-rows">
+        <button type="button" class="ag-section ag-collapse" onclick="toggleAgentCostRows()" aria-expanded="${agentCostRowsOpen}">
+          <span class="ag-collapse-chev${agentCostRowsOpen ? ' open' : ''}">▸</span> Diesen Monat nach Verursacher
+          ${agentCostRowsOpen ? '' : `<span class="ag-muted ag-collapse-hint">(${(c.by_source || []).length} · anzeigen)</span>`}
+        </button>${agentCostRowsOpen ? rows : ''}</div>` : ''}
     </div>`;
+}
+
+// Aufschlüsselung standardmäßig zu; Zustand pro Browser merken
+let agentCostRowsOpen = false;
+try { agentCostRowsOpen = localStorage.getItem('agCostRowsOpen') === '1'; } catch (e) {}
+
+function toggleAgentCostRows() {
+  agentCostRowsOpen = !agentCostRowsOpen;
+  try { localStorage.setItem('agCostRowsOpen', agentCostRowsOpen ? '1' : '0'); } catch (e) {}
+  if (agentsData) {
+    const cHtml = agentCostsHTML(agentsData.costs);
+    document.getElementById('ag-costs').innerHTML = cHtml;
+    agentsRendered['costs'] = cHtml;
+  }
 }
 
 function agentCardInner(a) {
