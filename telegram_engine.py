@@ -114,7 +114,7 @@ def _load_actions():
         return {}
 
 
-def approval_buttons(kind, ref):
+def approval_buttons(kind, ref, labels=('✅ Freigeben', '❌ Ablehnen')):
     actions = _load_actions()
     token = secrets.token_hex(5)
     actions[token] = {'kind': kind, 'ref': ref, 'at': time.time()}
@@ -122,8 +122,8 @@ def approval_buttons(kind, ref):
         actions = dict(sorted(actions.items(), key=lambda kv: kv[1].get('at', 0))[-300:])
     with open(ACTIONS_PATH, 'w') as f:
         json.dump(actions, f)
-    return [[{'text': '✅ Freigeben', 'callback_data': f'a:{token}:y'},
-             {'text': '❌ Ablehnen', 'callback_data': f'a:{token}:n'}]]
+    return [[{'text': labels[0], 'callback_data': f'a:{token}:y'},
+             {'text': labels[1], 'callback_data': f'a:{token}:n'}]]
 
 
 def send_video_for_approval(path, caption, kind, ref):
@@ -158,7 +158,10 @@ def _handle_callback(cq, action_fn):
         json.dump({k: v for k, v in actions.items() if not (v['kind'] == entry['kind'] and v['ref'] == entry['ref'])}, f)
     approve = parts[2] == 'y'
     _call(token, 'answerCallbackQuery', callback_query_id=cq['id'], text='Wird erledigt …')
-    _call(token, 'editMessageReplyMarkup', chat_id=chat_id, message_id=msg.get('message_id'), reply_markup={'inline_keyboard': []})
+    # Link-Knoepfe (z.B. "Inserat oeffnen") bleiben stehen, nur die Entscheidungs-Knoepfe verschwinden
+    link_rows = [row for row in ((msg.get('reply_markup') or {}).get('inline_keyboard') or [])
+                 if all('url' in b for b in row)]
+    _call(token, 'editMessageReplyMarkup', chat_id=chat_id, message_id=msg.get('message_id'), reply_markup={'inline_keyboard': link_rows})
     try:
         result = action_fn(entry['kind'], entry['ref'], approve)
     except Exception as e:

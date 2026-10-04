@@ -84,6 +84,12 @@ AGENTS = {
         'role': 'Findet Kunden, die sich nach deiner Mail nicht gemeldet haben, und schlägt Nachfass-Mails vor',
         'default_config': {}, 'next_run': 'täglich 09:30',
     },
+    'wohnung': {
+        # Laeuft in der separaten Wohnungssuche (/opt/wohnungssuche) und meldet sich per Hook.
+        'kind': 'internal', 'name': 'Wohnungs-Agent', 'icon': 'home', 'view': None, 'runnable': False,
+        'role': 'Schickt dir neue Wohnungen per Telegram und schlägt Alarm, wenn die Wohnungssuche nicht richtig sucht',
+        'default_config': {}, 'next_run': 'wie in der Wohnungssuche eingestellt',
+    },
     'comments': {
         'kind': 'internal', 'name': 'Kommentar-Agent', 'icon': 'chat', 'view': None, 'runnable': False,
         'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',
@@ -172,6 +178,13 @@ def init_table():
             status TEXT DEFAULT 'pending',
             created_at TEXT,
             decided_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS wohnung_entscheidungen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            listing_id INTEGER,
+            entscheidung TEXT,
+            created_at TEXT,
+            abgeholt_at TEXT
         );
     ''')
     cols = [r[1] for r in c.execute('PRAGMA table_info(agent_state)')]
@@ -307,6 +320,21 @@ def handle_hook(agent_id, data):
                               f"{str(data.get('body', ''))[:1500]}",
                               mail_subject=f"Freigabe nötig: {AGENTS[agent_id]['name']}", approve=('agent', aid))
             return {'ok': True, 'approval_id': aid}, 200
+
+        if kind == 'wohnung_treffer':
+            return {'ok': _wohnung_treffer_senden(c, agent_id, data)}, 200
+
+        if kind == 'wohnung_abholen':
+            rows = c.execute('SELECT id, listing_id, entscheidung FROM wohnung_entscheidungen '
+                             'WHERE abgeholt_at IS NULL ORDER BY id').fetchall()
+            return {'entscheidungen': [dict(r) for r in rows]}, 200
+
+        if kind == 'wohnung_bestaetigt':
+            ids = [int(i) for i in (data.get('ids') or []) if str(i).isdigit()]
+            for i in ids:
+                c.execute('UPDATE wohnung_entscheidungen SET abgeholt_at=? WHERE id=?', (_now(), i))
+            c.commit()
+            return {'ok': True}, 200
 
         if kind == 'metrics':
             return {'metrics': host_metrics()}, 200
@@ -514,6 +542,58 @@ def request_approval(agent_id, title, body, payload):
 
 # Aktionen nach einer Freigabe in der Zentrale: agent_id -> Funktion(payload). app.py registriert sie.
 APPROVAL_ACTIONS = {}
+
+
+# ─── Wohnungs-Agent (Wohnungssuche meldet sich per Hook) ─────────────
+# Siggi hat keinen Zugriff auf die Datenbank der Wohnungssuche: Stefans Knopfdruck wird hier
+# vorgemerkt, die Wohnungssuche holt ihn alle 5 Min. ab (wohnung_abholen) und setzt den Status.
+
+def _https(url):
+    url = str(url or '')
+    return url if url.startswith('https://') else None
+
+
+def _wohnung_treffer_senden(c, agent_id, data):
+    row = c.execute('SELECT paused FROM agent_state WHERE agent_id=?', (agent_id,)).fetchone()
+    if row and row['paused']:
+        return False
+    text = str(data.get('text') or 'Neue Wohnung')[:1500]
+    url, crm = _https(data.get('url')), _https(data.get('dashboard_url'))
+    listing_id = data.get('listing_id')
+    links = [b for b in ({'text': '🔗 Inserat', 'url': url} if url else None,
+                         {'text': '📋 Im CRM', 'url': crm} if crm else None) if b]
+    via = None
+    try:
+        import telegram_engine  # spaet importieren: telegram_engine importiert agents_engine
+        if telegram_engine.status().get('paired'):
+            buttons = []
+            if isinstance(listing_id, int):
+                buttons = telegram_engine.approval_buttons('wohnung', listing_id,
+                                                           labels=('👍 Interessant', '👎 Verwerfen'))
+            if links:
+                buttons.append(links)
+            if telegram_engine.send(text, buttons=buttons or None):
+                via = 'telegram'
+    except Exception as e:
+        print(f'[Wohnung] Telegram fehlgeschlagen, nehme Mail: {e}')
+    if not via:
+        _send_mail('Wohnungssuche: ' + text.splitlines()[0][:150],
+                   text + ''.join(f"\n{b['text']}: {b['url']}" for b in links))
+        via = 'mail'
+    _log(c, agent_id, 'info', f"{text.splitlines()[0][:150]} → per {via} gemeldet")
+    c.commit()
+    return True
+
+
+def wohnung_entscheiden(listing_id, interessant):
+    """Knopf 'Interessant'/'Verwerfen' aus Telegram vormerken."""
+    c = _conn()
+    c.execute('INSERT INTO wohnung_entscheidungen (listing_id, entscheidung, created_at) VALUES (?, ?, ?)',
+              (int(listing_id), 'interessant' if interessant else 'abgelehnt', _now()))
+    _log(c, 'wohnung', 'success' if interessant else 'info',
+         f"Wohnung #{listing_id} {'als interessant markiert' if interessant else 'verworfen'} (per Telegram)")
+    c.commit()
+    c.close()
 
 
 # ─── Server-Kennzahlen (fuer den Server-Waechter) ────────────────────

@@ -2762,6 +2762,10 @@ def _telegram_action(kind, ref, approve):
     if kind == 'agent':
         ok = agents_engine.decide_approval(int(ref), approve)
         return ('✅ Freigegeben und ausgeführt.' if approve else '❌ Abgelehnt.') if ok else 'Das war schon entschieden.'
+    if kind == 'wohnung':
+        agents_engine.wohnung_entscheiden(int(ref), approve)
+        return (f'👍 Gemerkt – Wohnung #{ref} steht in ein paar Minuten auf „SEHR INTERESSANT“.' if approve
+                else f'👎 Wohnung #{ref} wird verworfen.')
     if kind == 'reel':
         res = reels_engine.approve_reel(ref) if approve else reels_engine.reject_reel(ref)
         if not res.get('success'):
