@@ -90,6 +90,12 @@ AGENTS = {
         'role': 'Schickt dir neue Wohnungen per Telegram und schlägt Alarm, wenn die Wohnungssuche nicht richtig sucht',
         'default_config': {}, 'next_run': 'wie in der Wohnungssuche eingestellt',
     },
+    'outlook': {
+        # outlook_engine.py - privates Postfach, NUR lesen, strikt getrennt vom Chefblick-Mail-Agenten
+        'kind': 'internal', 'name': 'Outlook-Agent (privat)', 'icon': 'lock', 'view': None, 'runnable': True,
+        'role': 'Liest dein privates Outlook nur mit und meldet Wichtiges per Telegram – Chefblick bleibt unberührt',
+        'default_config': {}, 'next_run': 'alle 10 Minuten',
+    },
     'comments': {
         'kind': 'internal', 'name': 'Kommentar-Agent', 'icon': 'chat', 'view': None, 'runnable': False,
         'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',

@@ -4639,6 +4639,7 @@ const AGENT_ICONS = {
   send: 'M22 2 L11 13 M22 2 L15 22 L11 13 L2 9 Z',
   chart: 'M3 21 H21 M6 17 V11 M11 17 V6 M16 17 V13 M21 17 V9',
   home: 'M3 11 L12 3 L21 11 M5 9.5 V21 H19 V9.5 M10 21 V15 H14 V21',
+  lock: 'M5 11 H19 V21 H5 Z M8 11 V7 A4 4 0 0 1 16 7 V11 M12 15 V17',
 };
 let agentsTimer = null;
 let agentsSelected = null;
@@ -4813,6 +4814,50 @@ function agentConfigHTML(a) {
         <a class="btn btn-ghost" href="https://t.me/${encodeURIComponent(t.bot_username || '')}" target="_blank" rel="noopener">Chat öffnen</a>
         <button class="btn btn-ghost" onclick="disconnectTelegram()">Verbindung trennen</button>
       </div>`;
+  }
+  if (a.id === 'outlook') {
+    const o = a.info || {};
+    const trennung = `<div class="ag-muted" style="margin-top:8px">🔒 Nur Lesezugriff. Chefblick-Postfächer, Auto-Antworten und Kontakte bleiben unberührt – Hinweise kommen nur per Telegram.</div>`;
+    if (!o.configured) return `
+      <div class="form-label">Schritt 1 von 2: Siggi bei Microsoft anmelden (einmalig, kostenlos)</div>
+      <div class="ag-muted" style="margin-bottom:8px;line-height:1.55">
+        1. <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade" target="_blank" rel="noopener">Microsoft-Portal → Neue Registrierung</a> öffnen (mit deinem Hotmail-Konto anmelden).<br>
+        2. Name: <b>Siggi</b> · Kontotypen: <b>„… und persönliche Microsoft-Konten“</b> · Umleitungs-URI leer lassen → <b>Registrieren</b>.<br>
+        3. Links <b>Authentifizierung</b> → ganz unten <b>„Öffentliche Clientflows zulassen“ = Ja</b> → Speichern.<br>
+        4. Unter <b>Übersicht</b> die <b>Anwendungs-ID (Client-ID)</b> kopieren und hier einfügen:
+      </div>
+      <input class="form-input" id="ol-client" placeholder="1a2b3c4d-1234-5678-9abc-def012345678" autocomplete="off">
+      <div class="action-row"><button class="btn btn-primary" onclick="connectOutlook(true)">Weiter</button></div>${trennung}`;
+    const p = o.pending || {};
+    if (!o.connected && p.user_code) return `
+      <div class="form-label">Schritt 2 von 2: Zugriff erlauben</div>
+      <div class="ag-muted" style="margin-bottom:8px">Öffne den Link, gib diesen Code ein, melde dich mit deinem Hotmail-Konto an und klicke <b>Zulassen</b>:</div>
+      <div style="font-family:var(--font-mono);font-size:22px;font-weight:800;letter-spacing:2px;color:var(--text);margin-bottom:8px">${escHtml(p.user_code)}</div>
+      <div class="action-row">
+        <a class="btn btn-primary" href="${escHtml(p.verification_uri || 'https://microsoft.com/link')}" target="_blank" rel="noopener">microsoft.com/link öffnen</a>
+        <button class="btn btn-ghost" onclick="connectOutlook(false)">Neuer Code</button>
+      </div>
+      <div class="ag-muted">Diese Ansicht aktualisiert sich von selbst, sobald du zugestimmt hast.</div>${trennung}`;
+    if (!o.connected) return `
+      <div class="form-label">Mit deinem privaten Outlook verbinden</div>
+      ${p.error ? `<div class="ag-muted" style="color:#e0453a;margin-bottom:6px">${escHtml(p.error)}</div>` : ''}
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="connectOutlook(false)">Mit Microsoft verbinden</button>
+        <button class="btn btn-ghost" onclick="resetOutlookClient()">Anwendungs-ID ändern</button>
+      </div>${trennung}`;
+    return `
+      <div class="form-label">Verbunden mit <b>${escHtml(o.account || 'Outlook')}</b> – nur Lesezugriff</div>
+      <div class="ag-muted" style="margin-bottom:8px">Frag Siggi im Chat oder in Telegram einfach „lies meine Mails“ oder „hat die Pension geantwortet?“. Wichtige neue Mails meldet er dir per Telegram:</div>
+      <div class="ag-nums"><label class="ag-num"><span>Prüfen alle</span><input class="form-input" type="number" min="5" max="240" id="ol-minutes" value="${o.check_minutes || 10}"> Min.</label></div>
+      <label class="form-label" for="ol-senders">Wichtige Absender (Teil der Adresse, eine pro Zeile)</label>
+      <textarea class="form-textarea" id="ol-senders" rows="3" style="min-height:72px">${escHtml((o.senders || []).join('\n'))}</textarea>
+      <label class="form-label" for="ol-keywords">Wichtige Stichwörter in Betreff/Text (eine pro Zeile)</label>
+      <textarea class="form-textarea" id="ol-keywords" rows="3" style="min-height:72px">${escHtml((o.keywords || []).join('\n'))}</textarea>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:14px"><input type="checkbox" id="ol-all" ${o.notify_all ? 'checked' : ''}> Jede neue Mail melden (statt nur wichtige)</label>
+      <div class="action-row">
+        <button class="btn btn-ghost" onclick="saveAgentConfig('outlook')">Speichern</button>
+        <button class="btn btn-ghost" onclick="disconnectOutlook()">Verbindung trennen</button>
+      </div>${trennung}`;
   }
   if (a.id === 'followup') {
     return `
@@ -5020,9 +5065,15 @@ async function saveAgentConfig(id) {
   if (id === 'watch') config.sites = (document.getElementById('ag-sites')?.value || '').split('\n');
   if (id === 'server') ['cpu_warn', 'ram_warn', 'disk_warn'].forEach(k => { config[k] = parseInt(document.getElementById('ag-' + k)?.value, 10); });
   if (id === 'followup') config.days = parseInt(document.getElementById('ag-fu-days')?.value, 10) || 7;
+  if (id === 'outlook') {
+    config.check_minutes = parseInt(document.getElementById('ol-minutes')?.value, 10) || 10;
+    config.senders = document.getElementById('ol-senders')?.value || '';
+    config.keywords = document.getElementById('ol-keywords')?.value || '';
+    config.notify_all = !!document.getElementById('ol-all')?.checked;
+  }
   const res = await apiFetch(`/api/agents/${id}/config`, 'POST', config);
   if (res && res.success) showToast('Gespeichert', 'success');
-  else showToast('Speichern fehlgeschlagen', 'error');
+  else showToast(res?.error || 'Speichern fehlgeschlagen', 'error');
   document.activeElement?.blur();
   delete agentsRendered['detail'];
   refreshAgents();
@@ -5035,6 +5086,34 @@ async function connectTelegram() {
   if (res && res.success) showToast(`Bot @${res.bot_username} eingerichtet – jetzt koppeln`, 'success');
   else showToast(res?.error || 'Verbinden fehlgeschlagen', 'error');
   document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function connectOutlook(withClientId) {
+  const body = {};
+  if (withClientId) {
+    body.client_id = (document.getElementById('ol-client')?.value || '').trim();
+    if (!body.client_id) { showToast('Bitte die Anwendungs-ID einfügen', 'error'); return; }
+  }
+  const res = await apiFetch('/api/outlook/connect', 'POST', body);
+  if (res && res.success) showToast(`Code ${res.user_code} – jetzt bei Microsoft eingeben`, 'success');
+  else showToast(res?.error || 'Verbinden fehlgeschlagen', 'error');
+  document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function resetOutlookClient() {
+  await apiFetch('/api/agents/outlook/config', 'POST', { client_id: '' });
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function disconnectOutlook() {
+  if (!confirm('Verbindung zum privaten Outlook trennen? Siggi kann deine privaten Mails dann nicht mehr lesen.')) return;
+  await apiFetch('/api/outlook/disconnect', 'POST');
+  showToast('Outlook getrennt', 'success');
   delete agentsRendered['detail'];
   refreshAgents();
 }

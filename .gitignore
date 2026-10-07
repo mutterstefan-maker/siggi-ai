@@ -29,3 +29,6 @@ settings_backups/
 settings.json.lock
 .settings-*.tmp
 settings.json.*
+
+# Outlook-Agent: privater Microsoft-Zugang (Refresh-Token) - nie ins oeffentliche Repo
+outlook_token.json*

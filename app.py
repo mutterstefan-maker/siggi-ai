@@ -636,6 +636,27 @@ SIGGI_TOOLS = [
         }
     },
     {
+        'name': 'outlook_privat',
+        'description': (
+            'Stefans PRIVATES Outlook/Hotmail (mutter.stefan@hotmail.com) - NUR lesen. Fuer "lies meine Mails", '
+            '"hat X geantwortet", private Post, Wohnungs-/Vermieter-Mails. Nicht die Chefblick-Postfaecher. '
+            'Antworten/Senden aus diesem Postfach geht nicht: Stefan antwortet selbst in Outlook - private Mails nie '
+            'ueber sende_mail (Chefblick) beantworten und Inhalte nicht an Dritte weitergeben.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'aktion': {'type': 'string', 'enum': ['neueste', 'suchen', 'lesen'],
+                           'description': 'neueste = Posteingang, suchen = Absender/Betreff/Text, lesen = ganze Mail'},
+                'suchbegriff': {'type': 'string'},
+                'id': {'type': 'string', 'description': 'Mail-ID aus neueste/suchen (fuer lesen)'},
+                'anzahl': {'type': 'integer'},
+                'nur_ungelesen': {'type': 'boolean'},
+            },
+            'required': ['aktion']
+        }
+    },
+    {
         'name': 'cowork_datei_anzeigen',
         'description': 'Liest den Text einer COWORK-Datei (PDF, Text, Markdown, JSON, CSV, Python). Pfad aus cowork_datei_suchen.',
         'input_schema': {
@@ -912,6 +933,22 @@ def _run_siggi_tool_inner(name, tool_input):
             if not results:
                 return f"Keine Datei gefunden für '{tool_input['suchbegriff']}'."
             return json.dumps(results, ensure_ascii=False)
+
+        if name == 'outlook_privat':
+            try:
+                aktion = tool_input.get('aktion')
+                if aktion == 'lesen':
+                    if not tool_input.get('id'):
+                        return 'Fuer "lesen" die id aus neueste/suchen angeben.'
+                    return json.dumps(outlook_engine.lesen(tool_input['id']), ensure_ascii=False)
+                if aktion == 'suchen':
+                    res = outlook_engine.suchen(tool_input.get('suchbegriff', ''), tool_input.get('anzahl') or 10)
+                else:
+                    res = outlook_engine.neueste(tool_input.get('anzahl') or 10, bool(tool_input.get('nur_ungelesen')))
+                return json.dumps(res, ensure_ascii=False) if res else 'Keine passenden Mails im privaten Outlook.'
+            except outlook_engine.NotConnected:
+                return ('Das private Outlook ist noch nicht verbunden. Sag Stefan: In Siggi unter Agenten → '
+                        'Outlook-Agent einmal "Mit Microsoft verbinden" (nur Lesezugriff).')
 
         if name == 'cowork_datei_anzeigen':
             if not COWORK_AVAILABLE:
@@ -2592,6 +2629,14 @@ def _agent_extras():
                  else f"Niemand wartet seit {fu.get('days', 7)}+ Tagen auf ein Nachfassen"),
     }
     extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
+    ol = safe(outlook_engine.status, {}) or {}
+    extras['outlook'] = {
+        'info': ol,
+        'next_run': f"alle {ol.get('check_minutes', 10)} Minuten" if ol.get('connected') else 'nicht verbunden',
+        'idle': f"Verbunden mit {ol.get('account') or 'Outlook'} – lese nur mit" if ol.get('connected') else None,
+        'alert': None if ol.get('connected') else ('Gib den Code bei Microsoft ein' if (ol.get('pending') or {}).get('user_code')
+                                                  else 'Noch nicht verbunden – tippe auf mich'),
+    }
     return extras
 
 
@@ -2710,6 +2755,7 @@ def _start_mail_fetch():
     open(MAIL_FETCH_TRIGGER, 'w').close()
 
 import followup_engine
+import outlook_engine  # privates Outlook (nur lesen) - bewusst getrennt von mail_engine/Chefblick
 
 INTERNAL_AGENT_RUNNERS = {
     'followup': lambda: followup_engine.run(create_mail_draft),
@@ -2718,6 +2764,7 @@ INTERNAL_AGENT_RUNNERS = {
     'linkedin': lambda: linkedin_pipeline_engine.run_as_agent(),
     'improve': lambda: self_improve_engine.run_as_agent(),
     'health': lambda: health_check_engine.run_health_check(),
+    'outlook': lambda: outlook_engine.run_as_agent(),
 }
 
 
@@ -2825,6 +2872,43 @@ def _followup_loop():
 threading.Thread(target=_followup_loop, daemon=True).start()
 
 
+# ─── Outlook-Agent: privates Postfach (nur lesen, nur Telegram-Hinweise) ─────────
+def _outlook_loop():
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_outlook_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return
+    while True:
+        try:
+            if outlook_engine.status()['connected'] and outlook_engine.ist_faellig() \
+                    and not agents_engine.is_paused('outlook'):
+                outlook_engine.run_as_agent()
+        except Exception as e:
+            print(f'[Outlook] Fehler: {e}')
+        time.sleep(60)
+
+threading.Thread(target=_outlook_loop, daemon=True).start()
+
+
+@app.route('/api/outlook/connect', methods=['POST'])
+def outlook_connect():
+    data = request.get_json(silent=True) or {}
+    try:
+        if data.get('client_id'):
+            outlook_engine.save_config({'client_id': data['client_id']})
+        return jsonify({'success': True, **outlook_engine.start_connect()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)[:300]}), 400
+
+
+@app.route('/api/outlook/disconnect', methods=['POST'])
+def outlook_disconnect():
+    outlook_engine.disconnect()
+    return jsonify({'success': True})
+
+
 @app.route('/api/agents')
 def agents_overview():
     return jsonify(agents_engine.overview(_agent_extras()))
@@ -2853,6 +2937,12 @@ def agents_run(agent_id):
 def agents_config(agent_id):
     if agent_id == 'followup':
         followup_engine.save_config(request.get_json(silent=True) or {})
+        return jsonify({'success': True})
+    if agent_id == 'outlook':
+        try:
+            outlook_engine.save_config(request.get_json(silent=True) or {})
+        except (ValueError, TypeError) as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
         return jsonify({'success': True})
     ok = agents_engine.set_config(agent_id, request.get_json(silent=True) or {})
     return jsonify({'success': ok}), (200 if ok else 400)
