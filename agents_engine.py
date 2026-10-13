@@ -57,7 +57,7 @@ AGENTS = {
     'mail': {
         'kind': 'internal', 'name': 'Mail-Agent', 'icon': 'mail', 'view': 'mail_drafts', 'home': 'inbox', 'runnable': True,
         'role': 'Ruft Mails ab, sortiert sie und beantwortet sie',
-        'default_config': {}, 'next_run': 'alle 21 Minuten',
+        'default_config': {}, 'next_run': 'alle 30 Minuten',
     },
     'instagram': {
         'kind': 'internal', 'name': 'Instagram-Agent', 'icon': 'camera', 'view': 'instagram', 'runnable': False,

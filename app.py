@@ -2587,7 +2587,7 @@ def _agent_extras():
 
     settings = load_settings()
     extras['mail'] = {'pending': safe(count_mail_drafts, 0),
-                      'next_run': f"alle {settings.get('interval_minutes', 21)} Minuten"}
+                      'next_run': f"alle {settings.get('interval_minutes', 30)} Minuten"}
     ig = settings.get('instagram_settings', {})
     if INSTAGRAM_AVAILABLE:
         q = safe(lambda: len(instagram_engine.get_ig_queue()), 0)

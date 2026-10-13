@@ -4206,7 +4206,7 @@ async function renderSettings() {
         </div>
         <div class="form-row">
           <label class="form-label">Abruf-Intervall (Minuten)</label>
-          <input class="form-input" type="number" id="set-interval" value="${s.interval_minutes || 5}" min="1" max="60">
+          <input class="form-input" type="number" id="set-interval" value="${s.interval_minutes || 30}" min="1" max="60">
         </div>
       </div>
       <button class="btn btn-primary" onclick="saveGeneralSettings()">💾 Speichern</button>

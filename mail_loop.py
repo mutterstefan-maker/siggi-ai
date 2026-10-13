@@ -30,9 +30,9 @@ def wait_for_next_cycle(seconds):
 def get_interval_seconds():
     try:
         s = me.load_settings()
-        return max(1, int(s.get('interval_minutes', 21))) * 60
+        return max(1, int(s.get('interval_minutes', 30))) * 60
     except Exception:
-        return 21 * 60
+        return 30 * 60
 
 
 print("[mail_loop] Gestartet.")
