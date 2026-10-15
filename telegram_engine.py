@@ -11,6 +11,7 @@
   uebergibt dafuer chat_fn an poll_forever().
 - Laeuft als Agent 'telegram' in der Agenten-Zentrale.
 """
+import hashlib
 import json
 import os
 import re
@@ -36,7 +37,8 @@ HELP = ('Schreib oder sprich mir einfach, was ich tun soll – z. B. „Erinnere
         'Alles, was ich im Dashboard-Chat kann, geht auch hier. Schick mir auch Fotos, PDFs oder Videos '
         '(„fass zusammen“, „ab in die Instagram-Warteschlange“) oder lass dir Dateien schicken '
         '(„schick mir das Audit von chefblick.de“). Auf Sprachnachrichten antworte ich mit '
-        'Sprachnachricht – mit /stimme bekommst du auch auf Textnachrichten eine.')
+        'Sprachnachricht – mit /stimme bekommst du auch auf Textnachrichten eine.\n\n'
+        'Aufträge aus ChatGPT: /gpt gibt dir den Schlüssel für dein GPT.')
 
 
 def _cfg():
@@ -98,6 +100,24 @@ def send(text, chat_id=None, buttons=None):
             params['reply_markup'] = {'inline_keyboard': buttons}
         _call(cfg['bot_token'], 'sendMessage', **params)
     return True
+
+
+# ─── Auftraege aus ChatGPT (eigenes GPT mit Action -> POST /api/gpt/task) ──────
+# Der Schluessel kommt per /gpt in den gekoppelten Chat; gespeichert wird nur der Hash.
+
+def gpt_generate_token():
+    token = secrets.token_urlsafe(32)
+    settings_store.update(lambda s: s.__setitem__('gpt_bridge_token_hash', hashlib.sha256(token.encode()).hexdigest()))
+    return token
+
+
+def gpt_verify(auth_header):
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return False
+    stored = settings_store.load_or_empty().get('gpt_bridge_token_hash')
+    if not stored:
+        return False
+    return secrets.compare_digest(hashlib.sha256(auth_header[7:].strip().encode()).hexdigest(), stored)
 
 
 # ─── Freigeben per Knopf ─────────────────────────────────────────────
@@ -331,6 +351,13 @@ def _handle(update, chat_fn, clean_fn=None):
 
     if text in ('/hilfe', '/help') or text.startswith('/start'):  # /start <code> nach der Kopplung = nur Hilfe
         send(HELP)
+        return
+    if text == '/gpt':
+        send('🔑 Neuer Schlüssel für dein ChatGPT-GPT (der alte gilt ab jetzt nicht mehr):\n\n'
+             f'{gpt_generate_token()}\n\n'
+             'In ChatGPT: GPT bearbeiten → Konfigurieren → Aktionen → Authentifizierung → API-Schlüssel, '
+             'Typ „Bearer“, und diesen Schlüssel eintragen. Danach diese Nachricht am besten löschen.')
+        agents.event('telegram', 'Neuer ChatGPT-Schlüssel erzeugt')
         return
     if text == '/stimme':
         cfg['voice_always'] = not cfg.get('voice_always')

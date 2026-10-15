@@ -109,6 +109,8 @@ def require_login():
         return None  # muss öffentlich erreichbar sein, damit Meta das Bild/Video abrufen kann
     if request.path.startswith('/api/agents/hook/'):
         return None  # n8n-Agenten melden sich per Bearer-Token, nicht per Login (Pruefung in der Route)
+    if request.path in ('/api/gpt/task', '/api/gpt/openapi.json'):
+        return None  # ChatGPT-Action: Bearer-Token wird in der Route geprueft, das Schema ist nicht geheim
     if not session.get('logged_in'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'unauthorized'}), 401
@@ -2840,6 +2842,71 @@ def telegram_connect():
         return jsonify({'success': True, **telegram_engine.connect((request.get_json(silent=True) or {}).get('token', ''))})
     except Exception as e:
         return jsonify({'success': False, 'error': f'Token ungültig oder Telegram nicht erreichbar: {str(e)[:150]}'}), 400
+
+
+# ─── ChatGPT -> Siggi: Auftrag annehmen, im Hintergrund erledigen, Ergebnis per Telegram ───
+_gpt_task_times = []
+GPT_TASKS_PER_HOUR = 20  # Schutz vor Endlosschleifen im GPT (jeder Auftrag kostet Claude-Tokens)
+
+
+def _gpt_task_worker(text):
+    try:
+        telegram_engine.send(f'📨 Auftrag aus ChatGPT:\n„{text}“\n\nIch kümmere mich darum …')
+        agents_engine.event('telegram', f'Aufgabe aus ChatGPT: {text[:200]}')
+        agents_engine.start('telegram', f'Auftrag aus ChatGPT: „{text[:70]}“ …', text='Auftrag aus ChatGPT')
+        reply, actions = _telegram_chat(text)
+        if actions:
+            reply += '\n\n👉 Das muss ich noch bestätigt bekommen – bitte im Dashboard freigeben.'
+        telegram_engine.send(reply)
+        agents_engine.done('telegram', f'Erledigt (ChatGPT): {text[:80]}', bubble=telegram_engine.IDLE_BUBBLE, status='ready')
+    except Exception as e:
+        agents_engine.fail('telegram', f'ChatGPT-Auftrag fehlgeschlagen: {e}')
+        try:
+            telegram_engine.send(f'⚠️ Den Auftrag aus ChatGPT konnte ich nicht erledigen: {str(e)[:200]}')
+        except Exception:
+            pass
+
+
+@app.route('/api/gpt/task', methods=['POST'])
+def gpt_task():
+    if not TELEGRAM_AVAILABLE or not telegram_engine.gpt_verify(request.headers.get('Authorization', '')):
+        return jsonify({'error': 'unauthorized'}), 401
+    text = str((request.get_json(silent=True) or {}).get('auftrag', '')).strip()[:4000]
+    if not text:
+        return jsonify({'error': 'Feld "auftrag" fehlt oder ist leer'}), 400
+    now = time.time()
+    _gpt_task_times[:] = [t for t in _gpt_task_times if now - t < 3600]
+    if len(_gpt_task_times) >= GPT_TASKS_PER_HOUR:
+        return jsonify({'error': f'Mehr als {GPT_TASKS_PER_HOUR} Aufträge pro Stunde – bitte später nochmal'}), 429
+    _gpt_task_times.append(now)
+    threading.Thread(target=_gpt_task_worker, args=(text,), daemon=True).start()
+    return jsonify({'status': 'angenommen',
+                    'hinweis': 'Siggi erledigt den Auftrag jetzt und schickt Stefan das Ergebnis per Telegram.'}), 202
+
+
+@app.route('/api/gpt/openapi.json')
+def gpt_openapi():
+    base = os.environ.get('PUBLIC_BASE_URL', 'https://stean.info').rstrip('/')
+    return jsonify({
+        'openapi': '3.1.0',
+        'info': {'title': 'Siggi', 'version': '1.0',
+                 'description': 'Aufträge an Siggi, Stefans KI-Assistenten. Ergebnis kommt per Telegram.'},
+        'servers': [{'url': base}],
+        'paths': {'/api/gpt/task': {'post': {
+            'operationId': 'auftragAnSiggi',
+            'summary': 'Gibt Siggi einen Auftrag (Mail, Kalender, Erinnerung, Posts, Recherche …). '
+                       'Siggi erledigt ihn selbstständig und meldet das Ergebnis per Telegram.',
+            'requestBody': {'required': True, 'content': {'application/json': {'schema': {
+                'type': 'object', 'required': ['auftrag'],
+                'properties': {'auftrag': {'type': 'string',
+                                           'description': 'Der vollständige Auftrag in natürlicher Sprache, '
+                                                          'mit allen nötigen Details (Namen, Zeiten, Inhalte).'}}}}}},
+            'responses': {'202': {'description': 'Auftrag angenommen'},
+                          '401': {'description': 'Schlüssel falsch'},
+                          '429': {'description': 'Zu viele Aufträge'}}}}},
+        'components': {'schemas': {}, 'securitySchemes': {'bearerAuth': {'type': 'http', 'scheme': 'bearer'}}},
+        'security': [{'bearerAuth': []}],
+    })
 
 
 @app.route('/api/telegram/disconnect', methods=['POST'])
