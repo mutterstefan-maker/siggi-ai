@@ -109,8 +109,8 @@ def require_login():
         return None  # muss öffentlich erreichbar sein, damit Meta das Bild/Video abrufen kann
     if request.path.startswith('/api/agents/hook/'):
         return None  # n8n-Agenten melden sich per Bearer-Token, nicht per Login (Pruefung in der Route)
-    if request.path in ('/api/gpt/task', '/api/gpt/openapi.json'):
-        return None  # ChatGPT-Action: Bearer-Token wird in der Route geprueft, das Schema ist nicht geheim
+    if request.path in ('/api/gpt/task', '/api/gpt/openapi.json') or request.path.startswith('/mcp/'):
+        return None  # ChatGPT-Action/-Plugin: Schluessel wird in der Route geprueft, das Schema ist nicht geheim
     if not session.get('logged_in'):
         if request.path.startswith('/api/'):
             return jsonify({'error': 'unauthorized'}), 401
@@ -2867,21 +2867,76 @@ def _gpt_task_worker(text):
             pass
 
 
+def _gpt_accept(text):
+    """Auftrag in den Hintergrund geben. Liefert None oder eine Fehlermeldung."""
+    text = str(text or '').strip()[:4000]
+    if not text:
+        return 'Der Auftrag ist leer'
+    now = time.time()
+    _gpt_task_times[:] = [t for t in _gpt_task_times if now - t < 3600]
+    if len(_gpt_task_times) >= GPT_TASKS_PER_HOUR:
+        return f'Mehr als {GPT_TASKS_PER_HOUR} Aufträge pro Stunde – bitte später nochmal'
+    _gpt_task_times.append(now)
+    threading.Thread(target=_gpt_task_worker, args=(text,), daemon=True).start()
+    return None
+
+
+GPT_ACCEPTED = 'Siggi erledigt den Auftrag jetzt und schickt Stefan das Ergebnis per Telegram.'
+
+
 @app.route('/api/gpt/task', methods=['POST'])
 def gpt_task():
     if not TELEGRAM_AVAILABLE or not telegram_engine.gpt_verify(request.headers.get('Authorization', '')):
         return jsonify({'error': 'unauthorized'}), 401
-    text = str((request.get_json(silent=True) or {}).get('auftrag', '')).strip()[:4000]
-    if not text:
-        return jsonify({'error': 'Feld "auftrag" fehlt oder ist leer'}), 400
-    now = time.time()
-    _gpt_task_times[:] = [t for t in _gpt_task_times if now - t < 3600]
-    if len(_gpt_task_times) >= GPT_TASKS_PER_HOUR:
-        return jsonify({'error': f'Mehr als {GPT_TASKS_PER_HOUR} Aufträge pro Stunde – bitte später nochmal'}), 429
-    _gpt_task_times.append(now)
-    threading.Thread(target=_gpt_task_worker, args=(text,), daemon=True).start()
-    return jsonify({'status': 'angenommen',
-                    'hinweis': 'Siggi erledigt den Auftrag jetzt und schickt Stefan das Ergebnis per Telegram.'}), 202
+    error = _gpt_accept((request.get_json(silent=True) or {}).get('auftrag'))
+    if error:
+        return jsonify({'error': error}), 429 if 'pro Stunde' in error else 400
+    return jsonify({'status': 'angenommen', 'hinweis': GPT_ACCEPTED}), 202
+
+
+# ChatGPT-Plugins (Nachfolger der GPTs) sprechen MCP und koennen keine eigenen API-Schluessel senden -
+# deshalb steckt der Schluessel im Pfad: https://stean.info/mcp/<schluessel> (neu per /gpt in Telegram).
+MCP_TOOL = {
+    'name': 'auftrag_an_siggi',
+    'title': 'Auftrag an Siggi',
+    'description': 'Gibt Siggi, Stefans KI-Assistenten, einen Auftrag (Mail-Entwurf, Kalender, Erinnerung, '
+                   'Social-Media-Post, Recherche, Wohnungssuche …). Siggi erledigt ihn selbstständig und meldet '
+                   'das Ergebnis per Telegram. Den Auftrag vollständig mit allen Details formulieren.',
+    'inputSchema': {'type': 'object', 'required': ['auftrag'],
+                    'properties': {'auftrag': {'type': 'string', 'description': 'Der vollständige Auftrag in natürlicher Sprache'}}},
+    'annotations': {'readOnlyHint': False, 'destructiveHint': False, 'openWorldHint': True},
+}
+
+
+@app.route('/mcp/<token>', methods=['GET', 'POST', 'DELETE'])
+def gpt_mcp(token):
+    if not TELEGRAM_AVAILABLE or not telegram_engine.gpt_verify(f'Bearer {token}'):
+        return jsonify({'error': 'unauthorized'}), 401
+    if request.method != 'POST':
+        return '', 405  # kein SSE-Stream, nur einfache JSON-Antworten
+    msg = request.get_json(silent=True) or {}
+    method, msg_id, params = msg.get('method'), msg.get('id'), msg.get('params') or {}
+    if msg_id is None:
+        return '', 202  # Benachrichtigungen (z.B. notifications/initialized) brauchen keine Antwort
+
+    def ok(result):
+        return jsonify({'jsonrpc': '2.0', 'id': msg_id, 'result': result})
+
+    if method == 'initialize':
+        return ok({'protocolVersion': params.get('protocolVersion') or '2025-06-18',
+                   'capabilities': {'tools': {}},
+                   'serverInfo': {'name': 'siggi', 'title': 'Siggi', 'version': '1.0'},
+                   'instructions': 'Nutze auftrag_an_siggi, wenn Stefan Siggi etwas aufträgt.'})
+    if method == 'ping':
+        return ok({})
+    if method == 'tools/list':
+        return ok({'tools': [MCP_TOOL]})
+    if method == 'tools/call':
+        if params.get('name') != MCP_TOOL['name']:
+            return jsonify({'jsonrpc': '2.0', 'id': msg_id, 'error': {'code': -32602, 'message': 'Unbekanntes Werkzeug'}})
+        error = _gpt_accept((params.get('arguments') or {}).get('auftrag'))
+        return ok({'content': [{'type': 'text', 'text': error or GPT_ACCEPTED}], 'isError': bool(error)})
+    return jsonify({'jsonrpc': '2.0', 'id': msg_id, 'error': {'code': -32601, 'message': f'Methode {method} gibt es nicht'}})
 
 
 @app.route('/api/gpt/openapi.json')

@@ -353,10 +353,12 @@ def _handle(update, chat_fn, clean_fn=None):
         send(HELP)
         return
     if text == '/gpt':
-        send('🔑 Neuer Schlüssel für dein ChatGPT-GPT (der alte gilt ab jetzt nicht mehr):\n\n'
-             f'{gpt_generate_token()}\n\n'
-             'In ChatGPT: GPT bearbeiten → Konfigurieren → Aktionen → Authentifizierung → API-Schlüssel, '
-             'Typ „Bearer“, und diesen Schlüssel eintragen. Danach diese Nachricht am besten löschen.')
+        key = gpt_generate_token()
+        send('🔑 Neuer Schlüssel für ChatGPT (der alte gilt ab jetzt nicht mehr).\n\n'
+             f'ChatGPT-Plugin (eigener MCP-Server, Authentifizierung „Keine“) – diese Adresse eintragen:\n'
+             f'https://stean.info/mcp/{key}\n\n'
+             f'Altes GPT mit Aktion – Authentifizierung API-Schlüssel, Typ „Bearer“:\n{key}\n\n'
+             'Danach diese Nachricht am besten löschen.')
         agents.event('telegram', 'Neuer ChatGPT-Schlüssel erzeugt')
         return
     if text == '/stimme':
