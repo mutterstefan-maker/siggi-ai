@@ -33,6 +33,8 @@ from auth import authenticate_user
 
 load_dotenv('/opt/stean/config/.env')
 app.secret_key = os.environ.get('FLASK_SECRET') or _secrets.token_hex(32)
+# CSRF-Schutz, Teil 1: fremde Seiten bekommen bei POST & Co. das Login-Cookie nicht mitgeschickt
+app.config.update(SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_HTTPONLY=True)
 
 @app.route('/login')
 def login_page():
@@ -99,6 +101,24 @@ def security_status():
     data['live_login_blocked_ips'] = len(blocked_ips)
     data['live_login_recent_failures'] = recent_failures
     return jsonify(data)
+
+TRUSTED_ORIGINS = {'https://stean.info', 'https://www.stean.info'}
+
+
+@app.before_request
+def block_cross_site_writes():
+    """CSRF-Schutz, Teil 2: aendernde Anfragen nur von Siggis eigener Seite. Deckt auch das ab, was
+    SameSite nicht schuetzt (Unterseiten wie neues-zuhause.stean.info gelten dort als 'same site').
+    Ohne Origin-Kopf (Handy-App, Desktop-Agent, n8n, interne test_client-Aufrufe) ist es kein Browser
+    einer fremden Seite - Browser schicken Origin bei POST immer mit."""
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return None
+    origin = request.headers.get('Origin')
+    if origin is None or origin in TRUSTED_ORIGINS or origin == request.host_url.rstrip('/'):
+        return None
+    print(f'[Sicherheit] Fremde Anfrage blockiert: {request.method} {request.path} von {origin}')
+    return jsonify({'error': 'forbidden'}), 403
+
 
 @app.before_request
 def require_login():
