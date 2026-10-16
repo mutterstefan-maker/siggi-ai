@@ -77,7 +77,7 @@ def save_config(data):
                 raise ValueError('Teamname so wie in der kChat-Adresse, z.B. steler-gmbh')
             cfg['team'] = team
         if 'check_minutes' in data:
-            cfg['check_minutes'] = max(5, min(240, int(data['check_minutes'])))
+            cfg['check_minutes'] = max(1, min(240, int(data['check_minutes'])))
         if 'notify_mentions' in data:
             cfg['notify_mentions'] = bool(data['notify_mentions'])
         if 'keywords' in data:
@@ -309,6 +309,8 @@ def _posts(data, chan_names=None):
             'zeit': datetime.fromtimestamp(p.get('create_at', 0) / 1000).strftime('%d.%m. %H:%M'),
             'ms': p.get('create_at', 0), 'antwort_auf': p.get('root_id') or None,
             'text': text[:2000], 'link': _link(p['id']),
+            # kChat-Prioritaet beim Schreiben: 'urgent' (Dringend) / 'important' (Wichtig)
+            'prioritaet': (((p.get('metadata') or {}).get('priority') or {}).get('priority') or '').lower(),
         })
     return out
 
@@ -415,6 +417,10 @@ def faelliger_bericht(now=None):
 def melde_grund(post, cfg, me):
     if post['user_id'] == me['id']:
         return None
+    if post.get('prioritaet') == 'urgent':
+        return '🔴 als DRINGEND markiert'
+    if post.get('prioritaet') == 'important':
+        return '🟠 als WICHTIG markiert'
     if cfg['notify_mentions']:
         if post['kanal'].startswith('Direkt:'):
             return 'Direktnachricht'

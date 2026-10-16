@@ -4879,12 +4879,12 @@ function agentConfigHTML(a) {
       <div class="form-label">Verbunden als <b>${escHtml(k.account || '')}</b> mit <b>${escHtml(k.team_name || k.team || '')}</b> – nur lesen</div>
       <div class="ag-muted" style="margin-bottom:8px">Frag Siggi im Chat oder in Telegram „Was ist bei Steler los?“ oder „Was steht im Kanal Lager?“. „Jetzt starten“ schickt dir sofort einen Lagebericht.</div>
       ${unread ? `<div class="ag-muted" style="margin-bottom:8px;line-height:1.5">${unread}</div>` : ''}
-      <div class="ag-nums"><label class="ag-num"><span>Prüfen alle</span><input class="form-input" type="number" min="5" max="240" id="kc-minutes" value="${k.check_minutes || 15}"> Min.</label></div>
+      <div class="ag-nums"><label class="ag-num"><span>Prüfen alle</span><input class="form-input" type="number" min="1" max="240" id="kc-minutes" value="${k.check_minutes || 15}"> Min.</label></div>
       <label class="form-label" for="kc-times">Lagebericht per Telegram um (Uhrzeiten, durch Komma getrennt; leer = aus)</label>
       <input class="form-input" id="kc-times" value="${escHtml((k.summary_times || []).join(', '))}" placeholder="08:00, 16:00">
       <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:14px"><input type="checkbox" id="kc-weekdays" ${k.summary_weekdays_only ? 'checked' : ''}> Nur Montag bis Freitag</label>
       <label style="display:flex;gap:8px;align-items:center;margin-top:4px;font-size:14px"><input type="checkbox" id="kc-ai" ${k.summary_ai ? 'checked' : ''}> KI fasst zusammen (Bruchteil eines Cents je Bericht)</label>
-      <label style="display:flex;gap:8px;align-items:center;margin-top:4px;font-size:14px"><input type="checkbox" id="kc-mentions" ${k.notify_mentions ? 'checked' : ''}> Direktnachrichten und @-Erwähnungen sofort melden</label>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:4px;font-size:14px"><input type="checkbox" id="kc-mentions" ${k.notify_mentions ? 'checked' : ''}> Direktnachrichten und @-Erwähnungen sofort melden (als „Dringend“/„Wichtig“ markierte Nachrichten immer)</label>
       <label class="form-label" for="kc-keywords">Sofort melden bei Stichwort (eins pro Zeile)</label>
       <textarea class="form-textarea" id="kc-keywords" rows="2" style="min-height:56px">${escHtml((k.keywords || []).join('\n'))}</textarea>
       <label class="form-label" for="kc-muted">Kanäle ignorieren (Name, eins pro Zeile)</label>
