@@ -115,6 +115,22 @@ auch Schreiben (kein reines Lese-Recht verfügbar) – die Sperre liegt im Code.
   sofort einen Lagebericht. Prüfintervall (Standard 15 Min.), Uhrzeiten,
   Stichwörter und stumme Kanäle sind dort einstellbar.
 
+**Sofort-Meldungen:** Prüfintervall bis 1 Minute möglich. Nachrichten, die in
+kChat als „Dringend“/„Wichtig“ markiert sind (`metadata.priority`), werden
+immer sofort gemeldet.
+
+**Schreibstil lernen (Stufe 1, nur lesen):** Siggi speichert **nur Stefans
+eigene** kChat-Nachrichten (Tabelle `own_posts` in `kchat.db`, bei neuen
+Nachrichten zusätzlich die Nachricht davor als Kontext). Beim Verbinden bzw.
+per Knopf „Stil jetzt neu lernen“ werden die letzten 180 Tage per Suche
+`from:<benutzer>` eingelesen. Daraus baut Haiku wöchentlich ein Stilprofil
+(Ton, Länge, Anrede, Schreibweise, typische Wendungen, Unterschiede je
+Person). Es ist auf der Agenten-Karte und per Chat (`kchat_steler`,
+`aktion=mein_stil`) abrufbar. Gesendet wird nichts. Geplant: Stufe 2 =
+Antwort-Vorschläge mit Freigabe-Knopf in Telegram, Stufe 3 = eng begrenzte
+Selbst-Antworten – beides erst nach ausdrücklicher Entscheidung (hebt die
+Lese-Sperre auf).
+
 **Technik:** kChat ist ein Mattermost – REST-API
 `https://<team>.kchat.infomaniak.com/api/v4`, Header
 `Authorization: Bearer <Token>`. Genutzt: `users/me`, `teams/name/<team>`,
