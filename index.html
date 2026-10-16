@@ -4859,6 +4859,41 @@ function agentConfigHTML(a) {
         <button class="btn btn-ghost" onclick="disconnectOutlook()">Verbindung trennen</button>
       </div>${trennung}`;
   }
+  if (a.id === 'kchat') {
+    const k = a.info || {};
+    const trennung = `<div class="ag-muted" style="margin-top:8px">🏢 Eigener Bereich Steler GmbH – Siggi liest nur, schreibt nichts in kChat und lässt deine Ungelesen-Markierungen in Ruhe. Nichts davon landet bei Chefblick oder im Privaten; Hinweise kommen nur per Telegram.</div>`;
+    if (!k.connected) return `
+      <div class="form-label">Mit dem Steler-kChat verbinden (einmalig, kostenlos)</div>
+      <div class="ag-muted" style="margin-bottom:8px;line-height:1.55">
+        1. <a href="https://manager.infomaniak.com/v3/ng/accounts/token/list" target="_blank" rel="noopener">Infomaniak → API-Token</a> öffnen → <b>Token erstellen</b>.<br>
+        2. Name: <b>Siggi</b> · Bereich (Scope): nur <b>kChat</b> anhaken · Gültigkeit: unbegrenzt → <b>Erstellen</b>.<br>
+        3. Token kopieren (wird nur einmal angezeigt) und hier einfügen:
+      </div>
+      <label class="form-label" for="kc-team">Team (aus der kChat-Adresse)</label>
+      <input class="form-input" id="kc-team" value="${escHtml(k.team || 'steler-gmbh')}" autocomplete="off">
+      <label class="form-label" for="kc-token">API-Token</label>
+      <input class="form-input" id="kc-token" type="password" placeholder="Token von Infomaniak" autocomplete="off">
+      <div class="action-row"><button class="btn btn-primary" onclick="connectKchat()">Verbinden</button></div>${trennung}`;
+    const unread = (k.unread || []).map(u => `<div>• ${escHtml(u.name)}: <b>${u.ungelesen}</b> ungelesen${u.erwaehnungen ? ` · ${u.erwaehnungen}× erwähnt` : ''}</div>`).join('');
+    return `
+      <div class="form-label">Verbunden als <b>${escHtml(k.account || '')}</b> mit <b>${escHtml(k.team_name || k.team || '')}</b> – nur lesen</div>
+      <div class="ag-muted" style="margin-bottom:8px">Frag Siggi im Chat oder in Telegram „Was ist bei Steler los?“ oder „Was steht im Kanal Lager?“. „Jetzt starten“ schickt dir sofort einen Lagebericht.</div>
+      ${unread ? `<div class="ag-muted" style="margin-bottom:8px;line-height:1.5">${unread}</div>` : ''}
+      <div class="ag-nums"><label class="ag-num"><span>Prüfen alle</span><input class="form-input" type="number" min="5" max="240" id="kc-minutes" value="${k.check_minutes || 15}"> Min.</label></div>
+      <label class="form-label" for="kc-times">Lagebericht per Telegram um (Uhrzeiten, durch Komma getrennt; leer = aus)</label>
+      <input class="form-input" id="kc-times" value="${escHtml((k.summary_times || []).join(', '))}" placeholder="08:00, 16:00">
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:14px"><input type="checkbox" id="kc-weekdays" ${k.summary_weekdays_only ? 'checked' : ''}> Nur Montag bis Freitag</label>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:4px;font-size:14px"><input type="checkbox" id="kc-ai" ${k.summary_ai ? 'checked' : ''}> KI fasst zusammen (Bruchteil eines Cents je Bericht)</label>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:4px;font-size:14px"><input type="checkbox" id="kc-mentions" ${k.notify_mentions ? 'checked' : ''}> Direktnachrichten und @-Erwähnungen sofort melden</label>
+      <label class="form-label" for="kc-keywords">Sofort melden bei Stichwort (eins pro Zeile)</label>
+      <textarea class="form-textarea" id="kc-keywords" rows="2" style="min-height:56px">${escHtml((k.keywords || []).join('\n'))}</textarea>
+      <label class="form-label" for="kc-muted">Kanäle ignorieren (Name, eins pro Zeile)</label>
+      <textarea class="form-textarea" id="kc-muted" rows="2" style="min-height:56px">${escHtml((k.muted_channels || []).join('\n'))}</textarea>
+      <div class="action-row">
+        <button class="btn btn-ghost" onclick="saveAgentConfig('kchat')">Speichern</button>
+        <button class="btn btn-ghost" onclick="disconnectKchat()">Verbindung trennen</button>
+      </div>${trennung}`;
+  }
   if (a.id === 'followup') {
     return `
       <label class="form-label" for="ag-fu-days">Nachfassen, wenn ein Kunde so viele Tage nicht geantwortet hat</label>
@@ -5071,6 +5106,15 @@ async function saveAgentConfig(id) {
     config.keywords = document.getElementById('ol-keywords')?.value || '';
     config.notify_all = !!document.getElementById('ol-all')?.checked;
   }
+  if (id === 'kchat') {
+    config.check_minutes = parseInt(document.getElementById('kc-minutes')?.value, 10) || 15;
+    config.summary_times = document.getElementById('kc-times')?.value || '';
+    config.summary_weekdays_only = !!document.getElementById('kc-weekdays')?.checked;
+    config.summary_ai = !!document.getElementById('kc-ai')?.checked;
+    config.notify_mentions = !!document.getElementById('kc-mentions')?.checked;
+    config.keywords = document.getElementById('kc-keywords')?.value || '';
+    config.muted_channels = document.getElementById('kc-muted')?.value || '';
+  }
   const res = await apiFetch(`/api/agents/${id}/config`, 'POST', config);
   if (res && res.success) showToast('Gespeichert', 'success');
   else showToast(res?.error || 'Speichern fehlgeschlagen', 'error');
@@ -5106,6 +5150,26 @@ async function connectOutlook(withClientId) {
 
 async function resetOutlookClient() {
   await apiFetch('/api/agents/outlook/config', 'POST', { client_id: '' });
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function connectKchat() {
+  const token = (document.getElementById('kc-token')?.value || '').trim();
+  const team = (document.getElementById('kc-team')?.value || '').trim();
+  if (!token) { showToast('Bitte das Token von Infomaniak einfügen', 'error'); return; }
+  const res = await apiFetch('/api/kchat/connect', 'POST', { token, team });
+  if (res && res.success) showToast(`Verbunden mit ${res.team} – Siggi liest ab jetzt mit`, 'success');
+  else showToast(res?.error || 'Verbinden fehlgeschlagen', 'error');
+  document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function disconnectKchat() {
+  if (!confirm('Verbindung zum Steler-kChat trennen? Das Token wird in Siggi gelöscht.')) return;
+  await apiFetch('/api/kchat/disconnect', 'POST');
+  showToast('kChat getrennt', 'success');
   delete agentsRendered['detail'];
   refreshAgents();
 }

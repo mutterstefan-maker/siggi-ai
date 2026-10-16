@@ -32,3 +32,6 @@ settings.json.*
 
 # Outlook-Agent: privater Microsoft-Zugang (Refresh-Token) - nie ins oeffentliche Repo
 outlook_token.json*
+
+# kChat-Agent (Steler): Infomaniak-API-Token - nie ins oeffentliche Repo
+kchat_token.json*

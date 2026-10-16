@@ -679,6 +679,29 @@ SIGGI_TOOLS = [
         }
     },
     {
+        'name': 'kchat_steler',
+        'description': (
+            'Firmen-Chat der STELER GMBH (Infomaniak kChat, Kollegen von Stefan) - NUR lesen. Fuer "was ist bei '
+            'Steler los", "was steht im kChat", "was gibt es Neues im Kanal X", "hat jemand nach mir gefragt". '
+            'Eigener Bereich: hat NICHTS mit Chefblick oder Stefans Privatem zu tun. Inhalte nie in Chefblick-Mails, '
+            'Posts, LinkedIn, Gedaechtnis oder an Dritte weitergeben; nichts in kChat schreiben (geht auch nicht). '
+            'Fuer einen Ueberblick: aktion=ueberblick und kurz zusammenfassen, was aktuell ist und was auf Stefan wartet.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'aktion': {'type': 'string', 'enum': ['ueberblick', 'kanal', 'suchen', 'kanaele'],
+                           'description': 'ueberblick = Ungelesenes + Nachrichten der letzten Stunden, kanal = Verlauf '
+                                          'eines Kanals, suchen = Volltext, kanaele = Liste mit Ungelesen-Zahlen'},
+                'stunden': {'type': 'integer', 'description': 'fuer ueberblick, Standard 24'},
+                'kanal': {'type': 'string', 'description': 'Kanalname (Teil reicht), fuer kanal'},
+                'suchbegriff': {'type': 'string'},
+                'anzahl': {'type': 'integer'},
+            },
+            'required': ['aktion']
+        }
+    },
+    {
         'name': 'cowork_datei_anzeigen',
         'description': 'Liest den Text einer COWORK-Datei (PDF, Text, Markdown, JSON, CSV, Python). Pfad aus cowork_datei_suchen.',
         'input_schema': {
@@ -971,6 +994,22 @@ def _run_siggi_tool_inner(name, tool_input):
             except outlook_engine.NotConnected:
                 return ('Das private Outlook ist noch nicht verbunden. Sag Stefan: In Siggi unter Agenten → '
                         'Outlook-Agent einmal "Mit Microsoft verbinden" (nur Lesezugriff).')
+
+        if name == 'kchat_steler':
+            try:
+                aktion = tool_input.get('aktion')
+                if aktion == 'kanal':
+                    res = kchat_engine.kanal(tool_input.get('kanal', ''), tool_input.get('anzahl') or 30)
+                elif aktion == 'suchen':
+                    res = kchat_engine.suchen(tool_input.get('suchbegriff', ''), tool_input.get('anzahl') or 20)
+                elif aktion == 'kanaele':
+                    res = kchat_engine.kanaele()
+                else:
+                    res = kchat_engine.ueberblick(tool_input.get('stunden') or 24)
+                return json.dumps(res, ensure_ascii=False) if res else 'Nichts gefunden im Steler-kChat.'
+            except kchat_engine.NotConnected:
+                return ('Der Steler-kChat ist noch nicht verbunden. Sag Stefan: In Siggi unter Agenten → '
+                        'kChat-Agent ein Infomaniak-API-Token (Bereich kChat) eintragen.')
 
         if name == 'cowork_datei_anzeigen':
             if not COWORK_AVAILABLE:
@@ -2659,6 +2698,16 @@ def _agent_extras():
         'alert': None if ol.get('connected') else ('Gib den Code bei Microsoft ein' if (ol.get('pending') or {}).get('user_code')
                                                   else 'Noch nicht verbunden – tippe auf mich'),
     }
+    kc = safe(kchat_engine.status, {}) or {}
+    kc_unread = sum(u.get('ungelesen', 0) for u in kc.get('unread') or [])
+    extras['kchat'] = {
+        'info': kc,
+        'next_run': (f"alle {kc.get('check_minutes', 15)} Min. · Lagebericht {', '.join(kc.get('summary_times') or []) or 'aus'}"
+                     if kc.get('connected') else 'nicht verbunden'),
+        'idle': ((f"{kc_unread} ungelesen in {len(kc.get('unread') or [])} Kanal/Kanälen" if kc_unread
+                  else f"Im Steler-Chat ist alles gelesen") if kc.get('connected') else None),
+        'alert': None if kc.get('connected') else 'Noch nicht verbunden – tippe auf mich',
+    }
     return extras
 
 
@@ -2778,6 +2827,7 @@ def _start_mail_fetch():
 
 import followup_engine
 import outlook_engine  # privates Outlook (nur lesen) - bewusst getrennt von mail_engine/Chefblick
+import kchat_engine  # Steler-GmbH-kChat (nur lesen) - eigener Bereich, getrennt von Chefblick und Privat
 
 INTERNAL_AGENT_RUNNERS = {
     'followup': lambda: followup_engine.run(create_mail_draft),
@@ -2787,6 +2837,7 @@ INTERNAL_AGENT_RUNNERS = {
     'improve': lambda: self_improve_engine.run_as_agent(),
     'health': lambda: health_check_engine.run_health_check(),
     'outlook': lambda: outlook_engine.run_as_agent(),
+    'kchat': lambda: kchat_engine.run_as_agent(bericht_jetzt=True),  # "Jetzt starten" = Lagebericht sofort
 }
 
 
@@ -3051,6 +3102,44 @@ def outlook_disconnect():
     return jsonify({'success': True})
 
 
+# ─── kChat-Agent: Steler-Firmenchat (nur lesen, Lagebericht + Erwaehnungen per Telegram) ──
+def _kchat_loop():
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_kchat_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return
+    while True:
+        try:
+            if kchat_engine.status()['connected'] and not agents_engine.is_paused('kchat'):
+                slot = kchat_engine.faelliger_bericht()
+                if slot or kchat_engine.ist_faellig():
+                    kchat_engine.run_as_agent(bericht_slot=slot)
+        except Exception as e:
+            print(f'[kChat] Fehler: {e}')
+        time.sleep(60)
+
+threading.Thread(target=_kchat_loop, daemon=True).start()
+
+
+@app.route('/api/kchat/connect', methods=['POST'])
+def kchat_connect():
+    data = request.get_json(silent=True) or {}
+    try:
+        if data.get('team'):
+            kchat_engine.save_config({'team': data['team']})
+        return jsonify({'success': True, **kchat_engine.connect(data.get('token'))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)[:300]}), 400
+
+
+@app.route('/api/kchat/disconnect', methods=['POST'])
+def kchat_disconnect():
+    kchat_engine.disconnect()
+    return jsonify({'success': True})
+
+
 @app.route('/api/agents')
 def agents_overview():
     return jsonify(agents_engine.overview(_agent_extras()))
@@ -3083,6 +3172,12 @@ def agents_config(agent_id):
     if agent_id == 'outlook':
         try:
             outlook_engine.save_config(request.get_json(silent=True) or {})
+        except (ValueError, TypeError) as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'success': True})
+    if agent_id == 'kchat':
+        try:
+            kchat_engine.save_config(request.get_json(silent=True) or {})
         except (ValueError, TypeError) as e:
             return jsonify({'success': False, 'error': str(e)}), 400
         return jsonify({'success': True})
