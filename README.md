@@ -58,6 +58,92 @@ bedienbar. Läuft als Flask-App auf einem eigenen VPS.
   (gruppiert nach Mail/Social/Tools, roter Ring bei offenen Freigaben),
   Seitenmenü in auf-/zuklappbare Kategorien gruppiert statt einer langen
   flachen Liste
+- 📬 **Outlook-Agent (privat)** – liest Stefans privates Hotmail nur mit
+  (Microsoft Graph, Recht `Mail.Read`), wichtige Mails per Telegram
+  (`outlook_engine.py`)
+- 🏢 **kChat-Agent (Steler)** – behält den Firmen-Chat der Steler GmbH
+  (Infomaniak kChat) im Blick: Lagebericht per Telegram, Erwähnungen sofort,
+  Fragen im Chat – nur lesen (`kchat_engine.py`, Details unten)
+
+## Bereiche & Trennung
+
+Stefans Vorgabe: **Chefblick, Privat und Steler GmbH werden nie vermischt** –
+jeder Bereich hat eigene Daten, eigene Zugänge und eigene Regeln.
+
+| Bereich | Modul | Daten / Zugang | Darf Siggi senden? | Hinweise an Stefan |
+|---|---|---|---|---|
+| Chefblick | `mail_engine.py` u.a. | `mails.db`, IMAP-Konten in `settings.json` | ja (Auto-Antworten, Freigaben) | Telegram / Mail |
+| Privat (Outlook) | `outlook_engine.py` | `outlook.db`, `outlook_token.json` | **nein** – nur `Mail.Read` | **nur Telegram** |
+| Steler GmbH (kChat) | `kchat_engine.py` | `kchat.db`, `kchat_token.json`, Einstellung `kchat` | **nein** – nur lesen | **nur Telegram** |
+
+- Privat- und Steler-Module berühren nie `mails.db`, `mail_engine`, Kontakte,
+  Nachfass-Agent, Auto-Antworten, Autopilot oder das Gedächtnis.
+- Hinweise aus diesen Bereichen gehen bewusst **nicht per Mail** (der
+  Mail-Fallback würde sie ins Chefblick-Postfach legen, das der Mail-Agent
+  abruft und automatisch beantwortet).
+- Die Chat-Werkzeuge (`outlook_privat`, `kchat_steler`) verbieten in ihrer
+  Beschreibung, Inhalte in Chefblick-Mails, Posts, LinkedIn, Gedächtnis oder an
+  Dritte weiterzugeben.
+- Token-Dateien liegen mit Rechten `0600` auf dem Server und sind gitignored.
+
+### kChat-Agent (Steler GmbH)
+
+**Zweck:** Stefan hat immer einen Überblick, was im Firmen-Chat gerade aktuell
+ist – ohne selbst alle Kanäle durchzulesen.
+
+**Stand:** **nur Lesezugriff.** Vorerst geht nichts automatisch raus – keine
+Nachrichten, keine Antworten, keine Reaktionen. `_api()` lehnt jeden
+POST-Aufruf ab außer den zwei lesenden (`/posts/search`, `/users/ids`); ein
+Schreibbefehl ist im Code nicht vorhanden. Stefans Ungelesen-Zähler in kChat
+bleibt unverändert. Hinweis: Das Infomaniak-Token selbst erlaubt technisch
+auch Schreiben (kein reines Lese-Recht verfügbar) – die Sperre liegt im Code.
+
+**Was er macht:**
+- **Lagebericht per Telegram** zu festen Uhrzeiten (Standard 08:00 und 16:00,
+  Mo–Fr): Was ist aktuell, was wartet auf Stefan (➡️). Zusammenfassung per
+  Claude Haiku (Bruchteil eines Cents), abschaltbar → dann nur Liste je Kanal.
+  Kein Bericht, wenn nichts Neues kam. Verpasste Uhrzeit wird bis 2 Std.
+  danach nachgeholt.
+- **Sofort-Hinweis** per Telegram bei Direktnachricht, `@`-Erwähnung,
+  `@channel/@all/@here` oder einstellbaren Stichwörtern – mit Knopf
+  „In kChat öffnen“. Jede Nachricht wird nur einmal gemeldet.
+- **Chat-Werkzeug `kchat_steler`** (Dashboard-Chat und Telegram):
+  `ueberblick` (Ungelesenes + Nachrichten der letzten Stunden), `kanal`
+  (Verlauf eines Kanals), `suchen` (Volltext), `kanaele` (Liste mit
+  Ungelesen-Zahlen) – z. B. „Was ist bei Steler los?“.
+- **Agenten-Karte** zeigt Ungelesen-Zahlen je Kanal; „Jetzt starten“ schickt
+  sofort einen Lagebericht. Prüfintervall (Standard 15 Min.), Uhrzeiten,
+  Stichwörter und stumme Kanäle sind dort einstellbar.
+
+**Technik:** kChat ist ein Mattermost – REST-API
+`https://<team>.kchat.infomaniak.com/api/v4`, Header
+`Authorization: Bearer <Token>`. Genutzt: `users/me`, `teams/name/<team>`,
+`users/me/teams/<id>/channels(/members)`, `channels/<id>/posts?since=`,
+`teams/<id>/posts/search`, `users/ids`. Hintergrund-Schleife `_kchat_loop` in
+`app.py` (prüft jede Minute, ob Lauf oder Bericht fällig ist). KI-Kosten
+laufen in der Verbrauchsübersicht unter „kChat (Steler)“.
+
+**Einrichtung (einmalig):**
+1. [manager.infomaniak.com → API-Token](https://manager.infomaniak.com/v3/ng/accounts/token/list)
+   → **Token erstellen**, Name „Siggi“, Bereich nur **kChat**. Token wird nur
+   einmal angezeigt.
+2. Siggi → Agenten → **kChat-Agent (Steler)** → Team (aus der kChat-Adresse,
+   z. B. `steler-gmbh`) und Token eintragen → **Verbinden**.
+3. Ab dem Verbinden zählt nur Neues – alte Nachrichten werden nicht gemeldet.
+
+Wird das Token ungültig (gelöscht, abgelaufen), entfernt Siggi die Verbindung
+und meldet das per Telegram. Infomaniak deaktiviert Tokens, die ein Jahr
+nicht benutzt wurden – bei laufendem Agenten passiert das nicht.
+
+### Infomaniak kSuite – weitere Möglichkeiten (noch nicht gebaut)
+
+| kSuite-Teil | Schnittstelle | Stand |
+|---|---|---|
+| kChat | Mattermost-API | ✅ gebaut (nur lesen) |
+| Mail (Steler-Postfach) | IMAP/SMTP `mail.infomaniak.com` | offen – **nicht** in den Chefblick-Mail-Agenten hängen (der antwortet automatisch); wenn, dann als eigener Steler-Bereich nur lesend |
+| Kalender | CalDAV | offen |
+| Kontakte | CardDAV | offen |
+| kDrive | WebDAV | offen |
 
 ## Cron-Jobs (Server, `crontab -l`)
 
