@@ -189,6 +189,7 @@ def connect(token):
     finally:
         c.close()
     threading.Thread(target=run_as_agent, daemon=True).start()
+    threading.Thread(target=stil_lernen, daemon=True).start()  # eigene aeltere Nachrichten einlesen
     return {'account': account, 'team': t.get('display_name') or team}
 
 
@@ -225,6 +226,7 @@ def status():
         'account': tok.get('account'), 'team_name': tok.get('team_name'),
         'last_check': _get_state('last_check'), 'last_summary': _get_state('last_summary'),
         'unread': unread,
+        'stil': stil_status(),
         **{k: cfg[k] for k in DEFAULTS},
     }
 
@@ -370,6 +372,8 @@ def _db():
     c = sqlite3.connect(DB_PATH, timeout=10)
     c.execute('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS notified (post_id TEXT PRIMARY KEY, created_at TEXT)')
+    # Stufe 1 "Schreibstil lernen": nur Stefans EIGENE Nachrichten (+ kurz, worauf er geantwortet hat)
+    c.execute('CREATE TABLE IF NOT EXISTS own_posts (id TEXT PRIMARY KEY, kanal TEXT, text TEXT, kontext TEXT, ms INTEGER)')
     return c
 
 
@@ -452,6 +456,7 @@ def run_as_agent(bericht_slot=None, bericht_jetzt=False):
             since = max(since, now_ms - 3 * 24 * 3600 * 1000)  # nach langer Pause nicht alles nachmelden
             posts, _ = neu_seit(since)
             me = _me()
+            _merke_eigene(c, posts, me)
             gemeldet = 0
             for p in posts:
                 grund = melde_grund(p, cfg, me)
@@ -485,6 +490,7 @@ def run_as_agent(bericht_slot=None, bericht_jetzt=False):
                 c.commit()
         finally:
             c.close()
+        _stil_pflegen()
         n_unread = sum(x['ungelesen'] for x in unread)
         summary = (f'{len(posts)} neue Nachricht(en)' + (f', {gemeldet} gemeldet' if gemeldet else '')
                    + f' · {n_unread} ungelesen' + bericht)
@@ -566,3 +572,148 @@ def _melden(post, grund):
     wo = post['von'] if post['kanal'].startswith('Direkt:') else f"{post['kanal']} · {post['von']}"
     text = f"{LABEL} ({grund})\n{wo} · {post['zeit']}\n\n{post['text'][:600]}"
     return _telegram(text, buttons=[[{'text': '💬 In kChat öffnen', 'url': post['link']}]])
+
+
+# ─── Stufe 1: Stefans Schreibstil lernen (nur lesen, nur eigene Nachrichten) ──
+# Grundlage fuer spaetere Antwort-VORSCHLAEGE. Hier wird nichts gesendet - die Sperre in _api bleibt.
+
+STIL_MIN = 30          # so viele eigene Nachrichten braucht ein brauchbares Profil
+STIL_ALLE_TAGE = 7     # Profil woechentlich auffrischen (eine Haiku-Anfrage, ca. 1-2 Cent)
+_stil_lock = threading.Lock()
+
+
+def _merke_eigene(c, posts, me):
+    """Eigene Nachrichten aus einem Abruf speichern, mit der letzten fremden Nachricht davor als Kontext."""
+    letzte_fremde = {}
+    for p in posts:  # aelteste zuerst
+        key = p['antwort_auf'] or p['kanal_id']
+        if p['user_id'] != me['id']:
+            letzte_fremde[key] = letzte_fremde[p['kanal_id']] = p
+            continue
+        if len(p['text']) < 3:
+            continue
+        vor = letzte_fremde.get(key) or letzte_fremde.get(p['kanal_id'])
+        kontext = f"{vor['von']}: {vor['text'][:300]}" if vor else None
+        c.execute('INSERT OR IGNORE INTO own_posts (id, kanal, text, kontext, ms) VALUES (?, ?, ?, ?, ?)',
+                  (p['id'], p['kanal'], p['text'][:2000], kontext, p['ms']))
+
+
+def stil_lernen(tage=180, max_seiten=20):
+    """Eigene Nachrichten der letzten `tage` per Suche "from:<ich>" einlesen und das Stilprofil bauen."""
+    if not _stil_lock.acquire(blocking=False):
+        return {'laeuft': True}
+    try:
+        me = _me()
+        names = {ch['id']: ch['name'] for ch in _channels()}
+        ab = (datetime.now() - timedelta(days=tage)).strftime('%Y-%m-%d')
+        neu = 0
+        c = _db()
+        try:
+            for seite in range(max_seiten):
+                data = _api(f'/teams/{_team_id()}/posts/search', json_body={
+                    'terms': f"from:{me['username']} after:{ab}", 'is_or_search': False,
+                    'page': seite, 'per_page': 100})
+                posts = [p for p in _posts(data, names) if p['user_id'] == me['id'] and len(p['text']) >= 3]
+                if not posts:
+                    break
+                for p in posts:
+                    cur = c.execute('INSERT OR IGNORE INTO own_posts (id, kanal, text, kontext, ms) VALUES (?, ?, ?, ?, ?)',
+                                    (p['id'], p['kanal'] or 'Kanal', p['text'][:2000], None, p['ms']))
+                    neu += cur.rowcount
+                c.commit()
+                if len(data.get('order') or []) < 100:
+                    break
+            _set_state(c, 'stil_import', datetime.now().isoformat(timespec='seconds'))
+            c.commit()
+        finally:
+            c.close()
+        agents_engine.event(AGENT_ID, f'Schreibstil: {neu} eigene ältere Nachricht(en) eingelesen', 'info')
+        profil = stil_profil_erstellen()
+        return {'neu': neu, 'profil': bool(profil)}
+    except Exception as e:
+        print(f'[kChat] Stil lernen fehlgeschlagen: {e}')
+        agents_engine.event(AGENT_ID, f'Schreibstil lernen fehlgeschlagen: {str(e)[:150]}', 'error')
+        return {'fehler': str(e)[:200]}
+    finally:
+        _stil_lock.release()
+
+
+def _anzahl_eigene():
+    try:
+        c = _db()
+        n = c.execute('SELECT COUNT(*) FROM own_posts').fetchone()[0]
+        c.close()
+        return n
+    except sqlite3.Error:
+        return 0
+
+
+def stil_status():
+    return {'nachrichten': _anzahl_eigene(), 'min': STIL_MIN, 'profil': _get_state('stilprofil'),
+            'profil_am': _get_state('stilprofil_am'), 'profil_aus': _get_state('stilprofil_n'),
+            'laeuft': _stil_lock.locked()}
+
+
+def _stil_pflegen():
+    """Im normalen Lauf: Profil anlegen bzw. woechentlich auffrischen, sobald genug Nachrichten da sind."""
+    if _stil_lock.locked():
+        return
+    am = _get_state('stilprofil_am')
+    try:
+        alt = not am or datetime.now() - datetime.fromisoformat(am) >= timedelta(days=STIL_ALLE_TAGE)
+    except ValueError:
+        alt = True
+    if alt and _anzahl_eigene() >= STIL_MIN:
+        threading.Thread(target=stil_profil_erstellen, daemon=True).start()
+
+
+def stil_profil_erstellen():
+    c = _db()
+    try:
+        rows = c.execute('SELECT kanal, text, kontext FROM own_posts WHERE length(text) >= 12 '
+                         'ORDER BY ms DESC LIMIT 250').fetchall()
+    finally:
+        c.close()
+    if len(rows) < STIL_MIN:
+        return None
+    settings = settings_store.load_or_empty()
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or settings.get('anthropic_api_key', '')
+    if not api_key:
+        return None
+    beispiele, laenge = [], 0
+    for kanal, text, kontext in rows:
+        zeile = f"[{kanal}] " + (f"(auf: {kontext[:200]}) " if kontext else '') + f"STEFAN: {text[:500]}"
+        laenge += len(zeile)
+        if laenge > 40000:
+            break
+        beispiele.append(zeile)
+    prompt = (
+        "Das sind echte Nachrichten, die Stefan Mutter im Firmen-Chat (kChat) der Steler GmbH geschrieben hat, "
+        "teils mit der Nachricht davor, auf die er reagiert:\n\n" + '\n'.join(beispiele) + "\n\n"
+        "Beschreibe seinen Schreibstil so genau, dass man spaeter Antworten schreiben kann, die klingen wie "
+        "von ihm. Deutsch, kein Markdown, kurze Abschnitte mit Ueberschrift und Doppelpunkt:\n"
+        "TON: (z.B. locker/knapp/freundlich)\nLAENGE: (typische Laenge, Saetze)\nANREDE & GRUSS: (Du/Sie, "
+        "Begruessung, Verabschiedung - oder keine)\nSCHREIBWEISE: (Gross-/Kleinschreibung, Satzzeichen, Emojis, "
+        "Abkuerzungen)\nTYPISCHE FORMULIERUNGEN: (5-10 woertliche kurze Wendungen)\nUNTERSCHIEDE: (je nach Kanal "
+        "oder Person, falls erkennbar)\nNIE: (was er nie schreibt)\n"
+        "Nur beschreiben, was in den Beispielen wirklich vorkommt. Keine Inhalte oder Interna wiederholen, nur "
+        "kurze typische Wendungen."
+    )
+    r = requests.post('https://api.anthropic.com/v1/messages',
+                      headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+                      json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 1200,
+                            'messages': [{'role': 'user', 'content': prompt}]}, timeout=90).json()
+    text = ''.join(b.get('text', '') for b in r.get('content', []) if b.get('type') == 'text').strip()
+    if not text:
+        print(f'[kChat] Stilprofil: keine Antwort {str(r)[:200]}')
+        return None
+    c = _db()
+    try:
+        _set_state(c, 'stilprofil', text)
+        _set_state(c, 'stilprofil_am', datetime.now().isoformat(timespec='seconds'))
+        _set_state(c, 'stilprofil_n', str(len(beispiele)))
+        c.commit()
+    finally:
+        c.close()
+    agents_engine.event(AGENT_ID, f'Stilprofil aus {len(beispiele)} eigenen Nachrichten erstellt', 'success')
+    return text

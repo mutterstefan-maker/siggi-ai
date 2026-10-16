@@ -690,9 +690,10 @@ SIGGI_TOOLS = [
         'input_schema': {
             'type': 'object',
             'properties': {
-                'aktion': {'type': 'string', 'enum': ['ueberblick', 'kanal', 'suchen', 'kanaele'],
+                'aktion': {'type': 'string', 'enum': ['ueberblick', 'kanal', 'suchen', 'kanaele', 'mein_stil'],
                            'description': 'ueberblick = Ungelesenes + Nachrichten der letzten Stunden, kanal = Verlauf '
-                                          'eines Kanals, suchen = Volltext, kanaele = Liste mit Ungelesen-Zahlen'},
+                                          'eines Kanals, suchen = Volltext, kanaele = Liste mit Ungelesen-Zahlen, '
+                                          'mein_stil = was Siggi ueber Stefans Schreibstil im kChat gelernt hat'},
                 'stunden': {'type': 'integer', 'description': 'fuer ueberblick, Standard 24'},
                 'kanal': {'type': 'string', 'description': 'Kanalname (Teil reicht), fuer kanal'},
                 'suchbegriff': {'type': 'string'},
@@ -1004,6 +1005,10 @@ def _run_siggi_tool_inner(name, tool_input):
                     res = kchat_engine.suchen(tool_input.get('suchbegriff', ''), tool_input.get('anzahl') or 20)
                 elif aktion == 'kanaele':
                     res = kchat_engine.kanaele()
+                elif aktion == 'mein_stil':
+                    st = kchat_engine.stil_status()
+                    res = st['profil'] or (f"Noch kein Stilprofil - {st['nachrichten']} von mindestens "
+                                           f"{st['min']} eigenen Nachrichten gesammelt.")
                 else:
                     res = kchat_engine.ueberblick(tool_input.get('stunden') or 24)
                 return json.dumps(res, ensure_ascii=False) if res else 'Nichts gefunden im Steler-kChat.'
@@ -3132,6 +3137,15 @@ def kchat_connect():
         return jsonify({'success': True, **kchat_engine.connect(data.get('token'))})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)[:300]}), 400
+
+
+@app.route('/api/kchat/style', methods=['POST'])
+def kchat_style():
+    """Schreibstil neu lernen: eigene aeltere Nachrichten einlesen + Profil bauen (Hintergrund)."""
+    if not kchat_engine.status()['connected']:
+        return jsonify({'success': False, 'error': 'kChat ist nicht verbunden'}), 400
+    threading.Thread(target=kchat_engine.stil_lernen, daemon=True).start()
+    return jsonify({'success': True})
 
 
 @app.route('/api/kchat/disconnect', methods=['POST'])

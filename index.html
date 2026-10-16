@@ -4874,6 +4874,7 @@ function agentConfigHTML(a) {
       <label class="form-label" for="kc-token">API-Token</label>
       <input class="form-input" id="kc-token" type="password" placeholder="Token von Infomaniak" autocomplete="off">
       <div class="action-row"><button class="btn btn-primary" onclick="connectKchat()">Verbinden</button></div>${trennung}`;
+    const st = k.stil || {};
     const unread = (k.unread || []).map(u => `<div>• ${escHtml(u.name)}: <b>${u.ungelesen}</b> ungelesen${u.erwaehnungen ? ` · ${u.erwaehnungen}× erwähnt` : ''}</div>`).join('');
     return `
       <div class="form-label">Verbunden als <b>${escHtml(k.account || '')}</b> mit <b>${escHtml(k.team_name || k.team || '')}</b> – nur lesen</div>
@@ -4889,6 +4890,11 @@ function agentConfigHTML(a) {
       <textarea class="form-textarea" id="kc-keywords" rows="2" style="min-height:56px">${escHtml((k.keywords || []).join('\n'))}</textarea>
       <label class="form-label" for="kc-muted">Kanäle ignorieren (Name, eins pro Zeile)</label>
       <textarea class="form-textarea" id="kc-muted" rows="2" style="min-height:56px">${escHtml((k.muted_channels || []).join('\n'))}</textarea>
+      <div class="form-label" style="margin-top:14px">✍️ Schreibstil lernen (Stufe 1 – nur lesen)</div>
+      <div class="ag-muted" style="margin-bottom:6px;line-height:1.5">Siggi merkt sich nur <b>deine eigenen</b> kChat-Nachrichten und beschreibt daraus deinen Stil – Grundlage für spätere Antwort-Vorschläge. Gesendet wird nichts.<br>
+        ${st.laeuft ? '⏳ Lerne gerade …' : `Gesammelt: <b>${st.nachrichten || 0}</b> eigene Nachrichten${(st.nachrichten || 0) < (st.min || 30) ? ` (Profil ab ${st.min || 30})` : ''}${st.profil_am ? ` · Profil vom ${escHtml(new Date(st.profil_am).toLocaleDateString('de-DE'))} aus ${escHtml(st.profil_aus || '?')} Nachrichten` : ''}`}</div>
+      ${st.profil ? `<details style="margin-bottom:6px"><summary style="cursor:pointer;font-size:14px">Mein Stilprofil ansehen</summary><div class="ag-muted" style="white-space:pre-wrap;margin-top:6px;line-height:1.5">${escHtml(st.profil)}</div></details>` : ''}
+      <div class="action-row"><button class="btn btn-ghost" onclick="kchatLearnStyle()" ${st.laeuft ? 'disabled' : ''}>Stil jetzt neu lernen</button></div>
       <div class="action-row">
         <button class="btn btn-ghost" onclick="saveAgentConfig('kchat')">Speichern</button>
         <button class="btn btn-ghost" onclick="disconnectKchat()">Verbindung trennen</button>
@@ -5164,6 +5170,14 @@ async function connectKchat() {
   document.activeElement?.blur();
   delete agentsRendered['detail'];
   refreshAgents();
+}
+
+async function kchatLearnStyle() {
+  const res = await apiFetch('/api/kchat/style', 'POST');
+  if (res && res.success) showToast('Siggi liest deine eigenen Nachrichten ein – dauert 1–2 Minuten', 'success');
+  else showToast(res?.error || 'Starten fehlgeschlagen', 'error');
+  delete agentsRendered['detail'];
+  setTimeout(refreshAgents, 1500);
 }
 
 async function disconnectKchat() {
