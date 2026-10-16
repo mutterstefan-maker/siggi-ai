@@ -45,6 +45,7 @@ DEFAULTS = {
     'summary_weekdays_only': True,
     'summary_ai': True,  # Haiku fasst zusammen (Bruchteil eines Cents); aus = nur Liste
     'muted_channels': [],  # Kanalnamen, die Siggi ignoriert
+    'alert_channels': [],  # Kanaele, aus denen JEDE neue Nachricht sofort gemeldet wird (z.B. Aufgaben-Chat)
 }
 
 _lock = threading.Lock()
@@ -96,6 +97,8 @@ def save_config(data):
             cfg['summary_ai'] = bool(data['summary_ai'])
         if 'muted_channels' in data:
             cfg['muted_channels'] = clean_list(data['muted_channels'])
+        if 'alert_channels' in data:
+            cfg['alert_channels'] = clean_list(data['alert_channels'])
         s['kchat'] = cfg
     settings_store.update(upd)
     _cache.clear()
@@ -418,9 +421,20 @@ def faelliger_bericht(now=None):
     return None
 
 
+def _norm(name):
+    return re.sub(r'[^0-9a-zäöüß]+', '', str(name or '').lower())
+
+
+def _kanal_passt(kanal, eintrag):
+    """Kanalname ohne Emojis/Leerzeichen vergleichen ("Lieferung an Lager" passt auf "Lieferung an Lager 🚚")."""
+    return bool(_norm(eintrag)) and _norm(kanal) == _norm(eintrag)
+
+
 def melde_grund(post, cfg, me):
     if post['user_id'] == me['id']:
         return None
+    if any(_kanal_passt(post['kanal'], k) for k in cfg.get('alert_channels') or []):
+        return 'Kanal mit Sofort-Meldung'
     if post.get('prioritaet') == 'urgent':
         return '🔴 als DRINGEND markiert'
     if post.get('prioritaet') == 'important':

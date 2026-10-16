@@ -4888,6 +4888,8 @@ function agentConfigHTML(a) {
       <label style="display:flex;gap:8px;align-items:center;margin-top:4px;font-size:14px"><input type="checkbox" id="kc-mentions" ${k.notify_mentions ? 'checked' : ''}> Direktnachrichten und @-Erwähnungen sofort melden (als „Dringend“/„Wichtig“ markierte Nachrichten immer)</label>
       <label class="form-label" for="kc-keywords">Sofort melden bei Stichwort (eins pro Zeile)</label>
       <textarea class="form-textarea" id="kc-keywords" rows="2" style="min-height:56px">${escHtml((k.keywords || []).join('\n'))}</textarea>
+      <label class="form-label" for="kc-alert">Kanäle immer sofort melden – jede neue Nachricht (Name, eins pro Zeile)</label>
+      <textarea class="form-textarea" id="kc-alert" rows="2" style="min-height:56px">${escHtml((k.alert_channels || []).join('\n'))}</textarea>
       <label class="form-label" for="kc-muted">Kanäle ignorieren (Name, eins pro Zeile)</label>
       <textarea class="form-textarea" id="kc-muted" rows="2" style="min-height:56px">${escHtml((k.muted_channels || []).join('\n'))}</textarea>
       <div class="form-label" style="margin-top:14px">✍️ Schreibstil lernen (Stufe 1 – nur lesen)</div>
@@ -5120,6 +5122,7 @@ async function saveAgentConfig(id) {
     config.notify_mentions = !!document.getElementById('kc-mentions')?.checked;
     config.keywords = document.getElementById('kc-keywords')?.value || '';
     config.muted_channels = document.getElementById('kc-muted')?.value || '';
+    config.alert_channels = document.getElementById('kc-alert')?.value || '';
   }
   const res = await apiFetch(`/api/agents/${id}/config`, 'POST', config);
   if (res && res.success) showToast('Gespeichert', 'success');
