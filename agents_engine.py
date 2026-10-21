@@ -84,6 +84,18 @@ AGENTS = {
         'role': 'Findet Kunden, die sich nach deiner Mail nicht gemeldet haben, und schlägt Nachfass-Mails vor',
         'default_config': {}, 'next_run': 'täglich 09:30',
     },
+    'angebot': {
+        # angebot_engine.py - Projektanfrage -> Angebots-PDF (+ Website-Analyse) als Entwurf zur Freigabe
+        'kind': 'internal', 'name': 'Angebots-Agent', 'icon': 'doc', 'view': 'mail_drafts', 'runnable': False,
+        'role': 'Macht aus einer Projektanfrage sofort ein fertiges Angebot mit deinen Preisen – du gibst nur frei',
+        'default_config': {}, 'next_run': 'nach jedem Mail-Abruf',
+    },
+    'checkin': {
+        # checkin_engine.py - 30/90 Tage nach Go-live einer Kunden-Website persoenlich nachfragen
+        'kind': 'internal', 'name': 'Check-in-Agent', 'icon': 'heart', 'view': 'mail_drafts', 'runnable': True,
+        'role': 'Fragt 30 und 90 Tage nach dem Go-live beim Kunden nach, ob alles läuft – mit passendem nächsten Schritt',
+        'default_config': {}, 'next_run': 'täglich 10:00',
+    },
     'wohnung': {
         # Laeuft in der separaten Wohnungssuche (/opt/wohnungssuche) und meldet sich per Hook.
         'kind': 'internal', 'name': 'Wohnungs-Agent', 'icon': 'home', 'view': None, 'runnable': False,
@@ -119,7 +131,8 @@ AGENTS = {
     'watch': {
         'kind': 'n8n', 'view': None, 'runnable': True,
         'name': 'Website-Wächter',
-        'role': 'Prüft alle 15 Min., ob deine Websites erreichbar sind – täglich auch SSL und Ladezeit',
+        'role': 'Prüft deine und die Kunden-Websites alle 15 Min. – täglich SSL, Formular, Domain; '
+                'monatlicher Wartungsbericht für Kunden',
         'icon': 'shield',
         'trigger': '/webhook/siggi-watch-run',
         'default_config': {'sites': ['https://chefblick.de', 'https://stean.info', 'https://www.fischmann-plattner.de']},
@@ -185,6 +198,17 @@ def init_table():
             created_at TEXT,
             decided_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS site_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            host TEXT,
+            url TEXT,
+            ok INTEGER,
+            status INTEGER,
+            ms INTEGER,
+            ssl_days INTEGER,
+            checked_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_site_checks_host ON site_checks (host, checked_at);
         CREATE TABLE IF NOT EXISTS wohnung_entscheidungen (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             listing_id INTEGER,
@@ -251,7 +275,10 @@ def handle_hook(agent_id, data):
             if not data.get('quiet'):
                 _log(c, agent_id, 'info', data.get('text') or 'Lauf gestartet')
             c.commit()
-            return {'run': True, 'config': json.loads(row['config'] or '{}')}, 200
+            config = json.loads(row['config'] or '{}')
+            if agent_id == 'watch':
+                config['sites'] = watch_sites(config.get('sites') or [])
+            return {'run': True, 'config': config}, 200
 
         if kind == 'status':
             fields, vals = [], []
@@ -346,7 +373,7 @@ def handle_hook(agent_id, data):
             return {'metrics': host_metrics()}, 200
 
         if kind == 'site_check':
-            return check_site(str(data.get('url', ''))), 200
+            return check_site(str(data.get('url', '')), record=True), 200
 
         if kind == 'report_data':
             return {'stats': weekly_stats()}, 200
@@ -426,8 +453,40 @@ def weekly_stats(days=7):
     return stats
 
 
-def check_site(url):
-    """Status, Ladezeit und Tage bis zum SSL-Ablauf einer Website."""
+def watch_sites(own):
+    """Eigene Websites + Kunden-Websites (kunden_engine), doppelte Hosts nur einmal."""
+    try:
+        import kunden_engine  # spaet: kunden_engine importiert agents_engine
+        extra = kunden_engine.urls()
+    except Exception as e:
+        print(f'[Website-Waechter] Kunden-Websites nicht lesbar: {e}')
+        extra = []
+    out, hosts = [], set()
+    for u in list(own) + extra:
+        h = (urlparse(u if '://' in u else 'https://' + u).hostname or '').lower().removeprefix('www.')
+        if h and h not in hosts:
+            hosts.add(h)
+            out.append(u)
+    return out
+
+
+def _record_check(result):
+    """Jeder Check bleibt 400 Tage - Grundlage fuer Erreichbarkeit/Ausfaelle im Wartungsbericht."""
+    try:
+        host = (urlparse(result['url']).hostname or '').lower().removeprefix('www.')
+        c = _conn()
+        c.execute('INSERT INTO site_checks (host, url, ok, status, ms, ssl_days, checked_at) VALUES (?,?,?,?,?,?,?)',
+                  (host, result['url'], 1 if result['ok'] else 0, result['status'], result['ms'], result['ssl_days'], _now()))
+        if datetime.now().minute < 15 and datetime.now().hour == 3:
+            c.execute('DELETE FROM site_checks WHERE checked_at < ?', ((datetime.now() - timedelta(days=400)).isoformat(),))
+        c.commit()
+        c.close()
+    except Exception as e:
+        print(f'[Website-Waechter] Check nicht gespeichert: {e}')
+
+
+def check_site(url, record=False):
+    """Status, Ladezeit und Tage bis zum SSL-Ablauf einer Website. record=True: fuer die Statistik merken."""
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     result = {'url': url, 'ok': False, 'status': None, 'ms': None, 'ssl_days': None, 'error': None}
@@ -451,6 +510,8 @@ def check_site(url):
             result['ssl_days'] = (expires - datetime.utcnow()).days
         except Exception as e:
             result['ssl_error'] = str(e)[:200]
+    if record:
+        _record_check(result)
     return result
 
 

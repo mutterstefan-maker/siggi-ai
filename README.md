@@ -62,6 +62,35 @@ bedienbar. Läuft als Flask-App auf einem eigenen VPS.
   (Microsoft Graph, Recht `Mail.Read`), wichtige Mails per Telegram
   (`outlook_engine.py`)
 
+## Kunden-Agenten (Chefblick)
+
+Alle Mails an Kunden sind **Entwürfe mit Freigabe-Knopf in Telegram** – nichts
+geht ungefragt raus. Versand mit Stefans Signatur, PDFs als echte Anhänge.
+
+- 🛡️ **Website-Wächter + Wartung** (`kunden_engine.py`, `kunden_pdf.py`) –
+  Kunden-Websites (Agenten → Website-Wächter → „+ Kunden-Website“, Tabelle
+  `kunden_websites` in `mails.db`) werden an die n8n-Liste angehängt
+  (`agents_engine.watch_sites`) und alle 15 Min. mitgeprüft. Jeder Check landet
+  in `agents.db/site_checks` (400 Tage) → Erreichbarkeit, Ausfälle (≥ 2
+  Fehlschläge in Folge), Ladezeit. Täglich 07:00: Kontaktformular gefunden und
+  erreichbar (es wird nichts abgeschickt), Domain-Ablauf per RDAP (bei .de gibt
+  DENIC kein Datum heraus). Ab dem Monatsersten 09:00: Wartungsbericht-PDF je
+  Website mit Häkchen „Monatsbericht“ → Mail-Entwurf an den Kunden.
+- 💌 **Check-in-Agent** (`checkin_engine.py`) – 30 und 90 Tage nach dem
+  Go-live (Datum in der Kundenliste) eine kurze persönliche Mail mit genau
+  einem passenden nächsten Schritt (Claude Haiku). Täglich 10:00.
+- 📄 **Angebots-Agent** (`angebot_engine.py`) – prüft neue Mails nach jedem
+  Abruf (Stichwort-Vorfilter → Haiku). Bei einer Projektanfrage: Analyse der
+  bisherigen Website (Audit, Kundenversion), Claude Sonnet wählt das Paket und
+  schreibt die Texte. **Preise kommen nur aus der Paketliste** (Agent-Karte,
+  Einstellung `angebot_settings`; das Modell nennt nur die Paket-Nummer),
+  brutto inkl. 19 % MwSt. Angebots-PDF + Analyse-PDF als Entwurf (`angebote/`,
+  Tabelle `angebote`). Keine Angebote für Online-Shops. Der Mail-Agent
+  beantwortet die Anfrage weiterhin sofort kurz; das Angebot kommt danach.
+
+Schleife `_kunden_agents_loop` in `app.py` (alle 2 Min.); KI-Kosten in der
+Verbrauchsübersicht unter „Angebote“ und „Check-ins“.
+
 ## Bereiche & Trennung
 
 Stefans Vorgabe: **Chefblick und Privat werden nie vermischt** –

@@ -937,6 +937,8 @@ input:checked + .slider:before { transform: translateX(16px); }
 .ag-step-note { margin-left: auto; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); white-space: nowrap; }
 .ag-config { border-top: 1px solid var(--border); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
 .ag-config:empty { display: none; }
+.ag-kunde { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.ag-kunde .ag-actions { flex-wrap: wrap; }
 .ag-nums { display: flex; flex-wrap: wrap; gap: 12px; }
 .ag-num { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
 .ag-num input { width: 72px; }
@@ -4640,6 +4642,8 @@ const AGENT_ICONS = {
   chart: 'M3 21 H21 M6 17 V11 M11 17 V6 M16 17 V13 M21 17 V9',
   home: 'M3 11 L12 3 L21 11 M5 9.5 V21 H19 V9.5 M10 21 V15 H14 V21',
   lock: 'M5 11 H19 V21 H5 Z M8 11 V7 A4 4 0 0 1 16 7 V11 M12 15 V17',
+  doc: 'M6 2 H14 L19 7 V22 H6 Z M14 2 V7 H19 M9 12 H16 M9 16 H16',
+  heart: 'M12 21 C12 21 3 14.5 3 8.5 A4.5 4.5 0 0 1 12 6 A4.5 4.5 0 0 1 21 8.5 C21 14.5 12 21 12 21 Z',
 };
 let agentsTimer = null;
 let agentsSelected = null;
@@ -4787,10 +4791,57 @@ function agentPlanHTML(a) {
 
 function agentConfigHTML(a) {
   if (a.id === 'watch') {
+    const info = a.info || {};
+    const kunden = info.kunden || [];
+    agentKunden = kunden;
+    const formTxt = { ok: '✅ Formular', nicht_gefunden: '⚠️ kein Formular gefunden', seite_fehler: '⚠️ Kontaktseite Fehler', nicht_erreichbar: '⚠️ Kontaktseite weg' };
+    const rows = kunden.map(k => {
+      const st = k.stats_30 || {};
+      const up = st.checks ? `${String(st.uptime).replace('.', ',')} % erreichbar (30 T.)` : 'noch keine Messwerte';
+      const bits = [up, formTxt[k.form_status] || 'Formular: wird geprüft',
+        st.ssl_days != null ? `SSL ${st.ssl_days} T.` : '', k.domain_expiry ? `Domain bis ${dateDE(k.domain_expiry)}` : '',
+        k.bericht ? `📄 Monatsbericht${k.last_report_month ? ' (zuletzt ' + k.last_report_month + ')' : ''}` : 'kein Monatsbericht',
+        k.golive ? `Go-live ${dateDE(k.golive)}` : ''].filter(Boolean);
+      return `<div class="ag-kunde">
+        <div style="min-width:0"><div style="font-weight:600">${escHtml(k.kunde || k.url)}</div>
+          <div class="ag-muted">${escHtml(k.url.replace(/^https?:\/\//, ''))} · ${escHtml(bits.join(' · '))}</div></div>
+        <div class="ag-actions">
+          <button class="btn btn-ghost" onclick="openKundeModal(${k.id})">Bearbeiten</button>
+          <button class="btn btn-ghost" onclick="kundeBericht(${k.id}, true)">Vorschau-PDF</button>
+          ${k.bericht && k.email ? `<button class="btn btn-ghost" onclick="kundeBericht(${k.id}, false)">Bericht ${escHtml(info.vormonat || '')} senden</button>` : ''}
+        </div></div>`;
+    }).join('');
     return `
-      <label class="form-label" for="ag-sites">Überwachte Websites (eine pro Zeile)</label>
-      <textarea class="form-textarea" id="ag-sites" rows="4" style="min-height:96px">${escHtml((a.config.sites || []).join('\n'))}</textarea>
-      <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('watch')">Websites speichern</button></div>`;
+      <label class="form-label" for="ag-sites">Eigene Websites (eine pro Zeile)</label>
+      <textarea class="form-textarea" id="ag-sites" rows="3" style="min-height:72px">${escHtml((a.config.sites || []).join('\n'))}</textarea>
+      <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('watch')">Websites speichern</button></div>
+      <div class="form-label" style="margin-top:14px">Kunden-Websites (${kunden.length})</div>
+      <div class="ag-muted" style="line-height:1.5">Werden mitgeprüft (alle 15 Min.), täglich Kontaktformular und Domain. Am Monatsersten baut Siggi für jede Website mit Monatsbericht ein PDF und legt dir die Mail an den Kunden per Telegram zur Freigabe vor. Das Go-live-Datum nutzt der Check-in-Agent.</div>
+      ${rows || '<div class="ag-muted">Noch keine Kunden-Website eingetragen.</div>'}
+      <div class="action-row"><button class="btn btn-primary" onclick="openKundeModal(null)">+ Kunden-Website</button></div>`;
+  }
+  if (a.id === 'angebot') {
+    const info = a.info || {};
+    const eur = v => v == null ? 'nach Aufwand' : v.toLocaleString('de-DE', { minimumFractionDigits: v % 1 ? 2 : 0 }) + ' €';
+    const last = (info.letzte || []).filter(x => x.status === 'entwurf').slice(0, 5).map(x =>
+      `<div>• ${escHtml(x.nummer)} · ${escHtml(x.kunde || x.addr)} · ${escHtml(x.paket)} · ${eur(x.summe_einmalig)}${x.summe_monatlich ? ' + ' + eur(x.summe_monatlich) + '/Monat' : ''} <span class="ag-muted">(${formatDate(x.created_at)})</span></div>`).join('');
+    return `
+      <div class="ag-muted" style="line-height:1.5">Nach jedem Mail-Abruf: Ist eine neue Mail eine Projektanfrage, schreibt Siggi ein Angebot als PDF (Preise <b>nur</b> aus deiner Paketliste, brutto inkl. 19 % MwSt.) und hängt eine Analyse der bisherigen Website an. Du bekommst es per Telegram zur Freigabe – nichts geht ungefragt raus. Online-Shop-Anfragen bekommen kein Angebot.</div>
+      <label class="form-label" for="ang-pakete">Pakete & Preise – eins pro Zeile: Name | einmalig | monatlich | Leistungen</label>
+      <textarea class="form-textarea" id="ang-pakete" rows="6" style="min-height:130px;font-size:12px">${escHtml(info.pakete_text || '')}</textarea>
+      <div class="ag-muted">„nach Aufwand“ statt Betrag = ohne Festpreis. Beträge wie 990 oder 299,99.</div>
+      <div class="ag-nums"><label class="ag-num"><span>Angebot gültig</span><input class="form-input" type="number" min="7" max="90" id="ang-tage" value="${info.gueltig_tage || 30}"> Tage</label></div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="ang-analyse" ${info.analyse !== false ? 'checked' : ''}> Bisherige Website analysieren und die Analyse als PDF anhängen</label>
+      <div class="action-row"><button class="btn btn-ghost" onclick="saveAgentConfig('angebot')">Speichern</button></div>
+      ${last ? `<div class="form-label" style="margin-top:10px">Letzte Angebote</div><div class="ag-muted" style="line-height:1.6">${last}</div>` : ''}`;
+  }
+  if (a.id === 'checkin') {
+    const info = a.info || {};
+    const nxt = (info.naechste || []).map(x => `<div>• ${escHtml(x.kunde)} – ${x.stufe}-Tage-Check-in am ${dateDE(x.datum)}</div>`).join('');
+    return `
+      <div class="ag-muted" style="line-height:1.5">30 und 90 Tage nach dem Go-live fragt Siggi beim Kunden nach, ob alles läuft und ob über die Seite Anfragen kommen – mit genau einem passenden Vorschlag für den nächsten Schritt (z. B. lokale SEO, Monatsbericht, Software). Jede Mail kommt per Telegram zur Freigabe. Kunden und Go-live-Datum trägst du im <b>Website-Wächter</b> ein.</div>
+      <div class="form-label" style="margin-top:6px">Als Nächstes (${info.mit_golive || 0} Kunde(n) mit Go-live-Datum)</div>
+      <div class="ag-muted" style="line-height:1.6">${nxt || 'Nichts geplant.'}</div>`;
   }
   if (a.id === 'telegram') {
     const t = a.info || {};
@@ -5065,6 +5116,11 @@ async function saveAgentConfig(id) {
   if (id === 'watch') config.sites = (document.getElementById('ag-sites')?.value || '').split('\n');
   if (id === 'server') ['cpu_warn', 'ram_warn', 'disk_warn'].forEach(k => { config[k] = parseInt(document.getElementById('ag-' + k)?.value, 10); });
   if (id === 'followup') config.days = parseInt(document.getElementById('ag-fu-days')?.value, 10) || 7;
+  if (id === 'angebot') {
+    config.pakete = document.getElementById('ang-pakete')?.value || '';
+    config.gueltig_tage = parseInt(document.getElementById('ang-tage')?.value, 10) || 30;
+    config.analyse = !!document.getElementById('ang-analyse')?.checked;
+  }
   if (id === 'outlook') {
     config.check_minutes = parseInt(document.getElementById('ol-minutes')?.value, 10) || 10;
     config.senders = document.getElementById('ol-senders')?.value || '';
@@ -5075,6 +5131,75 @@ async function saveAgentConfig(id) {
   if (res && res.success) showToast('Gespeichert', 'success');
   else showToast(res?.error || 'Speichern fehlgeschlagen', 'error');
   document.activeElement?.blur();
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+let agentKunden = [];
+
+function openKundeModal(id) {
+  const k = agentKunden.find(x => x.id === id) || { anrede: 'Sie', bericht: 1 };
+  document.getElementById('kunde-modal-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'kunde-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  const f = (fid, label, val, type = 'text', ph = '') => `<label class="form-label" for="${fid}">${label}</label>
+    <input class="form-input" id="${fid}" type="${type}" value="${escHtml(val || '')}" placeholder="${ph}" autocomplete="off">`;
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:6px">
+      <h3 style="margin:0 0 8px;font-size:16px">${id ? 'Kunden-Website bearbeiten' : 'Neue Kunden-Website'}</h3>
+      ${f('kw-kunde', 'Kunde / Firma', k.kunde, 'text', 'z. B. Bäckerei Müller')}
+      ${f('kw-url', 'Website *', k.url, 'text', 'z. B. baeckerei-mueller.de')}
+      ${f('kw-email', 'E-Mail des Kunden', k.email, 'email', 'für Monatsbericht und Check-ins')}
+      ${f('kw-name', 'Ansprechpartner (so steht es in der Anrede)', k.ansprechpartner, 'text', 'z. B. Herr Müller oder Anna')}
+      <label class="form-label" for="kw-anrede">Anrede</label>
+      <select class="form-input" id="kw-anrede"><option ${k.anrede !== 'Du' ? 'selected' : ''}>Sie</option><option ${k.anrede === 'Du' ? 'selected' : ''}>Du</option></select>
+      ${f('kw-golive', 'Go-live-Datum (für die Check-ins nach 30 und 90 Tagen)', k.golive, 'date')}
+      ${f('kw-formular', 'Kontaktseite (optional – sonst sucht Siggi selbst)', k.formular_url, 'text', 'z. B. baeckerei-mueller.de/kontakt')}
+      <label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:14px"><input type="checkbox" id="kw-bericht" ${k.bericht ? 'checked' : ''}> Monatlicher Wartungsbericht an den Kunden (zur Freigabe)</label>
+      <label class="form-label" for="kw-notizen">Notizen (Paket, Besonderheiten – hilft beim Check-in)</label>
+      <textarea class="form-textarea" id="kw-notizen" rows="3" style="min-height:64px">${escHtml(k.notizen || '')}</textarea>
+      <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap">
+        ${id ? `<button class="btn btn-danger" onclick="deleteKunde(${id})">Löschen</button>` : ''}
+        <button class="btn btn-ghost" onclick="document.getElementById('kunde-modal-overlay').remove()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="saveKunde(${id || 'null'})">Speichern</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.getElementById('kw-kunde').focus();
+}
+
+async function saveKunde(id) {
+  const v = x => (document.getElementById(x)?.value || '').trim();
+  const body = { kunde: v('kw-kunde'), url: v('kw-url'), email: v('kw-email'), ansprechpartner: v('kw-name'),
+    anrede: v('kw-anrede'), golive: v('kw-golive'), formular_url: v('kw-formular'), notizen: v('kw-notizen'),
+    bericht: !!document.getElementById('kw-bericht')?.checked };
+  const res = await apiFetch(id ? `/api/kunden-websites/${id}` : '/api/kunden-websites', 'POST', body);
+  if (res && res.success) {
+    showToast('Gespeichert – Siggi prüft die Website gleich', 'success');
+    document.getElementById('kunde-modal-overlay')?.remove();
+    delete agentsRendered['detail'];
+    refreshAgents();
+  } else showToast(res?.error || 'Speichern fehlgeschlagen', 'error');
+}
+
+async function deleteKunde(id) {
+  if (!confirm('Kunden-Website entfernen? Sie wird dann nicht mehr überwacht.')) return;
+  await apiFetch(`/api/kunden-websites/${id}/delete`, 'POST');
+  document.getElementById('kunde-modal-overlay')?.remove();
+  showToast('Entfernt', 'success');
+  delete agentsRendered['detail'];
+  refreshAgents();
+}
+
+async function kundeBericht(id, vorschau) {
+  if (!vorschau && !confirm('Wartungsbericht für den Vormonat erstellen? Die Mail an den Kunden kommt erst zu dir zur Freigabe.')) return;
+  const win = vorschau ? window.open('', '_blank') : null;  // vor dem await öffnen, sonst blockt der Browser
+  const res = await apiFetch(`/api/kunden-websites/${id}/bericht`, 'POST', { vorschau });
+  if (!res || !res.success) { win?.close(); showToast(res?.error || 'Bericht fehlgeschlagen', 'error'); return; }
+  if (win) win.location = `/api/kunden-websites/${id}/bericht.pdf?t=${Date.now()}`;
+  else showToast('Bericht erstellt – Freigabe kommt per Telegram', 'success');
   delete agentsRendered['detail'];
   refreshAgents();
 }
@@ -5460,6 +5585,11 @@ function formatDate(dateStr) {
     const d = new Date(dateStr);
     return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   } catch { return dateStr.substring(0, 16); }
+}
+
+function dateDE(iso) {  // 2026-10-21 -> 21.10.2026
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
 }
 
 function escHtml(s) {

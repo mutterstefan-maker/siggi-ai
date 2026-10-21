@@ -2650,6 +2650,23 @@ def _agent_extras():
         'idle': (f"{open_n} Kunde(n) seit {fu.get('days', 7)}+ Tagen ohne Antwort – prüfe ich um 09:30" if open_n
                  else f"Niemand wartet seit {fu.get('days', 7)}+ Tagen auf ein Nachfassen"),
     }
+    kunden = safe(kunden_engine.liste, []) or []
+    extras['watch'] = {'info': {'kunden': kunden, 'vormonat': safe(kunden_engine.vormonat)}}
+    ang = safe(angebot_engine.config, {}) or {}
+    num = lambda v: 'nach Aufwand' if v is None else (f'{v:.2f}'.replace('.', ',') if v % 1 else str(int(v)))
+    extras['angebot'] = {
+        'info': {'pakete_text': '\n'.join(f"{p['name']} | {num(p['einmalig'])} | {num(p['monatlich'] or 0)} | {p['leistungen']}"
+                                           for p in ang.get('pakete') or []),
+                 'analyse': ang.get('analyse', True), 'gueltig_tage': ang.get('gueltig_tage', 30),
+                 'letzte': safe(angebot_engine.letzte, []) or []},
+        'idle': 'Wartet auf die nächste Projektanfrage',
+    }
+    nxt = safe(checkin_engine.naechste, []) or []
+    extras['checkin'] = {
+        'info': {'naechste': nxt, 'mit_golive': sum(1 for k in kunden if k.get('golive'))},
+        'idle': (f"Nächster Check-in: {nxt[0]['kunde']} am {datetime.fromisoformat(nxt[0]['datum']).strftime('%d.%m.')}"
+                 if nxt else 'Trag im Website-Wächter Kunden mit Go-live-Datum ein'),
+    }
     extras['improve'] = {'pending': safe(lambda: len([x for x in self_improve_engine.list_suggestions() if x['status'] == 'pending']), 0)}
     ol = safe(outlook_engine.status, {}) or {}
     extras['outlook'] = {
@@ -2778,6 +2795,9 @@ def _start_mail_fetch():
 
 import followup_engine
 import outlook_engine  # privates Outlook (nur lesen) - bewusst getrennt von mail_engine/Chefblick
+import kunden_engine  # Kunden-Websites: Wartung + Monatsbericht (Website-Waechter), Grundlage der Check-ins
+import checkin_engine
+import angebot_engine
 
 INTERNAL_AGENT_RUNNERS = {
     'followup': lambda: followup_engine.run(create_mail_draft),
@@ -2787,6 +2807,7 @@ INTERNAL_AGENT_RUNNERS = {
     'improve': lambda: self_improve_engine.run_as_agent(),
     'health': lambda: health_check_engine.run_health_check(),
     'outlook': lambda: outlook_engine.run_as_agent(),
+    'checkin': lambda: checkin_engine.run(create_mail_draft),
 }
 
 
@@ -3014,6 +3035,115 @@ def _followup_loop():
 threading.Thread(target=_followup_loop, daemon=True).start()
 
 
+# ─── Kunden-Agenten: Angebote, Wartung/Monatsbericht der Kunden-Websites, Check-ins ─────
+def _audit_for_offer(url):
+    """Website-Analyse fuer ein Angebot (laeuft im Agenten-Thread, steht danach auch im Audit-Verlauf).
+    Liefert (Kunden-PDF, KI-Bewertung) oder (None, None)."""
+    audit_id = uuid.uuid4().hex[:12]
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('INSERT INTO audit_history (id, url, status, progress, created_at) VALUES (?,?,?,?,?)',
+                 (audit_id, url, 'running', 0, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    _run_audit_background(audit_id, url)
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute('SELECT status, result, pdf_path_customer FROM audit_history WHERE id=?', (audit_id,)).fetchone()
+    conn.close()
+    if not row or row[0] != 'done':
+        return None, None
+    return row[2], (json.loads(row[1] or '{}').get('ai_result') or {})
+
+
+def _kunden_agents_loop():
+    """Angebote nach jedem Mail-Abruf; taeglich 07:00 Formular/Domain der Kunden-Websites; ab dem
+    Monatsersten 09:00 die Wartungsberichte; taeglich 10:00 die Check-ins."""
+    try:
+        import fcntl
+        lock_file = open('/tmp/siggi_kunden_loop.lock', 'w')
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (ImportError, OSError):
+        return
+    kunden_engine.init_table()
+    angebot_engine.init_table()
+    if load_settings().get('kunden_report_last') is None:  # erst ab dem naechsten Monatsersten
+        settings_store.update(lambda s: s.__setitem__('kunden_report_last', datetime.now().strftime('%Y-%m')))
+    while True:
+        now = datetime.now()
+        today, hm, month = now.strftime('%Y-%m-%d'), now.strftime('%H:%M'), now.strftime('%Y-%m')
+        settings = load_settings()
+        jobs = [
+            (True, lambda: angebot_engine.run(create_mail_draft, _audit_for_offer)),
+            (hm >= '07:00' and settings.get('kunden_daily_last') != today and not agents_engine.is_paused('watch'),
+             lambda: (settings_store.update(lambda s: s.__setitem__('kunden_daily_last', today)), kunden_engine.daily_checks())),
+            (hm >= '09:00' and settings.get('kunden_report_last') != month and not agents_engine.is_paused('watch'),
+             lambda: (settings_store.update(lambda s: s.__setitem__('kunden_report_last', month)),
+                      kunden_engine.monthly_reports(create_mail_draft))),
+            (hm >= '10:00' and settings.get('checkin_last_run') != today and not agents_engine.is_paused('checkin'),
+             lambda: (settings_store.update(lambda s: s.__setitem__('checkin_last_run', today)),
+                      checkin_engine.run(create_mail_draft))),
+        ]
+        for due, job in jobs:
+            if due:
+                try:
+                    job()
+                except Exception as e:
+                    print(f'[Kunden-Agenten] Fehler: {e}')
+        time.sleep(120)
+
+threading.Thread(target=_kunden_agents_loop, daemon=True).start()
+
+
+@app.route('/api/kunden-websites', methods=['GET', 'POST'])
+def kunden_websites():
+    if request.method == 'GET':
+        return jsonify(kunden_engine.liste())
+    try:
+        kid = kunden_engine.speichern(request.get_json(silent=True) or {})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    threading.Thread(target=kunden_engine.daily_checks, args=(kid,), daemon=True).start()
+    return jsonify({'success': True, 'id': kid})
+
+
+@app.route('/api/kunden-websites/<int:kid>', methods=['POST'])
+def kunden_website_update(kid):
+    try:
+        kunden_engine.speichern(request.get_json(silent=True) or {}, kid)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    threading.Thread(target=kunden_engine.daily_checks, args=(kid,), daemon=True).start()
+    return jsonify({'success': True})
+
+
+@app.route('/api/kunden-websites/<int:kid>/delete', methods=['POST'])
+def kunden_website_delete(kid):
+    kunden_engine.loeschen(kid)
+    return jsonify({'success': True})
+
+
+@app.route('/api/kunden-websites/<int:kid>/bericht', methods=['POST'])
+def kunden_website_bericht(kid):
+    """vorschau=True: PDF fuer den laufenden Monat, nur ansehen. Sonst Vormonat als Entwurf an den Kunden."""
+    data = request.get_json(silent=True) or {}
+    try:
+        if data.get('vorschau'):
+            res = kunden_engine.bericht_erstellen(kid, datetime.now().strftime('%Y-%m'))
+        else:
+            res = kunden_engine.bericht_erstellen(kid, None, create_mail_draft)
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    return jsonify({'success': True, 'draft_id': res['draft_id'], 'month': res['month']})
+
+
+@app.route('/api/kunden-websites/<int:kid>/bericht.pdf')
+def kunden_website_bericht_pdf(kid):
+    site = kunden_engine.get(kid)
+    path = (site or {}).get('last_report_pdf')
+    if not path or not os.path.isfile(path):
+        return jsonify({'error': 'Noch kein Bericht erstellt'}), 404
+    return send_file(path, mimetype='application/pdf', download_name=os.path.basename(path))
+
+
 # ─── Outlook-Agent: privates Postfach (nur lesen, nur Telegram-Hinweise) ─────────
 def _outlook_loop():
     try:
@@ -3079,6 +3209,12 @@ def agents_run(agent_id):
 def agents_config(agent_id):
     if agent_id == 'followup':
         followup_engine.save_config(request.get_json(silent=True) or {})
+        return jsonify({'success': True})
+    if agent_id == 'angebot':
+        try:
+            angebot_engine.save_config(request.get_json(silent=True) or {})
+        except (ValueError, TypeError) as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
         return jsonify({'success': True})
     if agent_id == 'outlook':
         try:

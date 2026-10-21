@@ -39,6 +39,8 @@ SOURCES = [
     ('_suggest_instagram_reply', 'comments', 'Kommentare'),
     ('_suggest_linkedin_reply', 'comments', 'Kommentare'),
     ('followup_engine', 'followup', 'Nachfassen'),
+    ('angebot_engine', 'angebot', 'Angebote'),
+    ('checkin_engine', 'checkin', 'Check-ins'),
     ('mail_engine', 'mail', 'Mails'),
     ('linkedin_pipeline_engine', 'linkedin', 'LinkedIn'),
     ('instagram_flyer_engine', 'bild', 'Bilder'),
