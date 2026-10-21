@@ -34,12 +34,28 @@ def _datum(iso):
         return str(iso or '')
 
 
+def _small_logo():
+    """Das Original-Logo hat 2 MB - im Kopf reicht eine kleine Kopie (haelt die Mail-Anhaenge klein)."""
+    small = os.path.join(BASE_DIR, 'report_logo_small.jpg')
+    if not os.path.exists(small) and os.path.exists(LOGO_PATH):
+        try:
+            from PIL import Image
+            im = Image.open(LOGO_PATH).convert('RGB')
+            im.thumbnail((600, 400))
+            im.save(small, 'JPEG', quality=85)
+        except Exception as e:
+            print(f'[PDF] Logo nicht verkleinert: {e}')
+            return LOGO_PATH
+    return small if os.path.exists(small) else None
+
+
 def _header(c, title, subtitle):
     c.setFillColor(NAVY)
     c.rect(0, PAGE_H - 34 * mm, PAGE_W, 34 * mm, fill=1, stroke=0)
-    if os.path.exists(LOGO_PATH):
+    logo = _small_logo()
+    if logo:
         try:  # Logo rechts im Balken, Seitenverhaeltnis bleibt
-            c.drawImage(LOGO_PATH, PAGE_W - MARGIN - 45 * mm, PAGE_H - 32 * mm, width=45 * mm, height=30 * mm,
+            c.drawImage(logo, PAGE_W - MARGIN - 45 * mm, PAGE_H - 32 * mm, width=45 * mm, height=30 * mm,
                         preserveAspectRatio=True, mask='auto')
         except Exception:
             pass
