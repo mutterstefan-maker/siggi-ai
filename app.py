@@ -690,7 +690,8 @@ SIGGI_TOOLS = [
             'ANTWORTEN nur, wenn Stefan es will: erst aktion=mein_stil holen und so schreiben wie Stefan, dann '
             'aktion=antwort_entwurf (kanal + text, optional antwort_auf = Nachrichten-ID fuer einen Thread). Das schickt '
             'Stefan den Entwurf per Telegram mit Senden/Verwerfen-Knopf - gesendet wird erst nach seinem Klick. '
-            'Nie behaupten, etwas sei gesendet; Aenderungswunsch = neuen Entwurf anlegen.'
+            'Nie behaupten, etwas sei gesendet; Aenderungswunsch = neuen Entwurf anlegen. Geht es im Chat um '
+            'Artikel, Bestand, Lieferbarkeit oder eine Bestellung, VOR dem Entwurf mit shop_graveda nachschauen.'
         ),
         'input_schema': {
             'type': 'object',
@@ -708,6 +709,24 @@ SIGGI_TOOLS = [
                 'anzahl': {'type': 'integer'},
             },
             'required': ['aktion']
+        }
+    },
+    {
+        'name': 'shop_graveda',
+        'description': (
+            'Shopware-Shop der STELER GMBH (graveda.de) - NUR lesen. Artikel mit Bestand/verfuegbar/Preis (nach '
+            'Artikelnummer wie GP50-20 oder Name) und Bestellungen nach Bestellnummer (Status, Zahlung, Versand, '
+            'Sendungsnummer, Positionen). Gehoert zum Steler-Bereich wie kchat_steler: nie mit Chefblick oder '
+            'Privatem mischen, Kundendaten nicht weitergeben. "verfuegbar" = Bestand minus offene Bestellungen.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'aktion': {'type': 'string', 'enum': ['produkt', 'bestellung']},
+                'suchbegriff': {'type': 'string', 'description': 'Artikelnummer oder Name (produkt) bzw. Bestellnummer (bestellung)'},
+                'anzahl': {'type': 'integer'},
+            },
+            'required': ['aktion', 'suchbegriff']
         }
     },
     {
@@ -1029,6 +1048,20 @@ def _run_siggi_tool_inner(name, tool_input):
             except kchat_engine.NotConnected:
                 return ('Der Steler-kChat ist noch nicht verbunden. Sag Stefan: In Siggi unter Agenten → '
                         'kChat-Agent ein Infomaniak-API-Token (Bereich kChat) eintragen.')
+
+        if name == 'shop_graveda':
+            try:
+                if tool_input.get('aktion') == 'bestellung':
+                    res = shopware_engine.bestellung(tool_input.get('suchbegriff', ''))
+                else:
+                    res = shopware_engine.produkte(tool_input.get('suchbegriff', ''), tool_input.get('anzahl') or 10)
+                return json.dumps(res, ensure_ascii=False) if res else 'Nichts gefunden im Shop graveda.de.'
+            except shopware_engine.NotConnected as e:
+                return f'Shop graveda.de: {e}.'
+            except PermissionError as e:
+                return f'Shop graveda.de: {e}. Sag Stefan, er soll das Recht in Shopware ergaenzen.'
+            except Exception as e:
+                return f'Shop graveda.de nicht erreichbar: {str(e)[:200]}'
 
         if name == 'cowork_datei_anzeigen':
             if not COWORK_AVAILABLE:
@@ -2866,7 +2899,8 @@ import outlook_engine  # privates Outlook (nur lesen) - bewusst getrennt von mai
 import kunden_engine  # Kunden-Websites: Wartung + Monatsbericht (Website-Waechter), Grundlage der Check-ins
 import checkin_engine
 import angebot_engine
-import kchat_engine  # Steler-GmbH-kChat (nur lesen) - eigener Bereich, getrennt von Chefblick und Privat
+import kchat_engine  # Steler-GmbH-kChat - eigener Bereich, getrennt von Chefblick und Privat
+import shopware_engine  # Steler-Shop graveda.de (nur lesen), fuer Bestand/Bestellungen in kChat-Antworten
 
 INTERNAL_AGENT_RUNNERS = {
     'followup': lambda: followup_engine.run(create_mail_draft),
