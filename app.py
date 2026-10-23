@@ -681,19 +681,27 @@ SIGGI_TOOLS = [
     {
         'name': 'kchat_steler',
         'description': (
-            'Firmen-Chat der STELER GMBH (Infomaniak kChat, Kollegen von Stefan) - NUR lesen. Fuer "was ist bei '
-            'Steler los", "was steht im kChat", "was gibt es Neues im Kanal X", "hat jemand nach mir gefragt". '
+            'Firmen-Chat der STELER GMBH (Infomaniak kChat, Kollegen von Stefan). Fuer "was ist bei '
+            'Steler los", "was steht im kChat", "was gibt es Neues im Kanal X", "hat jemand nach mir gefragt", '
+            '"werte den Chat mit X aus" (Direktchats heissen "Direkt: <Name>", Nachname reicht als kanal). '
             'Eigener Bereich: hat NICHTS mit Chefblick oder Stefans Privatem zu tun. Inhalte nie in Chefblick-Mails, '
-            'Posts, LinkedIn, Gedaechtnis oder an Dritte weitergeben; nichts in kChat schreiben (geht auch nicht). '
-            'Fuer einen Ueberblick: aktion=ueberblick und kurz zusammenfassen, was aktuell ist und was auf Stefan wartet.'
+            'Posts, LinkedIn, Gedaechtnis oder an Dritte weitergeben. '
+            'Fuer einen Ueberblick: aktion=ueberblick und kurz zusammenfassen, was aktuell ist und was auf Stefan wartet. '
+            'ANTWORTEN nur, wenn Stefan es will: erst aktion=mein_stil holen und so schreiben wie Stefan, dann '
+            'aktion=antwort_entwurf (kanal + text, optional antwort_auf = Nachrichten-ID fuer einen Thread). Das schickt '
+            'Stefan den Entwurf per Telegram mit Senden/Verwerfen-Knopf - gesendet wird erst nach seinem Klick. '
+            'Nie behaupten, etwas sei gesendet; Aenderungswunsch = neuen Entwurf anlegen.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'aktion': {'type': 'string', 'enum': ['ueberblick', 'kanal', 'suchen', 'kanaele', 'mein_stil'],
+                'aktion': {'type': 'string', 'enum': ['ueberblick', 'kanal', 'suchen', 'kanaele', 'mein_stil', 'antwort_entwurf'],
                            'description': 'ueberblick = Ungelesenes + Nachrichten der letzten Stunden, kanal = Verlauf '
                                           'eines Kanals, suchen = Volltext, kanaele = Liste mit Ungelesen-Zahlen, '
-                                          'mein_stil = was Siggi ueber Stefans Schreibstil im kChat gelernt hat'},
+                                          'mein_stil = was Siggi ueber Stefans Schreibstil im kChat gelernt hat, '
+                                          'antwort_entwurf = Antwort zur Freigabe per Telegram vorlegen'},
+                'text': {'type': 'string', 'description': 'Antworttext, fuer antwort_entwurf'},
+                'antwort_auf': {'type': 'string', 'description': 'optional: Nachrichten-ID (aus kanal) fuer eine Antwort im Thread'},
                 'stunden': {'type': 'integer', 'description': 'fuer ueberblick, Standard 24'},
                 'kanal': {'type': 'string', 'description': 'Kanalname (Teil reicht), fuer kanal'},
                 'suchbegriff': {'type': 'string'},
@@ -1005,6 +1013,12 @@ def _run_siggi_tool_inner(name, tool_input):
                     res = kchat_engine.suchen(tool_input.get('suchbegriff', ''), tool_input.get('anzahl') or 20)
                 elif aktion == 'kanaele':
                     res = kchat_engine.kanaele()
+                elif aktion == 'antwort_entwurf':
+                    try:
+                        res = kchat_engine.antwort_entwurf(tool_input.get('kanal', ''), tool_input.get('text', ''),
+                                                           tool_input.get('antwort_auf'))
+                    except ValueError as e:
+                        return f'Entwurf nicht angelegt: {e}'
                 elif aktion == 'mein_stil':
                     st = kchat_engine.stil_status()
                     res = st['profil'] or (f"Noch kein Stilprofil - {st['nachrichten']} von mindestens "
@@ -2897,6 +2911,8 @@ def _telegram_action(kind, ref, approve):
         agents_engine.wohnung_entscheiden(int(ref), approve)
         return (f'👍 Gemerkt – Wohnung #{ref} steht in ein paar Minuten auf „SEHR INTERESSANT“.' if approve
                 else f'👎 Wohnung #{ref} wird verworfen.')
+    if kind == 'kchat':
+        return kchat_engine.entscheiden(int(ref), approve)
     if kind == 'reel':
         res = reels_engine.approve_reel(ref) if approve else reels_engine.reject_reel(ref)
         if not res.get('success'):

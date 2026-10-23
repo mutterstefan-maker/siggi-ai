@@ -3,9 +3,9 @@
 Trennung (Stefans Vorgabe: Steler, Chefblick und Privat nie vermischen):
 - Eigener Bereich: eigene Datenbank (kchat.db), eigene Token-Datei, eigener Einstellungs-Schluessel.
   Beruehrt NIE mails.db, mail_engine, Kontakte, Nachfass-Agent, Outlook-Agent, Gedaechtnis oder Autopilot.
-- Siggi LIEST nur. Im Code gibt es keinen einzigen Schreib-Aufruf (keine Nachricht, keine Reaktion,
-  kein "als gelesen markieren") - nur GET und die zwei lesenden POST-Abfragen in _READ_POSTS.
-  Auch Stefans Ungelesen-Zaehler in kChat bleibt unveraendert.
+- Siggi LIEST, schreibt aber NIE von sich aus. Einziger Schreibweg: eine Antwort, die Stefan vorher per
+  Telegram-Knopf freigegeben hat (antwort_entwurf -> entscheiden -> _senden_freigegeben). Sonst nur GET und
+  die zwei lesenden POST-Abfragen in _READ_POSTS. Keine Reaktionen, kein "als gelesen markieren".
 - Hinweise und Lageberichte gehen NUR per Telegram an Stefan, nie per Mail (der Mail-Fallback
   wuerde Steler-Interna ins Chefblick-Postfach legen, das der Mail-Agent abruft).
 
@@ -356,7 +356,7 @@ def kanal(name, anzahl=30):
         return {'fehler': f'Kein Kanal „{name}“. Vorhanden: ' + ', '.join(c['name'] for c in chans[:30])}
     data = _api(f"/channels/{hit['id']}/posts", params={'per_page': max(1, min(int(anzahl or 30), 100))})
     posts = _posts(data, {hit['id']: hit['name']})
-    return {'kanal': hit['name'], 'nachrichten': [{k: p[k] for k in ('von', 'zeit', 'text', 'link')} for p in posts]}
+    return {'kanal': hit['name'], 'nachrichten': [{k: p[k] for k in ('id', 'von', 'zeit', 'text', 'antwort_auf')} for p in posts]}
 
 
 def suchen(begriff, anzahl=20):
@@ -377,6 +377,9 @@ def _db():
     c.execute('CREATE TABLE IF NOT EXISTS notified (post_id TEXT PRIMARY KEY, created_at TEXT)')
     # Stufe 1 "Schreibstil lernen": nur Stefans EIGENE Nachrichten (+ kurz, worauf er geantwortet hat)
     c.execute('CREATE TABLE IF NOT EXISTS own_posts (id TEXT PRIMARY KEY, kanal TEXT, text TEXT, kontext TEXT, ms INTEGER)')
+    # Antwort-Entwuerfe: gehen erst nach Stefans Freigabe (Telegram-Knopf) raus
+    c.execute('CREATE TABLE IF NOT EXISTS drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT, kanal TEXT, '
+              'root_id TEXT, text TEXT, status TEXT, created_at TEXT, decided_at TEXT, post_id TEXT, fehler TEXT)')
     return c
 
 
@@ -580,6 +583,86 @@ def _telegram(text, buttons=None):
     except Exception as e:
         print(f'[kChat] Telegram fehlgeschlagen: {e}')
         return False
+
+
+def antwort_entwurf(kanal_name, text, antwort_auf=None):
+    """Antwort vorbereiten und Stefan per Telegram zur Freigabe schicken. Hier wird NICHTS gesendet."""
+    text = str(text or '').strip()
+    if not text:
+        raise ValueError('Der Antworttext fehlt')
+    if len(text) > 4000:
+        raise ValueError('Antwort ist zu lang (max. 4000 Zeichen)')
+    q = str(kanal_name or '').strip().lower()
+    chans = _channels()
+    hit = next((c for c in chans if c['name'].lower() == q), None) or \
+        next((c for c in chans if q and q in c['name'].lower()), None)
+    if not hit:
+        raise ValueError(f'Kein Kanal „{kanal_name}“ gefunden')
+    root = str(antwort_auf or '').strip() or None
+    if root and not re.fullmatch(r'[a-z0-9]{26}', root):
+        raise ValueError('antwort_auf muss eine Nachrichten-ID aus aktion=kanal sein')
+    if root:  # in einem Thread immer auf die Wurzel antworten
+        root = _api(f'/posts/{root}').get('root_id') or root
+    c = _db()
+    try:
+        cur = c.execute('INSERT INTO drafts (channel_id, kanal, root_id, text, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                        (hit['id'], hit['name'], root, text, 'offen', datetime.now().isoformat(timespec='seconds')))
+        draft_id = cur.lastrowid
+        c.commit()
+    finally:
+        c.close()
+    import telegram_engine
+    gesendet = _telegram(f"{LABEL} – Antwort-Entwurf #{draft_id}\nan: {hit['name']}" + (' (im Thread)' if root else '')
+                         + f"\n\n{text}\n\nErst nach „Senden“ geht das in kChat raus.",
+                         buttons=telegram_engine.approval_buttons('kchat', draft_id, ('✅ Senden', '❌ Verwerfen')))
+    agents_engine.event(AGENT_ID, f"Antwort-Entwurf #{draft_id} an {hit['name']} wartet auf Freigabe", 'info')
+    return {'entwurf': draft_id, 'kanal': hit['name'], 'telegram': gesendet,
+            'hinweis': 'Wartet auf Stefans Freigabe per Telegram-Knopf - noch nicht gesendet.'
+                       if gesendet else 'Telegram nicht verbunden - Entwurf kann so nicht freigegeben werden.'}
+
+
+def _senden_freigegeben(channel_id, text, root_id=None):
+    """Der EINZIGE Schreib-Aufruf - nur aus entscheiden() nach Stefans Freigabe."""
+    body = {'channel_id': channel_id, 'message': text}
+    if root_id:
+        body['root_id'] = root_id
+    r = requests.post(_base() + '/posts', json=body, timeout=30,
+                      headers={'Authorization': 'Bearer ' + _token(), 'User-Agent': 'Siggi'})
+    if r.status_code in (401, 403):
+        raise RuntimeError('kChat lässt das Token nicht schreiben - beim Infomaniak-Token den Bereich „kChat“ mit Schreibrecht wählen')
+    if r.status_code >= 400:
+        raise RuntimeError(f'kChat antwortet mit {r.status_code}: {r.text[:200]}')
+    return r.json().get('id')
+
+
+def entscheiden(draft_id, approve):
+    """Telegram-Knopf: Senden oder Verwerfen. Ein Entwurf kann nur einmal entschieden werden."""
+    c = _db()
+    try:
+        row = c.execute('SELECT channel_id, kanal, root_id, text FROM drafts WHERE id=? AND status=?',
+                        (int(draft_id), 'offen')).fetchone()
+        if not row:
+            return 'Der Entwurf war schon entschieden.'
+        jetzt = datetime.now().isoformat(timespec='seconds')
+        if not approve:
+            c.execute('UPDATE drafts SET status=?, decided_at=? WHERE id=?', ('verworfen', jetzt, int(draft_id)))
+            c.commit()
+            return f'❌ Entwurf #{draft_id} verworfen – nichts gesendet.'
+        c.execute('UPDATE drafts SET status=?, decided_at=? WHERE id=?', ('sendet', jetzt, int(draft_id)))
+        c.commit()
+        try:
+            post_id = _senden_freigegeben(row[0], row[3], row[2])
+        except Exception as e:
+            c.execute('UPDATE drafts SET status=?, fehler=? WHERE id=?', ('fehler', str(e)[:300], int(draft_id)))
+            c.commit()
+            agents_engine.event(AGENT_ID, f'Antwort #{draft_id} nicht gesendet: {str(e)[:150]}', 'error')
+            return f'⚠️ Nicht gesendet: {e}'
+        c.execute('UPDATE drafts SET status=?, post_id=? WHERE id=?', ('gesendet', post_id, int(draft_id)))
+        c.commit()
+    finally:
+        c.close()
+    agents_engine.event(AGENT_ID, f'Antwort #{draft_id} an {row[1]} gesendet (freigegeben)', 'success')
+    return f'✅ Antwort an {row[1]} ist in kChat gesendet.'
 
 
 def _melden(post, grund):

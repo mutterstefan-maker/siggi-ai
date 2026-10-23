@@ -109,9 +109,9 @@ AGENTS = {
         'default_config': {}, 'next_run': 'alle 10 Minuten',
     },
     'kchat': {
-        # kchat_engine.py - Steler-GmbH-Firmenchat, NUR lesen, strikt getrennt von Chefblick und Privat
+        # kchat_engine.py - Steler-GmbH-Firmenchat, liest; antwortet nur nach Freigabe per Telegram, strikt getrennt
         'kind': 'internal', 'name': 'kChat-Agent (Steler)', 'icon': 'chat', 'view': None, 'runnable': True,
-        'role': 'Behält den Steler-kChat für dich im Blick: Lagebericht per Telegram, Erwähnungen sofort – nur lesen',
+        'role': 'Behält den Steler-kChat für dich im Blick: Lagebericht per Telegram, Erwähnungen sofort, Antworten nur nach deiner Freigabe',
         'default_config': {}, 'next_run': 'alle 15 Minuten',
     },
     'comments': {
