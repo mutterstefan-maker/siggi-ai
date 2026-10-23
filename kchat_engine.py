@@ -599,7 +599,7 @@ def antwort_entwurf(kanal_name, text, antwort_auf=None):
     if not hit:
         raise ValueError(f'Kein Kanal „{kanal_name}“ gefunden')
     root = str(antwort_auf or '').strip() or None
-    if root and not re.fullmatch(r'[a-z0-9]{26}', root):
+    if root and not re.fullmatch(r'[a-z0-9]{26}|[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', root):  # kChat: UUID
         raise ValueError('antwort_auf muss eine Nachrichten-ID aus aktion=kanal sein')
     if root:  # in einem Thread immer auf die Wurzel antworten
         root = _api(f'/posts/{root}').get('root_id') or root
