@@ -108,6 +108,12 @@ AGENTS = {
         'role': 'Liest dein privates Outlook nur mit und meldet Wichtiges per Telegram – Chefblick bleibt unberührt',
         'default_config': {}, 'next_run': 'alle 10 Minuten',
     },
+    'kchat': {
+        # kchat_engine.py - Steler-GmbH-Firmenchat, NUR lesen, strikt getrennt von Chefblick und Privat
+        'kind': 'internal', 'name': 'kChat-Agent (Steler)', 'icon': 'chat', 'view': None, 'runnable': True,
+        'role': 'Behält den Steler-kChat für dich im Blick: Lagebericht per Telegram, Erwähnungen sofort – nur lesen',
+        'default_config': {}, 'next_run': 'alle 15 Minuten',
+    },
     'comments': {
         'kind': 'internal', 'name': 'Kommentar-Agent', 'icon': 'chat', 'view': None, 'runnable': False,
         'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',

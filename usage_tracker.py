@@ -41,6 +41,7 @@ SOURCES = [
     ('followup_engine', 'followup', 'Nachfassen'),
     ('angebot_engine', 'angebot', 'Angebote'),
     ('checkin_engine', 'checkin', 'Check-ins'),
+    ('kchat_engine', 'kchat', 'kChat (Steler)'),
     ('mail_engine', 'mail', 'Mails'),
     ('linkedin_pipeline_engine', 'linkedin', 'LinkedIn'),
     ('instagram_flyer_engine', 'bild', 'Bilder'),
