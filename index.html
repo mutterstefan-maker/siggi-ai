@@ -2599,6 +2599,21 @@ async function renderReels(container) {
     displayQueue.forEach((f, i) => {
       const card = _reelVideoCard(f);
       if (i === 0) card.classList.add('first');
+      const moveRow = document.createElement('div');
+      moveRow.style.cssText = 'display:flex;gap:4px;margin:0 8px 6px';
+      [['◀', 'Weiter nach vorne', 'up', i === 0],
+       ['⏫', 'Als nächstes posten', 'first', i === 0],
+       ['▶', 'Weiter nach hinten', 'down', i === totalCount - 1]].forEach(([label, title, dir, disabled]) => {
+        const mvBtn = document.createElement('button');
+        mvBtn.className = 'btn btn-ghost';
+        mvBtn.style.cssText = 'flex:1;font-size:12px;padding:3px 0';
+        mvBtn.textContent = label;
+        mvBtn.title = title;
+        mvBtn.disabled = disabled;
+        mvBtn.onclick = () => moveReel(f, dir);
+        moveRow.appendChild(mvBtn);
+      });
+      card.appendChild(moveRow);
       const delBtn = document.createElement('button');
       delBtn.className = 'btn btn-danger';
       delBtn.style.cssText = 'width:calc(100% - 16px);margin:0 8px 8px;font-size:10px;padding:4px';
@@ -2804,6 +2819,12 @@ async function rejectReel(filename) {
   if (!confirm('Reel "' + filename + '" ablehnen und löschen?')) return;
   const result = await apiFetch('/api/instagram/reels/reject', 'POST', { filename });
   if (result && result.success) { showToast('Abgelehnt', 'success'); renderInstagram(); }
+}
+
+async function moveReel(filename, direction) {
+  const result = await apiFetch('/api/instagram/reels/move', 'POST', { filename, direction });
+  if (result && result.success) renderInstagram();
+  else showToast('Fehler: ' + (result && result.error || 'Unbekannt'), 'error');
 }
 
 async function postReelNow() {

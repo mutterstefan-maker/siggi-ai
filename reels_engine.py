@@ -14,11 +14,13 @@ Ablauf:
   3. Datei wird nach erfolgreichem Post ins Archiv verschoben, Ergebnis wird protokolliert.
 """
 import glob
+import json
 import os
 import random
 import re
 import sqlite3
 import subprocess
+import threading
 import time
 from datetime import datetime
 from urllib.parse import quote
@@ -125,17 +127,63 @@ def pending_dir():
 
 # ─── Queue-Verwaltung ───────────────────────────────────────────────
 
+QUEUE_ORDER_FILE = '_queue_order.json'
+_queue_order_lock = threading.Lock()
+
+
+def _queue_order_path():
+    return os.path.join(pool_dir(), QUEUE_ORDER_FILE)
+
+
+def _load_queue_order():
+    """Vom Nutzer festgelegte Reihenfolge der Warteschlange (Dateinamen, vorne = zuerst)."""
+    try:
+        with open(_queue_order_path(), encoding='utf-8') as f:
+            return [n for n in json.load(f) if isinstance(n, str)]
+    except Exception:
+        return []
+
+
 def get_reels_queue():
-    """Freigegebene, postbare Videos (nicht die zur Freigabe wartenden)."""
+    """Freigegebene, postbare Videos in der Reihenfolge, die der Nutzer festgelegt hat.
+    Videos ohne gespeicherten Platz (z.B. neu hochgeladene) kommen ans Ende, alphabetisch."""
     d = pool_dir()
     try:
-        return [
-            f for f in sorted(os.listdir(d))
+        files = [
+            f for f in os.listdir(d)
             if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in VIDEO_EXTENSIONS
         ]
     except Exception as e:
         print(f'[Reels] Queue-Fehler: {e}')
         return []
+    position = {name: i for i, name in enumerate(_load_queue_order())}
+    return sorted(files, key=lambda f: (position.get(f, len(position)), f))
+
+
+def move_reel_in_queue(filename, direction):
+    """Verschiebt ein freigegebenes Reel: direction ist 'first' (an den Anfang = nächstes
+    Post), 'up' (eine Stelle nach vorne) oder 'down' (eine Stelle nach hinten)."""
+    filename = _safe_filename(filename)
+    with _queue_order_lock:
+        queue = get_reels_queue()
+        if filename not in queue:
+            return {'success': False, 'error': 'Datei nicht gefunden.'}
+        i = queue.index(filename)
+        if direction == 'first':
+            queue.insert(0, queue.pop(i))
+        elif direction in ('up', 'down'):
+            j = i - 1 if direction == 'up' else i + 1
+            if 0 <= j < len(queue):
+                queue[i], queue[j] = queue[j], queue[i]
+        else:
+            return {'success': False, 'error': 'Unbekannte Richtung.'}
+        # Erst in eine Temp-Datei schreiben und atomar ersetzen, damit ein Absturz
+        # nicht die ganze Reihenfolge zerschießt.
+        path = _queue_order_path()
+        with open(path + '.tmp', 'w', encoding='utf-8') as f:
+            json.dump(queue, f, ensure_ascii=False)
+        os.replace(path + '.tmp', path)
+    return {'success': True}
 
 
 def get_pending_reels():

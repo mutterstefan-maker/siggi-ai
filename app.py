@@ -2389,6 +2389,14 @@ def reels_delete_route():
     result = reels_engine.delete_reel(data.get('filename', ''))
     return jsonify(result)
 
+@app.route('/api/instagram/reels/move', methods=['POST'])
+def reels_move_route():
+    if not REELS_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Reels-Integration nicht verfügbar.'}), 503
+    data = request.get_json() or {}
+    result = reels_engine.move_reel_in_queue(data.get('filename', ''), data.get('direction', ''))
+    return jsonify(result)
+
 @app.route('/api/instagram/reels/media/<path:filename>')
 def reels_media_route(filename):
     """Öffentliche Route (kein Login nötig), damit Meta das Video per Graph-API abrufen kann."""
