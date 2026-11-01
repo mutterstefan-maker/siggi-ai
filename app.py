@@ -2264,6 +2264,14 @@ def instagram_queue():
         return jsonify([])
     return jsonify(instagram_engine.get_ig_queue())
 
+@app.route('/api/instagram/move', methods=['POST'])
+def instagram_move_route():
+    if not INSTAGRAM_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Instagram-Integration nicht verfügbar.'}), 503
+    data = request.get_json() or {}
+    result = instagram_engine.move_ig_in_queue(data.get('filename', ''), data.get('direction', ''))
+    return jsonify(result)
+
 @app.route('/api/instagram/history')
 def instagram_history():
     if not INSTAGRAM_AVAILABLE:

@@ -2507,6 +2507,7 @@ function renderAuditResult(data) {
 let reelsDays = ['mon','tue','wed','thu','fri','sat','sun'];
 let igTab = 'bilder'; // welcher Tab auf der Instagram-Seite gerade offen ist
 let reelQueueExpanded = false; // Reels-Warteschlange: alle Videos statt nur die ersten 5 zeigen
+let igQueueExpanded = false; // Bild-Warteschlange: alle Bilder statt nur die ersten 5 zeigen
 
 function _reelVideoCard(f, { onDelete, onClickBadge } = {}) {
   const card = document.createElement('div');
@@ -2825,6 +2826,12 @@ async function rejectReel(filename) {
   if (result && result.success) { showToast('Abgelehnt', 'success'); renderInstagram(); }
 }
 
+async function moveFlyer(filename, direction) {
+  const result = await apiFetch('/api/instagram/move', 'POST', { filename, direction });
+  if (result && result.success) renderInstagram();
+  else showToast('Fehler: ' + (result && result.error || 'Unbekannt'), 'error');
+}
+
 async function moveReel(filename, direction) {
   const result = await apiFetch('/api/instagram/reels/move', 'POST', { filename, direction });
   if (result && result.success) renderInstagram();
@@ -2917,7 +2924,7 @@ async function renderInstagram() {
   const galleryHeader = document.createElement('div');
   galleryHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px';
   const totalCount = (queue||[]).length;
-  const displayQueue = (queue||[]).slice(0, 5);
+  const displayQueue = igQueueExpanded ? (queue||[]) : (queue||[]).slice(0, 5);
   const hiddenCount = totalCount - displayQueue.length;
   galleryHeader.innerHTML = '<h3 style="margin:0">🖼️ WARTESCHLANGE (' + totalCount + ' Bilder)</h3>';
 
@@ -2946,15 +2953,32 @@ async function renderInstagram() {
     displayQueue.forEach((f, i) => {
       const card = document.createElement('div');
       card.className = 'ig-card' + (i === 0 ? ' first' : '');
-      card.innerHTML = '<div style="aspect-ratio:1;background:var(--surface2);overflow:hidden"><img src="/api/instagram/media/' + encodeURIComponent(f) + '" style="width:100%;height:100%;object-fit:cover;display:block" loading="lazy" /></div><div class="ig-card-label" title="' + escHtml(f) + '">' + escHtml(f) + '</div><div style="display:flex;gap:4px;padding:6px 8px"><button class="btn btn-danger" style="flex:1;font-size:10px;padding:4px" data-filename="' + escHtml(f) + '">🗑️ Löschen</button></div>';
+      card.innerHTML = '<div style="aspect-ratio:1;background:var(--surface2);overflow:hidden"><img src="/api/instagram/media/' + encodeURIComponent(f) + '" style="width:100%;height:100%;object-fit:cover;display:block" loading="lazy" /></div><div class="ig-card-label" title="' + escHtml(f) + '">' + escHtml(f) + '</div>';
+      const moveRow = document.createElement('div');
+      moveRow.style.cssText = 'display:flex;gap:4px;margin:0 8px 6px';
+      [['◀', 'Weiter nach vorne', 'up', i === 0],
+       ['⏫', 'Als nächstes posten', 'first', i === 0],
+       ['▶', 'Weiter nach hinten', 'down', i === totalCount - 1]].forEach(([label, title, dir, disabled]) => {
+        const mvBtn = document.createElement('button');
+        mvBtn.className = 'btn btn-ghost';
+        mvBtn.style.cssText = 'flex:1;font-size:12px;padding:3px 0';
+        mvBtn.textContent = label;
+        mvBtn.title = title;
+        mvBtn.disabled = disabled;
+        mvBtn.onclick = () => moveFlyer(f, dir);
+        moveRow.appendChild(mvBtn);
+      });
+      card.appendChild(moveRow);
+      card.insertAdjacentHTML('beforeend', '<div style="display:flex;gap:4px;padding:0 8px 8px"><button class="btn btn-danger" style="flex:1;font-size:10px;padding:4px" data-filename="' + escHtml(f) + '">🗑️ Löschen</button></div>');
       const delBtn = card.querySelector('button[data-filename]');
       delBtn.addEventListener('click', () => deleteFlyer(f));
       gallery.appendChild(card);
     });
-    if (hiddenCount > 0) {
+    if (totalCount > 5) {
       const more = document.createElement('div');
-      more.style.cssText = 'display:flex;align-items:center;justify-content:center;background:var(--surface2);border:1px dashed var(--border);border-radius:var(--radius);padding:20px;color:var(--text2);font-size:12px;font-weight:600';
-      more.textContent = '+' + hiddenCount + ' weitere Bilder im Pool';
+      more.style.cssText = 'display:flex;align-items:center;justify-content:center;background:var(--surface2);border:1px dashed var(--border);border-radius:var(--radius);padding:20px;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer';
+      more.textContent = igQueueExpanded ? 'Weniger anzeigen' : '+' + hiddenCount + ' weitere Bilder im Pool';
+      more.onclick = () => { igQueueExpanded = !igQueueExpanded; renderInstagram(); };
       gallery.appendChild(more);
     }
   } else {
