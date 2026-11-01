@@ -2504,6 +2504,7 @@ function renderAuditResult(data) {
 // ── Instagram Reels ───────────────────────────────────────────────────────────
 
 let reelsDays = ['mon','tue','wed','thu','fri','sat','sun'];
+let igTab = 'bilder'; // welcher Tab auf der Instagram-Seite gerade offen ist
 
 function _reelVideoCard(f, { onDelete, onClickBadge } = {}) {
   const card = document.createElement('div');
@@ -3145,12 +3146,14 @@ async function renderInstagram() {
   reelsContainer.style.display = 'none';
 
   tabBilder.onclick = () => {
+    igTab = 'bilder';
     tabBilder.style.cssText = 'border-radius:8px 8px 0 0;border-bottom:2px solid var(--accent);color:var(--accent);font-weight:700';
     tabReels.style.cssText = 'border-radius:8px 8px 0 0';
     bilderContainer.style.display = 'block';
     reelsContainer.style.display = 'none';
   };
   tabReels.onclick = async () => {
+    igTab = 'reels';
     tabReels.style.cssText = 'border-radius:8px 8px 0 0;border-bottom:2px solid var(--accent);color:var(--accent);font-weight:700';
     tabBilder.style.cssText = 'border-radius:8px 8px 0 0';
     bilderContainer.style.display = 'none';
@@ -3167,6 +3170,8 @@ async function renderInstagram() {
 
   content.innerHTML = '';
   content.appendChild(wrapper);
+  // Nach Reel-Aktionen (renderInstagram) im Reels-Tab bleiben statt zurück zu den Bildern
+  if (igTab === 'reels') tabReels.onclick();
 }
 
 function createTimeRow(value) {
