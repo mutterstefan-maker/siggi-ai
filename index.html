@@ -2506,6 +2506,7 @@ function renderAuditResult(data) {
 
 let reelsDays = ['mon','tue','wed','thu','fri','sat','sun'];
 let igTab = 'bilder'; // welcher Tab auf der Instagram-Seite gerade offen ist
+let reelQueueExpanded = false; // Reels-Warteschlange: alle Videos statt nur die ersten 5 zeigen
 
 function _reelVideoCard(f, { onDelete, onClickBadge } = {}) {
   const card = document.createElement('div');
@@ -2572,7 +2573,7 @@ async function renderReels(container) {
   const queueDiv = document.createElement('div');
   queueDiv.className = 'settings-section';
   const totalCount = (queue||[]).length;
-  const displayQueue = (queue||[]).slice(0, 5);
+  const displayQueue = reelQueueExpanded ? (queue||[]) : (queue||[]).slice(0, 5);
   const hiddenCount = totalCount - displayQueue.length;
 
   const qHeader = document.createElement('div');
@@ -2624,10 +2625,11 @@ async function renderReels(container) {
       card.appendChild(delBtn);
       gallery.appendChild(card);
     });
-    if (hiddenCount > 0) {
+    if (totalCount > 5) {
       const more = document.createElement('div');
-      more.style.cssText = 'display:flex;align-items:center;justify-content:center;background:var(--surface2);border:1px dashed var(--border);border-radius:var(--radius);padding:20px;color:var(--text2);font-size:12px;font-weight:600';
-      more.textContent = '+' + hiddenCount + ' weitere Videos';
+      more.style.cssText = 'display:flex;align-items:center;justify-content:center;background:var(--surface2);border:1px dashed var(--border);border-radius:var(--radius);padding:20px;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer';
+      more.textContent = reelQueueExpanded ? 'Weniger anzeigen' : '+' + hiddenCount + ' weitere Videos';
+      more.onclick = () => { reelQueueExpanded = !reelQueueExpanded; renderInstagram(); };
       gallery.appendChild(more);
     }
   } else {
