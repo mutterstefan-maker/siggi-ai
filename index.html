@@ -903,6 +903,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 .ag-name { font-size: 16px; font-weight: 800; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .ag-chip { font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
 .ag-role { font-size: 12px; color: var(--text2); }
+.ag-job { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
 .ag-bar { height: 6px; border-radius: 99px; background: var(--surface2); overflow: hidden; }
 .ag-bar > div { height: 100%; border-radius: 99px; transition: width .5s; }
 .ag-next { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text2); padding-right: 64px; }
@@ -4792,9 +4793,10 @@ function agentCardInner(a) {
     <div class="ag-stage">${agentFigure(a)}</div>
     <div class="ag-info">
       <div class="ag-head">
-        <span class="ag-name">${escHtml(a.name)}</span>
+        <span class="ag-name">${escHtml(a.person || a.name)}</span>
         <span class="ag-chip" style="color:${st.color};background:color-mix(in srgb, ${st.color} 16%, transparent)">${st.label}${a.pending_approvals ? ' · ' + a.pending_approvals : ''}</span>
       </div>
+      ${a.job ? `<div class="ag-job">${escHtml(a.job)}</div>` : ''}
       <div class="ag-role">${escHtml(a.role)}</div>
       ${pct != null ? `<div class="ag-bar"><div style="width:${pct}%;background:${st.color}"></div></div>` : ''}
       <div class="ag-next">${a.paused ? 'Pausiert – macht nichts, bis du fortsetzt' : 'Nächster Lauf: ' + escHtml(a.next_run || '–')}</div>
@@ -5002,7 +5004,8 @@ function agentDetailHTML(a, d) {
     <div class="ag-detail-head">
       <div>
         <div class="ag-kicker">AUSGEWÄHLT</div>
-        <div class="ag-detail-name">${escHtml(a.name)}</div>
+        <div class="ag-detail-name">${escHtml(a.person ? a.person + ' – ' + a.job : a.name)}</div>
+        ${a.person ? `<div class="ag-muted">${escHtml(a.name)}</div>` : ''}
       </div>
       <div class="ag-actions">
         ${a.view && a.pending_approvals ? `<button class="btn btn-primary" onclick="showView('${a.view}')">Zur Freigabe (${a.pending_approvals})</button>` : ''}

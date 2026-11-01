@@ -55,88 +55,88 @@ STATUSES = {'working', 'planning', 'waiting', 'ready', 'sleeping', 'error'}
 # 'view' = Dashboard-Ansicht, in der Freigaben dieses Agenten liegen.
 AGENTS = {
     'mail': {
-        'kind': 'internal', 'name': 'Mail-Agent', 'icon': 'mail', 'view': 'mail_drafts', 'home': 'inbox', 'runnable': True,
+        'kind': 'internal', 'name': 'Mail-Agent', 'person': 'Jonas', 'job': 'Posteingangs-Manager', 'icon': 'mail', 'view': 'mail_drafts', 'home': 'inbox', 'runnable': True,
         'role': 'Ruft Mails ab, sortiert sie und beantwortet sie',
         'default_config': {}, 'next_run': 'alle 30 Minuten',
     },
     'instagram': {
-        'kind': 'internal', 'name': 'Instagram-Agent', 'icon': 'camera', 'view': 'instagram', 'runnable': False,
+        'kind': 'internal', 'name': 'Instagram-Agent', 'person': 'Lea', 'job': 'Social-Media-Redakteurin', 'icon': 'camera', 'view': 'instagram', 'runnable': False,
         'role': 'Postet Bilder aus der Warteschlange zu deinen Zeiten (auch auf Facebook)',
         'default_config': {}, 'next_run': '–',
     },
     'reels': {
-        'kind': 'internal', 'name': 'Reels-Agent', 'icon': 'film', 'view': 'instagram', 'runnable': False,
+        'kind': 'internal', 'name': 'Reels-Agent', 'person': 'Max', 'job': 'Videoredakteur', 'icon': 'film', 'view': 'instagram', 'runnable': False,
         'role': 'Baut Reels, legt sie dir zur Freigabe vor, postet sie als Story',
         'default_config': {}, 'next_run': '–',
     },
     'bild': {
-        'kind': 'internal', 'name': 'Bild-Agent', 'icon': 'image', 'view': 'flyer_pipeline', 'runnable': True,
+        'kind': 'internal', 'name': 'Bild-Agent', 'person': 'Sophie', 'job': 'Grafikerin', 'icon': 'image', 'view': 'flyer_pipeline', 'runnable': True,
         'role': 'Entwirft jeden Morgen ein neues Bild für Instagram',
         'default_config': {}, 'next_run': 'täglich 09:00',
     },
     'linkedin': {
-        'kind': 'internal', 'name': 'LinkedIn-Agent', 'icon': 'briefcase', 'view': 'linkedin_pipeline', 'runnable': True,
+        'kind': 'internal', 'name': 'LinkedIn-Agent', 'person': 'Tom', 'job': 'Content-Redakteur', 'icon': 'briefcase', 'view': 'linkedin_pipeline', 'runnable': True,
         'role': 'Schreibt jeden Morgen einen Entwurf und postet freigegebene Beiträge nach Zeitplan',
         'default_config': {}, 'next_run': 'täglich 08:00',
     },
     'followup': {
-        'kind': 'internal', 'name': 'Nachfass-Agent', 'icon': 'search', 'view': 'mail_drafts', 'runnable': True,
+        'kind': 'internal', 'name': 'Nachfass-Agent', 'person': 'Nina', 'job': 'Kundenbetreuerin', 'icon': 'search', 'view': 'mail_drafts', 'runnable': True,
         'role': 'Findet Kunden, die sich nach deiner Mail nicht gemeldet haben, und schlägt Nachfass-Mails vor',
         'default_config': {}, 'next_run': 'täglich 09:30',
     },
     'angebot': {
         # angebot_engine.py - Projektanfrage -> Angebots-PDF (+ Website-Analyse) als Entwurf zur Freigabe
-        'kind': 'internal', 'name': 'Angebots-Agent', 'icon': 'doc', 'view': 'mail_drafts', 'runnable': False,
+        'kind': 'internal', 'name': 'Angebots-Agent', 'person': 'Felix', 'job': 'Angebotsschreiber', 'icon': 'doc', 'view': 'mail_drafts', 'runnable': False,
         'role': 'Macht aus einer Projektanfrage sofort ein fertiges Angebot mit deinen Preisen – du gibst nur frei',
         'default_config': {}, 'next_run': 'nach jedem Mail-Abruf',
     },
     'checkin': {
         # checkin_engine.py - 30/90 Tage nach Go-live einer Kunden-Website persoenlich nachfragen
-        'kind': 'internal', 'name': 'Check-in-Agent', 'icon': 'heart', 'view': 'mail_drafts', 'runnable': True,
+        'kind': 'internal', 'name': 'Check-in-Agent', 'person': 'Emma', 'job': 'Kundenbetreuerin', 'icon': 'heart', 'view': 'mail_drafts', 'runnable': True,
         'role': 'Fragt 30 und 90 Tage nach dem Go-live beim Kunden nach, ob alles läuft – mit passendem nächsten Schritt',
         'default_config': {}, 'next_run': 'täglich 10:00',
     },
     'wohnung': {
         # Laeuft in der separaten Wohnungssuche (/opt/wohnungssuche) und meldet sich per Hook.
-        'kind': 'internal', 'name': 'Wohnungs-Agent', 'icon': 'home', 'view': None, 'runnable': False,
+        'kind': 'internal', 'name': 'Wohnungs-Agent', 'person': 'Paul', 'job': 'Wohnungsscout', 'icon': 'home', 'view': None, 'runnable': False,
         'role': 'Schickt dir neue Wohnungen per Telegram und schlägt Alarm, wenn die Wohnungssuche nicht richtig sucht',
         'default_config': {}, 'next_run': 'wie in der Wohnungssuche eingestellt',
     },
     'outlook': {
         # outlook_engine.py - privates Postfach, NUR lesen, strikt getrennt vom Chefblick-Mail-Agenten
-        'kind': 'internal', 'name': 'Outlook-Agent (privat)', 'icon': 'lock', 'view': None, 'runnable': True,
+        'kind': 'internal', 'name': 'Outlook-Agent (privat)', 'person': 'Hanna', 'job': 'Privatassistentin', 'icon': 'lock', 'view': None, 'runnable': True,
         'role': 'Liest dein privates Outlook nur mit und meldet Wichtiges per Telegram – Chefblick bleibt unberührt',
         'default_config': {}, 'next_run': 'alle 10 Minuten',
     },
     'kchat': {
         # kchat_engine.py - Steler-GmbH-Firmenchat, liest; antwortet nur nach Freigabe per Telegram, strikt getrennt
-        'kind': 'internal', 'name': 'kChat-Agent (Steler)', 'icon': 'chat', 'view': None, 'runnable': True,
+        'kind': 'internal', 'name': 'kChat-Agent (Steler)', 'person': 'Leon', 'job': 'Teamassistent', 'icon': 'chat', 'view': None, 'runnable': True,
         'role': 'Behält den Steler-kChat für dich im Blick: Lagebericht per Telegram, Erwähnungen sofort, Antworten nur nach deiner Freigabe',
         'default_config': {}, 'next_run': 'alle 15 Minuten',
     },
     'comments': {
-        'kind': 'internal', 'name': 'Kommentar-Agent', 'icon': 'chat', 'view': None, 'runnable': False,
+        'kind': 'internal', 'name': 'Kommentar-Agent', 'person': 'Mia', 'job': 'Community-Managerin', 'icon': 'chat', 'view': None, 'runnable': False,
         'role': 'Liest neue Instagram-Kommentare und schlägt Antworten vor',
         'default_config': {}, 'next_run': 'alle 5 Minuten',
     },
     'telegram': {
-        'kind': 'internal', 'name': 'Telegram-Siggi', 'icon': 'send', 'view': None, 'runnable': False,
+        'kind': 'internal', 'name': 'Telegram-Siggi', 'person': 'Siggi', 'job': 'Dein Assistent per Telegram', 'icon': 'send', 'view': None, 'runnable': False,
         'role': 'Nimmt deine Aufgaben per Telegram an – als Text oder Sprachnachricht',
         'default_config': {}, 'next_run': 'sofort bei jeder Nachricht',
     },
     'improve': {
-        'kind': 'internal', 'name': 'Selbstverbesserung', 'icon': 'bulb', 'view': 'improvements', 'runnable': True,
+        'kind': 'internal', 'name': 'Selbstverbesserung', 'person': 'Greta', 'job': 'Prozessoptimiererin', 'icon': 'bulb', 'view': 'improvements', 'runnable': True,
         'role': 'Sucht Wissenslücken und Fehler in Siggi und schlägt Verbesserungen vor',
         'default_config': {}, 'next_run': 'täglich 05:30',
     },
     'health': {
-        'kind': 'internal', 'name': 'Health-Check', 'icon': 'pulse', 'view': 'health_check', 'runnable': True,
+        'kind': 'internal', 'name': 'Health-Check', 'person': 'Lukas', 'job': 'Systemadministrator', 'icon': 'pulse', 'view': 'health_check', 'runnable': True,
         'role': 'Prüft Zugänge, Tokens, Mail-Konten und Dienste',
         'default_config': {}, 'next_run': 'alle 4 Stunden',
     },
     'watch': {
         'kind': 'n8n', 'view': None, 'runnable': True,
-        'name': 'Website-Wächter',
+        'name': 'Website-Wächter', 'person': 'Karla', 'job': 'Website-Wächterin',
         'role': 'Prüft deine und die Kunden-Websites alle 15 Min. – täglich SSL, Formular, Domain; '
                 'monatlicher Wartungsbericht für Kunden',
         'icon': 'shield',
@@ -146,7 +146,7 @@ AGENTS = {
     },
     'server': {
         'kind': 'n8n', 'view': None, 'runnable': True,
-        'name': 'Server-Wächter',
+        'name': 'Server-Wächter', 'person': 'Otto', 'job': 'Server-Wächter',
         'role': 'Überwacht CPU, Arbeitsspeicher, Festplatte und Dienste',
         'icon': 'server',
         'trigger': '/webhook/siggi-server-run',
@@ -155,7 +155,7 @@ AGENTS = {
     },
     'report': {
         'kind': 'n8n', 'view': None, 'runnable': True,
-        'name': 'Wochenbericht',
+        'name': 'Wochenbericht', 'person': 'Anna', 'job': 'Berichterstatterin',
         'role': 'Fasst montags die Woche zusammen: Mails, Posts, Leads, Probleme',
         'icon': 'chart',
         'trigger': '/webhook/siggi-report-run',
@@ -745,7 +745,8 @@ def overview(extras=None):
             elif status == 'sleeping' and ex.get('idle') and not bubble:
                 bubble = ex['idle']
             agents.append({
-                'id': agent_id, 'name': meta['name'], 'role': meta['role'], 'icon': meta['icon'],
+                'id': agent_id, 'name': meta['name'], 'person': meta.get('person', ''), 'job': meta.get('job', ''),
+                'role': meta['role'], 'icon': meta['icon'],
                 'status': status, 'bubble': bubble or '', 'progress': r['progress'],
                 'plan': json.loads(r['plan'] or '[]'), 'next_run': ex.get('next_run') or r['next_run'] or meta['next_run'],
                 'kind': meta.get('kind', 'n8n'), 'view': meta.get('view'), 'runnable': meta.get('runnable', True),
