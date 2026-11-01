@@ -610,7 +610,7 @@ def send_auto_replies():
                 server.login(account, password)
                 server.send_message(msg)
 
-            c.execute('UPDATE mails SET sent=1, read=1, category=\'sent_archive\' WHERE id=?', (mail_id,))
+            c.execute('UPDATE mails SET sent=1, read=1 WHERE id=?', (mail_id,))
             c.execute('INSERT INTO sent_mails (account, to_addr, subject, body, sent_at) VALUES (?,?,?,?,?)',
                       (account, to_addr, msg['Subject'], full_body, datetime.now().isoformat()))
             print(f"Gesendet an {to_addr}")

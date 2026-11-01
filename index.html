@@ -1338,7 +1338,7 @@ async function renderMailView(view) {
 }
 
 function mailItemHTML(m, view) {
-  const from = view === 'sent' ? `An: ${m.to_addr}` : cleanFrom(m.from_addr || '');
+  const from = view === 'sent' ? `An: ${m.to_addr || cleanFrom(m.from_addr || '')}` : cleanFrom(m.from_addr || '');
   const subject = m.subject || '(Kein Betreff)';
   const preview = (m.body || m.ai_reply || '')
     .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
@@ -1463,16 +1463,25 @@ function renderMailDetail(m, container, view) {
 }
 
 function renderSentDetail(m, container) {
+  // Beantwortete Mails (Tabelle mails) haben kein to_addr: Empfaenger ist der Absender, gezeigt wird Original + KI-Antwort
+  const isOriginal = m.to_addr === undefined;
+  const to = isOriginal ? cleanFrom(m.from_addr || '') : m.to_addr;
   container.innerHTML = `
     <div class="detail-header">
       <div class="detail-subject">${escHtml(m.subject || '')}</div>
       <div class="detail-meta">
-        <span>📤 An: ${escHtml(m.to_addr || '')}</span>
-        <span>📅 ${formatDate(m.sent_at)}</span>
+        <span>📤 An: ${escHtml(to || '')}</span>
+        <span>📅 ${formatDate(m.sent_at || m.date)}</span>
         <span>📧 Von: ${escHtml(m.account || '')}</span>
       </div>
     </div>
-    <div class="mail-body-card" style="white-space:pre-wrap">${escHtml(m.body || '')}</div>
+    ${isOriginal ? `
+      <div class="mail-body-card" style="white-space:pre-wrap">${escHtml(m.body || '(Original-Mail ohne Text)')}</div>
+      <div class="ai-reply-card">
+        <div class="ai-reply-label">🤖 KI-Antwort <span style="color:var(--success)">✓ Gesendet</span></div>
+        <div class="ai-reply-text">${escHtml(m.ai_reply || '')}</div>
+      </div>` : `
+      <div class="mail-body-card" style="white-space:pre-wrap">${escHtml(m.body || '')}</div>`}
     <div class="action-row">
       <button class="btn btn-danger" onclick="deleteSent(${m.id})">🗑️ Löschen</button>
     </div>
