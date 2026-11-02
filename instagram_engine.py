@@ -536,6 +536,27 @@ def _ig_plan(*states):
     return [{'label': l, 'state': st} for l, st in zip(labels, states)]
 
 
+IG_FEED_RATIO_MIN = 4 / 5    # Meta: Feed-Bilder brauchen 4:5 bis 1.91:1, sonst Fehler 36003/2207009
+IG_FEED_RATIO_MAX = 1.91
+
+
+def _feed_aspect_error(path):
+    """Prüft das Seitenverhältnis lokal, bevor Meta es ablehnt. Gibt None zurück wenn passend."""
+    try:
+        from PIL import Image
+        with Image.open(path) as img:
+            w, h = img.size
+    except Exception as e:
+        return f'Bild konnte nicht gelesen werden: {e}'
+    if not w or not h:
+        return 'Bild hat keine gültigen Abmessungen.'
+    ratio = w / h
+    if IG_FEED_RATIO_MIN <= ratio <= IG_FEED_RATIO_MAX:
+        return None
+    return (f'Seitenverhältnis {w}x{h} ({ratio:.2f}:1) wird im Feed nicht unterstützt. '
+            f'Erlaubt sind 4:5 bis 1.91:1 - Bild bitte zuschneiden oder ersetzen.')
+
+
 def post_next_in_queue(public_base_url):
     """Postet das erste Bild aus der Warteschlange. public_base_url ist die von außen
     erreichbare Basis-URL des Servers (z.B. https://www.stean.info), damit Meta das Bild
@@ -549,6 +570,12 @@ def post_next_in_queue(public_base_url):
     s = _ig_settings()
     caption = _generate_caption_from_filename(filename, s.get('default_caption', ''))
     image_url = f"{public_base_url.rstrip('/')}/api/instagram/media/{quote(filename)}"
+
+    aspect_error = _feed_aspect_error(os.path.join(pool_dir(), filename))
+    if aspect_error:
+        _log_post(filename, caption, 'error', aspect_error)
+        agents.fail('instagram', f"{filename}: {aspect_error}"[:200], plan=_ig_plan('done', 'error', 'open', 'open'))
+        return {'success': False, 'error': aspect_error}
 
     agents.step('instagram', f'Veröffentliche {filename} auf Instagram …', plan=_ig_plan('done', 'active', 'open', 'open'))
     result = _publish_image(image_url, caption)
