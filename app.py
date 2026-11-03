@@ -3314,6 +3314,7 @@ def _kchat_loop():
     while True:
         try:
             if kchat_engine.status()['connected'] and not agents_engine.is_paused('kchat'):
+                kchat_engine.sende_faellige_entwuerfe()  # Automatik-Entwuerfe nach Ablauf der Wartezeit
                 slot = kchat_engine.faelliger_bericht()
                 if slot or kchat_engine.ist_faellig():
                     kchat_engine.run_as_agent(bericht_slot=slot)

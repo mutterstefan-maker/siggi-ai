@@ -380,6 +380,10 @@ def _db():
     # Antwort-Entwuerfe: gehen erst nach Stefans Freigabe (Telegram-Knopf) raus
     c.execute('CREATE TABLE IF NOT EXISTS drafts (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT, kanal TEXT, '
               'root_id TEXT, text TEXT, status TEXT, created_at TEXT, decided_at TEXT, post_id TEXT, fehler TEXT)')
+    try:  # Automatik: Entwurf geht nach Ablauf von senden_ab raus, solange niemand verwirft
+        c.execute('ALTER TABLE drafts ADD COLUMN senden_ab TEXT')
+    except sqlite3.OperationalError:
+        pass  # Spalte gibt es schon
     return c
 
 
@@ -456,6 +460,7 @@ def melde_grund(post, cfg, me):
 
 
 DM_ENTWURF_VON = '019c3260-6f61-7261-9052-fccf0500d6cf'  # Michael Götschenberg
+DM_WARTEZEIT_MIN = 5  # so lange kann Stefan einen automatischen DM-Entwurf in Telegram verwerfen
 
 
 def _dm_entwurf(p, c):
@@ -484,7 +489,7 @@ def _dm_entwurf(p, c):
                             'messages': [{'role': 'user', 'content': prompt}]}, timeout=60).json()
     text = ''.join(b.get('text', '') for b in r.get('content', []) if b.get('type') == 'text').strip()
     if text and text.upper() != 'KEINE':
-        antwort_entwurf(p['kanal'], text, channel={'id': p['kanal_id'], 'name': p['kanal']})
+        antwort_entwurf(p['kanal'], text, channel={'id': p['kanal_id'], 'name': p['kanal']}, senden_in_min=DM_WARTEZEIT_MIN)
 
 
 def run_as_agent(bericht_slot=None, bericht_jetzt=False):
@@ -628,8 +633,9 @@ def _telegram(text, buttons=None):
         return False
 
 
-def antwort_entwurf(kanal_name, text, antwort_auf=None, channel=None):
-    """Antwort vorbereiten und Stefan per Telegram zur Freigabe schicken. Hier wird NICHTS gesendet.
+def antwort_entwurf(kanal_name, text, antwort_auf=None, channel=None, senden_in_min=None):
+    """Antwort vorbereiten und Stefan per Telegram schicken. Gesendet wird nur nach Freigabe – oder, wenn
+    `senden_in_min` gesetzt ist, automatisch nach so vielen Minuten, sofern Stefan vorher nicht verwirft.
     `channel` (id + name) nimmt man, wenn der Kanal schon bekannt ist, z.B. bei einer Direktnachricht."""
     text = str(text or '').strip()
     if not text:
@@ -647,22 +653,43 @@ def antwort_entwurf(kanal_name, text, antwort_auf=None, channel=None):
         raise ValueError('antwort_auf muss eine Nachrichten-ID aus aktion=kanal sein')
     if root:  # in einem Thread immer auf die Wurzel antworten
         root = _api(f'/posts/{root}').get('root_id') or root
+    jetzt = datetime.now()
+    senden_ab = (jetzt + timedelta(minutes=senden_in_min)).isoformat(timespec='seconds') if senden_in_min else None
     c = _db()
     try:
-        cur = c.execute('INSERT INTO drafts (channel_id, kanal, root_id, text, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                        (hit['id'], hit['name'], root, text, 'offen', datetime.now().isoformat(timespec='seconds')))
+        cur = c.execute('INSERT INTO drafts (channel_id, kanal, root_id, text, status, created_at, senden_ab) '
+                        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        (hit['id'], hit['name'], root, text, 'offen', jetzt.isoformat(timespec='seconds'), senden_ab))
         draft_id = cur.lastrowid
         c.commit()
     finally:
         c.close()
     import telegram_engine
+    hinweis = (f"Wird in {senden_in_min} Minuten automatisch gesendet, außer du verwirfst ihn."
+               if senden_ab else "Erst nach „Senden“ geht das in kChat raus.")
     gesendet = _telegram(f"{LABEL} – Antwort-Entwurf #{draft_id}\nan: {hit['name']}" + (' (im Thread)' if root else '')
-                         + f"\n\n{text}\n\nErst nach „Senden“ geht das in kChat raus.",
+                         + f"\n\n{text}\n\n{hinweis}",
                          buttons=telegram_engine.approval_buttons('kchat', draft_id, ('✅ Senden', '❌ Verwerfen')))
     agents_engine.event(AGENT_ID, f"Antwort-Entwurf #{draft_id} an {hit['name']} wartet auf Freigabe", 'info')
-    return {'entwurf': draft_id, 'kanal': hit['name'], 'telegram': gesendet,
-            'hinweis': 'Wartet auf Stefans Freigabe per Telegram-Knopf - noch nicht gesendet.'
-                       if gesendet else 'Telegram nicht verbunden - Entwurf kann so nicht freigegeben werden.'}
+    if not gesendet:
+        hinweis = 'Telegram nicht verbunden - Entwurf kann so nicht freigegeben werden.'
+    elif senden_ab:
+        hinweis = f'Geht in {senden_in_min} Minuten automatisch raus, außer Stefan verwirft ihn in Telegram.'
+    else:
+        hinweis = 'Wartet auf Stefans Freigabe per Telegram-Knopf - noch nicht gesendet.'
+    return {'entwurf': draft_id, 'kanal': hit['name'], 'telegram': gesendet, 'hinweis': hinweis}
+
+
+def sende_faellige_entwuerfe():
+    """Alle 60 Sekunden aus app.py: Entwuerfe mit abgelaufener Wartezeit senden (nur wenn sie noch offen sind)."""
+    c = _db()
+    try:
+        ids = [r[0] for r in c.execute('SELECT id FROM drafts WHERE status=? AND senden_ab IS NOT NULL AND senden_ab <= ?',
+                                       ('offen', datetime.now().isoformat(timespec='seconds'))).fetchall()]
+    finally:
+        c.close()
+    for draft_id in ids:
+        entscheiden(draft_id, True)  # gleicher Weg wie der Senden-Knopf, inkl. Fehlermeldung
 
 
 def _senden_freigegeben(channel_id, text, root_id=None):
