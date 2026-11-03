@@ -471,7 +471,9 @@ def _dm_entwurf(p, c):
     prompt = (
         "Stil-Profil von Stefan Mutter:\n\n" + profil[:3000] + "\n\n"
         f"Michael Götschenberg hat Stefan gerade diese Direktnachricht geschrieben:\n\n{p['text'][:1000]}\n\n"
-        "Schreib Stefans Antwort auf Deutsch, kurz und in seinem Stil. Wenn er zusagt, sinngemäß: "
+        "Will er etwas von Stefan (Frage, Auftrag, Bitte, Entscheidung)? Wenn nein, nur Smalltalk, Witze, GIFs "
+        "oder Reaktionen sind, antworte mit genau einem Wort: KEINE.\n"
+        "Wenn er etwas will: Schreib Stefans Antwort auf Deutsch, kurz und in seinem Stil. Wenn er zusagt, sinngemäß: "
         "„Ja klar, mach ich so schnell wie möglich“. Wechsle dabei Satzbau und Reihenfolge von Mal zu Mal, "
         "damit es natürlich klingt. Nichts erfinden: keine Zahlen, Termine oder Zusagen, die nicht in der Nachricht stehen. "
         "Gib nur den Antworttext aus, ohne Anführungszeichen und ohne Erklärung."
@@ -481,7 +483,7 @@ def _dm_entwurf(p, c):
                       json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 300,
                             'messages': [{'role': 'user', 'content': prompt}]}, timeout=60).json()
     text = ''.join(b.get('text', '') for b in r.get('content', []) if b.get('type') == 'text').strip()
-    if text:
+    if text and text.upper() != 'KEINE':
         antwort_entwurf(p['kanal'], text, channel={'id': p['kanal_id'], 'name': p['kanal']})
 
 
