@@ -455,6 +455,36 @@ def melde_grund(post, cfg, me):
     return None
 
 
+DM_ENTWURF_VON = '019c3260-6f61-7261-9052-fccf0500d6cf'  # Michael Götschenberg
+
+
+def _dm_entwurf(p, c):
+    """Neue Direktnachricht von Götschenberg: Antwort-Entwurf in Stefans Stil. Gesendet wird nur nach Freigabe."""
+    c.execute('INSERT OR IGNORE INTO notified (post_id, created_at) VALUES (?, ?)',
+              ('draft:' + p['id'], datetime.now().isoformat(timespec='seconds')))
+    c.commit()
+    settings = settings_store.load_or_empty()
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or settings.get('anthropic_api_key', '')
+    if not api_key:
+        return
+    profil = _get_state('stilprofil') or ''
+    prompt = (
+        "Stil-Profil von Stefan Mutter:\n\n" + profil[:3000] + "\n\n"
+        f"Michael Götschenberg hat Stefan gerade diese Direktnachricht geschrieben:\n\n{p['text'][:1000]}\n\n"
+        "Schreib Stefans Antwort auf Deutsch, kurz und in seinem Stil. Wenn er zusagt, sinngemäß: "
+        "„Ja klar, mach ich so schnell wie möglich“. Wechsle dabei Satzbau und Reihenfolge von Mal zu Mal, "
+        "damit es natürlich klingt. Nichts erfinden: keine Zahlen, Termine oder Zusagen, die nicht in der Nachricht stehen. "
+        "Gib nur den Antworttext aus, ohne Anführungszeichen und ohne Erklärung."
+    )
+    r = requests.post('https://api.anthropic.com/v1/messages',
+                      headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+                      json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 300,
+                            'messages': [{'role': 'user', 'content': prompt}]}, timeout=60).json()
+    text = ''.join(b.get('text', '') for b in r.get('content', []) if b.get('type') == 'text').strip()
+    if text:
+        antwort_entwurf(p['kanal'], text, channel={'id': p['kanal_id'], 'name': p['kanal']})
+
+
 def run_as_agent(bericht_slot=None, bericht_jetzt=False):
     """Neue Nachrichten pruefen. Erwaehnungen/Direktnachrichten sofort per Telegram; zum Bericht-Slot
     (oder bericht_jetzt) zusaetzlich den Lagebericht schicken."""
@@ -475,7 +505,18 @@ def run_as_agent(bericht_slot=None, bericht_jetzt=False):
             me = _me()
             _merke_eigene(c, posts, me)
             gemeldet = 0
+            # Nur Nachrichten ab dem Zeitpunkt der Einfuehrung - nichts Altes nachtraeglich beantworten
+            entwurf_ab = int(_get_state('dm_entwurf_ab') or 0)
+            if not entwurf_ab:
+                entwurf_ab = now_ms
+                _set_state(c, 'dm_entwurf_ab', str(entwurf_ab))
             for p in posts:
+                if (p['user_id'] == DM_ENTWURF_VON and p['kanal'].startswith('Direkt:') and p['ms'] >= entwurf_ab
+                        and not c.execute('SELECT 1 FROM notified WHERE post_id=?', ('draft:' + p['id'],)).fetchone()):
+                    try:
+                        _dm_entwurf(p, c)
+                    except Exception as e:
+                        print(f'[kChat] DM-Entwurf fehlgeschlagen: {e}')
                 grund = melde_grund(p, cfg, me)
                 if not grund or c.execute('SELECT 1 FROM notified WHERE post_id=?', (p['id'],)).fetchone():
                     continue
@@ -585,8 +626,9 @@ def _telegram(text, buttons=None):
         return False
 
 
-def antwort_entwurf(kanal_name, text, antwort_auf=None):
-    """Antwort vorbereiten und Stefan per Telegram zur Freigabe schicken. Hier wird NICHTS gesendet."""
+def antwort_entwurf(kanal_name, text, antwort_auf=None, channel=None):
+    """Antwort vorbereiten und Stefan per Telegram zur Freigabe schicken. Hier wird NICHTS gesendet.
+    `channel` (id + name) nimmt man, wenn der Kanal schon bekannt ist, z.B. bei einer Direktnachricht."""
     text = str(text or '').strip()
     if not text:
         raise ValueError('Der Antworttext fehlt')
@@ -594,7 +636,7 @@ def antwort_entwurf(kanal_name, text, antwort_auf=None):
         raise ValueError('Antwort ist zu lang (max. 4000 Zeichen)')
     q = str(kanal_name or '').strip().lower()
     chans = _channels()
-    hit = next((c for c in chans if c['name'].lower() == q), None) or \
+    hit = channel or next((c for c in chans if c['name'].lower() == q), None) or \
         next((c for c in chans if q and q in c['name'].lower()), None)
     if not hit:
         raise ValueError(f'Kein Kanal „{kanal_name}“ gefunden')
