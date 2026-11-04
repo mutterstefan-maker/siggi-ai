@@ -459,7 +459,7 @@ def melde_grund(post, cfg, me):
     return None
 
 
-DM_ENTWURF_VON = '019c3260-6f61-7261-9052-fccf0500d6cf'  # Michael Götschenberg
+DM_ENTWURF_VON = None  # Automatik fuer Michael Götschenberg beendet 2026-11-04 (auf Stefans Wunsch); ID war 019c3260-6f61-7261-9052-fccf0500d6cf
 DM_WARTEZEIT_MIN = 5  # so lange kann Stefan einen automatischen DM-Entwurf in Telegram verwerfen
 
 
@@ -681,15 +681,15 @@ def antwort_entwurf(kanal_name, text, antwort_auf=None, channel=None, senden_in_
 
 
 def sende_faellige_entwuerfe():
-    """Alle 60 Sekunden aus app.py: Entwuerfe mit abgelaufener Wartezeit senden (nur wenn sie noch offen sind)."""
+    """Alle 60 Sekunden aus app.py. Die automatische Sendung ist beendet (2026-11-04): offene automatische
+    Entwuerfe werden verworfen, nichts wird mehr von selbst gesendet. Manuelle Entwuerfe (ohne senden_ab) bleiben unberuehrt."""
     c = _db()
     try:
-        ids = [r[0] for r in c.execute('SELECT id FROM drafts WHERE status=? AND senden_ab IS NOT NULL AND senden_ab <= ?',
-                                       ('offen', datetime.now().isoformat(timespec='seconds'))).fetchall()]
+        c.execute('UPDATE drafts SET status=?, decided_at=? WHERE status=? AND senden_ab IS NOT NULL',
+                  ('verworfen', datetime.now().isoformat(timespec='seconds'), 'offen'))
+        c.commit()
     finally:
         c.close()
-    for draft_id in ids:
-        entscheiden(draft_id, True)  # gleicher Weg wie der Senden-Knopf, inkl. Fehlermeldung
 
 
 def _senden_freigegeben(channel_id, text, root_id=None):
