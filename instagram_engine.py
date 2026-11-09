@@ -6,7 +6,7 @@ Meta Graph API (Instagram Business/Creator Account nötig).
 
 Ablauf pro Post (Graph API Standardverfahren für Bild-Posts):
   1. Bild liegt lokal im pool_path-Ordner.
-  2. Server stellt das Bild unter einer öffentlichen URL bereit (/api/instagram/media/<filename>).
+  2. Server stellt das Bild unter einer zeitlich begrenzt signierten URL fuer Meta bereit.
   3. POST /{ig-user-id}/media  mit image_url + caption  -> creation_id
   4. POST /{ig-user-id}/media_publish  mit creation_id   -> veröffentlicht
   5. Datei wird in posted_path verschoben, Ergebnis in ig_posts-Tabelle protokolliert.
@@ -569,7 +569,8 @@ def post_next_in_queue(public_base_url):
     agents.start('instagram', f'Schreibe die Beschreibung für {filename} …', plan=_ig_plan('active', 'open', 'open', 'open'))
     s = _ig_settings()
     caption = _generate_caption_from_filename(filename, s.get('default_caption', ''))
-    image_url = f"{public_base_url.rstrip('/')}/api/instagram/media/{quote(filename)}"
+    from media_access import signed_media_url
+    image_url = signed_media_url(public_base_url, f'/api/instagram/media/{filename}')
 
     aspect_error = _feed_aspect_error(os.path.join(pool_dir(), filename))
     if aspect_error:

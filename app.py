@@ -18,6 +18,7 @@ import self_improve_engine
 import health_check_engine
 import settings_store
 import agents_engine
+from media_access import valid_media_access
 
 # Kein Static-Ordner: frueher war /opt/stean komplett als Webordner freigegeben (inkl. config/.env,
 # auth.py, settings.json, Datenbanken) und nur durch den Login geschuetzt. Die Oberflaeche braucht nur
@@ -29,12 +30,24 @@ CORS(app, origins=['https://stean.info', 'https://www.stean.info'])
 from flask import session, redirect
 from dotenv import load_dotenv
 import secrets as _secrets
-from auth import authenticate_user
+from password_auth import authenticate_user
 
 load_dotenv('/opt/stean/config/.env')
 app.secret_key = os.environ.get('FLASK_SECRET') or _secrets.token_hex(32)
 # CSRF-Schutz, Teil 1: fremde Seiten bekommen bei POST & Co. das Login-Cookie nicht mitgeschickt
-app.config.update(SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_HTTPONLY=True)
+app.config.update(SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_HTTPONLY=True,
+                  SESSION_COOKIE_SECURE=True, PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
+
+
+@app.after_request
+def private_response_headers(response):
+    response.headers['Cache-Control'] = 'no-store, private'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.vary.add('Cookie')
+    return response
 
 @app.route('/login')
 def login_page():
@@ -61,7 +74,11 @@ def api_login():
     ip = request.remote_addr
     if _login_rate_limited(ip):
         return jsonify({'error': 'too many attempts, try again later'}), 429
-    data = request.json or {}
+    if request.content_length and request.content_length > 8192:
+        return jsonify({'error': 'request too large'}), 413
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'invalid login request'}), 400
     username = data.get('username', '')
     password = data.get('password', '')
     if authenticate_user(username, password):
@@ -114,7 +131,7 @@ def block_cross_site_writes():
     if request.method in ('GET', 'HEAD', 'OPTIONS'):
         return None
     origin = request.headers.get('Origin')
-    if origin is None or origin in TRUSTED_ORIGINS or origin == request.host_url.rstrip('/'):
+    if origin is None or origin in TRUSTED_ORIGINS:
         return None
     print(f'[Sicherheit] Fremde Anfrage blockiert: {request.method} {request.path} von {origin}')
     return jsonify({'error': 'forbidden'}), 403
@@ -125,11 +142,13 @@ def require_login():
     allowed = ('/login', '/api/login')
     if request.path in allowed:
         return None
-    if request.path.startswith('/api/instagram/media/') or request.path.startswith('/api/instagram/reels/media/'):
-        return None  # muss öffentlich erreichbar sein, damit Meta das Bild/Video abrufen kann
+    if request.endpoint in ('instagram_media', 'reels_media_route'):
+        if session.get('logged_in') or (request.method in ('GET', 'HEAD') and valid_media_access(request.path, request.args)):
+            return None  # Meta: nur mit dateigebundener, ablaufender Signatur.
+        return jsonify({'error': 'unauthorized'}), 401
     if request.path.startswith('/api/agents/hook/'):
         return None  # n8n-Agenten melden sich per Bearer-Token, nicht per Login (Pruefung in der Route)
-    if request.path in ('/api/gpt/task', '/api/gpt/openapi.json') or request.path.startswith('/mcp/'):
+    if request.path == '/api/gpt/task' or request.path.startswith('/mcp/'):
         return None  # ChatGPT-Action/-Plugin: Schluessel wird in der Route geprueft, das Schema ist nicht geheim
     if not session.get('logged_in'):
         if request.path.startswith('/api/'):
@@ -214,7 +233,7 @@ except:
 try:
     from flask_socketio import SocketIO
     import desktop_engine
-    socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
+    socketio = SocketIO(app, cors_allowed_origins=list(TRUSTED_ORIGINS), async_mode='threading')
     desktop_engine.init(socketio)
     DESKTOP_AVAILABLE = True
 except Exception as _desktop_import_err:
@@ -2312,7 +2331,7 @@ def instagram_resolve_path():
 
 @app.route('/api/instagram/media/<path:filename>')
 def instagram_media(filename):
-    """Öffentliche Route (kein Login nötig), damit Meta die Bilddatei per Graph-API abrufen kann."""
+    """Bild nur mit Login oder zeitlich begrenzter Meta-Freigabe ausliefern."""
     if not INSTAGRAM_AVAILABLE:
         return jsonify({'error': 'Nicht verfügbar'}), 404
     path = instagram_engine.media_file_path(filename)
@@ -2407,7 +2426,7 @@ def reels_move_route():
 
 @app.route('/api/instagram/reels/media/<path:filename>')
 def reels_media_route(filename):
-    """Öffentliche Route (kein Login nötig), damit Meta das Video per Graph-API abrufen kann."""
+    """Video nur mit Login oder zeitlich begrenzter Meta-Freigabe ausliefern."""
     if not REELS_AVAILABLE:
         return jsonify({'error': 'Nicht verfügbar'}), 404
     path = reels_engine.media_file_path(filename)

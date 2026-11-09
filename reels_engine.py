@@ -9,7 +9,7 @@ Ablauf:
   1. generate_reel_from_images(): baut per ffmpeg ein 9:16-Slideshow-Video (Crossfades,
      kein Ton) aus den zuletzt geposteten Flyer-Bildern und legt es im Reels-Pool ab.
   2. post_next_reel_in_queue(): lädt das erste Video aus dem Pool, stellt es unter einer
-     öffentlichen URL bereit, erstellt einen Story-Media-Container (media_type=STORIES)
+     zeitlich begrenzt signierten URL bereit, erstellt einen Story-Media-Container (media_type=STORIES)
      und veröffentlicht ihn, sobald die Verarbeitung abgeschlossen ist.
   3. Datei wird nach erfolgreichem Post ins Archiv verschoben, Ergebnis wird protokolliert.
 """
@@ -694,7 +694,8 @@ def post_next_reel_in_queue(public_base_url):
     agents.start('reels', f'Lade {filename} zu Instagram hoch …', plan=plan('active', 'open', 'open'))
     s = _reels_settings()
     caption = instagram_engine._generate_caption_from_filename(filename, s.get('default_caption', ''))
-    video_url = f"{public_base_url.rstrip('/')}/api/instagram/reels/media/{quote(filename)}"
+    from media_access import signed_media_url
+    video_url = signed_media_url(public_base_url, f'/api/instagram/reels/media/{filename}')
 
     agents.step('reels', f'Instagram verarbeitet {filename} – das dauert 1–2 Minuten …', plan=plan('done', 'active', 'open'))
     result = _publish_reel(video_url, caption)
