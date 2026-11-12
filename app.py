@@ -733,19 +733,37 @@ SIGGI_TOOLS = [
     {
         'name': 'shop_graveda',
         'description': (
-            'Shopware-Shop der STELER GMBH (graveda.de) - NUR lesen. Artikel mit Bestand/verfuegbar/Preis (nach '
-            'Artikelnummer wie GP50-20 oder Name) und Bestellungen nach Bestellnummer (Status, Zahlung, Versand, '
-            'Sendungsnummer, Positionen). Gehoert zum Steler-Bereich wie kchat_steler: nie mit Chefblick oder '
-            'Privatem mischen, Kundendaten nicht weitergeben. "verfuegbar" = Bestand minus offene Bestellungen.'
+            'Shopware graveda.de / STELER, ausschließlich LESEN. Nutze die API selbst, statt Stefan '
+            'ins Backend zu schicken oder Bestellnummern zu verlangen. '
+            'bestellungen_tag: exakte Anzahl pro Tag. bestellungen_lesen: Bestellungen samt Positionen, '
+            'Artikelnummern im payload, productId, customFields, Zahlungs-/Versandstatus und Tracking '
+            'für einen Tag oder Zeitraum (datum bis einschließlich bis, Europe/Berlin). '
+            'Bei Rückfragen wie B-Ware gestern diese Positionen abrufen, alle Seiten prüfen und '
+            'bei Bedarf Produktdaten zu productId über daten_lesen nachladen. B-Ware kann in Name, '
+            'Artikelnummer, Eigenschaften oder customFields stehen; ungeprüfte Kennzeichnungen offen benennen. '
+            'daten_lesen: flexible Shopware Criteria-Suche für Bestellungen, Kunden, Artikel/Varianten, '
+            'Bestände, Preise, Kategorien, Eigenschaften, Dokument-Metadaten und weitere Geschäftsdaten. '
+            'Filter nach Kundennummer: customer.customerNumber bzw. orderCustomer.customerNumber bei order; '
+            'mit equals/contains/range/equalsAny/multi/not filtern, associations zum Nachladen, includes zur '
+            'Feldauswahl und aggregations für Summen/Auswertungen. Limit maximal 100, Seiten ab 1. '
+            'Bei weitere_seiten=true weiterblättern, bevor du Gesamtaussagen triffst. '
+            'faehigkeiten listet die erlaubten Datenbereiche. Bestehende Shopware-Leserechte gelten. '
+            'Keine Daten ändern und STELER-Daten nicht mit Chefblick/Privatem vermischen.'
         ),
         'input_schema': {
             'type': 'object',
             'properties': {
-                'aktion': {'type': 'string', 'enum': ['produkt', 'bestellung']},
-                'suchbegriff': {'type': 'string', 'description': 'Artikelnummer oder Name (produkt) bzw. Bestellnummer (bestellung)'},
-                'anzahl': {'type': 'integer'},
+                'aktion': {'type': 'string', 'enum': ['produkt', 'bestellung', 'bestellungen_tag',
+                    'bestellungen_lesen', 'daten_lesen', 'faehigkeiten']},
+                'suchbegriff': {'type': 'string', 'description': 'Artikelnummer/Name oder einzelne Bestellnummer'},
+                'datum': {'type': 'string', 'description': 'YYYY-MM-DD; Tagesaktionen: weglassen für heute in Europe/Berlin'},
+                'bis': {'type': 'string', 'description': 'Optionales inklusives Enddatum für bestellungen_lesen'},
+                'anzahl': {'type': 'integer', 'minimum': 1, 'maximum': 100},
+                'seite': {'type': 'integer', 'minimum': 1},
+                'bereich': {'type': 'string', 'description': 'daten_lesen: Shopware-Entity, z.B. order, customer, product, order-line-item, category, property-group-option'},
+                'kriterien': {'type': 'object', 'description': 'Shopware Criteria: filter, sort, associations, includes, aggregations, ids, term, page, limit. Beispiele: {"filter":[{"type":"equals","field":"customerNumber","value":"627516"}]}; Produktdetails mit {"ids":["productId"],"associations":{"properties":{},"options":{}}}.'},
             },
-            'required': ['aktion', 'suchbegriff']
+            'required': ['aktion']
         }
     },
     {
@@ -1070,13 +1088,26 @@ def _run_siggi_tool_inner(name, tool_input):
 
         if name == 'shop_graveda':
             try:
-                if tool_input.get('aktion') == 'bestellung':
+                if tool_input.get('aktion') == 'faehigkeiten':
+                    res = shopware_engine.faehigkeiten()
+                elif tool_input.get('aktion') == 'daten_lesen':
+                    res = shopware_engine.daten_lesen(tool_input.get('bereich'), tool_input.get('kriterien'))
+                elif tool_input.get('aktion') == 'bestellungen_lesen':
+                    res = shopware_engine.bestellungen_lesen(tool_input.get('datum'), tool_input.get('bis'),
+                        tool_input.get('seite') or 1, tool_input.get('anzahl') or 25)
+                elif tool_input.get('aktion') == 'bestellungen_tag':
+                    res = shopware_engine.bestellungen_tag(tool_input.get('datum'))
+                elif tool_input.get('aktion') == 'bestellung':
                     res = shopware_engine.bestellung(tool_input.get('suchbegriff', ''))
-                else:
+                elif tool_input.get('aktion') == 'produkt':
                     res = shopware_engine.produkte(tool_input.get('suchbegriff', ''), tool_input.get('anzahl') or 10)
+                else:
+                    raise ValueError('Unbekannte Shop-Aktion; faehigkeiten verwenden.')
                 return json.dumps(res, ensure_ascii=False) if res else 'Nichts gefunden im Shop graveda.de.'
             except shopware_engine.NotConnected as e:
                 return f'Shop graveda.de: {e}.'
+            except ValueError as e:
+                return f'Ungültige Shop-Abfrage: {e}. Parameter korrigieren und erneut abfragen.'
             except PermissionError as e:
                 return f'Shop graveda.de: {e}. Sag Stefan, er soll das Recht in Shopware ergaenzen.'
             except Exception as e:
