@@ -729,9 +729,9 @@ input:checked + .slider:before { transform: translateX(16px); }
 }
 .jarvis-transcript {
   width: 100%;
-  max-width: 700px;
-  min-height: 120px;
-  max-height: 300px;
+  max-width: 900px;
+  min-height: 240px;
+  max-height: 45vh;
   overflow-y: auto;
   background: rgba(0,20,40,0.8);
   border: 1px solid rgba(0,180,255,0.2);
@@ -1496,13 +1496,9 @@ function renderSentDetail(m, container) {
 
 // ── SIGGI ─────────────────────────────────────────────────────────────
 
-let jarvisRecognition = null;
-let jarvisListening = false;
-let jarvisSpeaking = false;
 let jarvisConversation = [];
 let siggiGreetedDate = null; // Datum der letzten Begrüßung (einmal pro Tag)
 let jarvisOrb = null;
-let jarvisVoice = null;
 
 const JARVIS_PERSONA = `Du bist SIGGI (Just A Rather Very Intelligent System), der persönliche KI-Assistent von Stefan Mutter, Inhaber der Webdesign-Agentur ChefBlick in Haag an der Amper, Bayern.
 
@@ -1607,30 +1603,14 @@ async function renderJarvis() {
   mediaPanel.appendChild(mediaContent);
   container.appendChild(mediaPanel);
 
-  // Controls - nur Mikrofon
+  // Desktop: ausschließlich Textchat.
   const controls = document.createElement('div');
   controls.className = 'jarvis-controls';
-  controls.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px';
+  controls.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%;max-width:900px';
 
-  const micBtn = document.createElement('button');
-  micBtn.className = 'jarvis-mic-btn';
-  micBtn.id = 'jarvis-mic';
-  micBtn.style.cssText = 'width:80px;height:80px;border-radius:50%;border:2px solid #00b4ff;background:rgba(0,180,255,0.1);color:#00b4ff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.3s;box-shadow:0 0 30px rgba(0,180,255,0.3)';
-  micBtn.title = 'Sprechen';
-  micBtn.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
-  micBtn.onclick = toggleMic;
-  controls.appendChild(micBtn);
-
-  const micHint = document.createElement('div');
-  micHint.id = 'jarvis-mic-hint';
-  micHint.style.cssText = 'font-family:Courier New,monospace;font-size:10px;color:rgba(0,180,255,0.5);letter-spacing:2px';
-  micHint.textContent = 'TIPPEN ZUM SPRECHEN';
-  controls.appendChild(micHint);
-
-  // Text-Eingabe als Alternative zur Sprachsteuerung
   const textForm = document.createElement('form');
   textForm.id = 'jarvis-text-form';
-  textForm.style.cssText = 'display:flex;gap:8px;width:100%;max-width:420px;margin-top:6px';
+  textForm.style.cssText = 'display:flex;align-items:flex-end;gap:8px;width:100%;margin-top:6px';
   textForm.onsubmit = function(ev) {
     ev.preventDefault();
     const input = document.getElementById('jarvis-input');
@@ -1640,12 +1620,19 @@ async function renderJarvis() {
     addJarvisMessage(text, 'user');
     sendJarvisMessageDirect(text);
   };
-  const textInput = document.createElement('input');
+  const textInput = document.createElement('textarea');
   textInput.id = 'jarvis-input';
-  textInput.type = 'text';
+  textInput.rows = 4;
+  textInput.setAttribute('aria-label', 'Nachricht an Siggi');
   textInput.placeholder = 'Nachricht an Siggi tippen …';
   textInput.autocomplete = 'off';
-  textInput.style.cssText = 'flex:1;background:rgba(0,180,255,0.08);border:1px solid rgba(0,180,255,0.35);border-radius:8px;padding:10px 12px;color:#e8f6ff;font-family:Courier New,monospace;font-size:13px;outline:none';
+  textInput.style.cssText = 'flex:1;min-width:0;width:100%;min-height:120px;max-height:360px;resize:vertical;box-sizing:border-box;line-height:1.6;background:rgba(0,180,255,0.08);border:1px solid rgba(0,180,255,0.35);border-radius:8px;padding:10px 12px;color:#e8f6ff;font-family:Courier New,monospace;font-size:13px;outline:none';
+  textInput.onkeydown = function(ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) {
+      ev.preventDefault();
+      textForm.requestSubmit();
+    }
+  };
   const sendBtn = document.createElement('button');
   sendBtn.type = 'submit';
   sendBtn.textContent = 'Senden';
@@ -1653,14 +1640,17 @@ async function renderJarvis() {
   textForm.appendChild(textInput);
   textForm.appendChild(sendBtn);
   controls.appendChild(textForm);
+  const inputHint = document.createElement('div');
+  inputHint.textContent = 'Enter zum Senden · Umschalt+Enter für eine neue Zeile';
+  inputHint.style.cssText = 'color:rgba(0,180,255,0.65);font-size:12px';
+  controls.appendChild(inputHint);
 
   container.appendChild(controls);
 
 
   content.appendChild(container);
 
-  // Stimme initialisieren
-  initJarvisVoice();
+  textInput.focus();
 
   // Gespeicherte Konversation wiederherstellen
   const transcriptEl = document.getElementById('jarvis-transcript');
@@ -1679,103 +1669,15 @@ async function renderJarvis() {
 
 }
 
-function initJarvisVoice() {
-  if (!window.speechSynthesis) return;
-  const loadVoices = () => {
-    const voices = window.speechSynthesis.getVoices();
-    // Debug: alle Stimmen zeigen
-    console.log('Verfügbare Stimmen:', voices.map(v => v.name + ' ' + v.lang));
-    
-    // Microsoft Stefan - deutsch, männlich - perfekt für JARVIS
-    jarvisVoice =
-      voices.find(v => v.name === 'Microsoft Stefan - German (Germany)') ||
-      voices.find(v => v.name.includes('Stefan')) ||
-      voices.find(v => v.name === 'Microsoft David Desktop - English (United States)') ||
-      voices.find(v => v.name.includes('David')) ||
-      voices.find(v => v.name.includes('Mark')) ||
-      voices[0];
-    
-    console.log('JARVIS Stimme:', jarvisVoice?.name, jarvisVoice?.lang);
-  };
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-}
-
-let _currentAudio = null;
-
-async function jarvisSay(text) {
-  // Transcript
+function jarvisSay(text) {
   addJarvisMessage(text, 'jarvis');
-
-  // Orb animieren
-  if (jarvisOrb) jarvisOrb.classList.add('speaking');
-  setJarvisStatus('SPRICHT...');
-  jarvisSpeaking = true;
-
-  // Laufendes Audio stoppen
-  if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; }
-
-  try {
-    const resp = await fetch('/api/voice/speak', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
-    if (!resp.ok) throw new Error('TTS Fehler ' + resp.status);
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    _currentAudio = audio;
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
-      if (jarvisOrb) jarvisOrb.classList.remove('speaking');
-      setJarvisStatus('BEREIT');
-      jarvisSpeaking = false;
-      _currentAudio = null;
-    };
-    audio.onerror = () => {
-      _currentAudio = null;
-      // Fallback auf Browser-Synthese
-      if (window.speechSynthesis) {
-        const utt = new SpeechSynthesisUtterance(text);
-        if (jarvisVoice) utt.voice = jarvisVoice;
-        utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1;
-        utt.onend = () => { if (jarvisOrb) jarvisOrb.classList.remove('speaking'); setJarvisStatus('BEREIT'); jarvisSpeaking = false; };
-        window.speechSynthesis.speak(utt);
-      } else {
-        if (jarvisOrb) jarvisOrb.classList.remove('speaking');
-        setJarvisStatus('BEREIT');
-        jarvisSpeaking = false;
-      }
-    };
-    audio.play();
-  } catch(e) {
-    console.warn('OpenAI TTS fehlgeschlagen, Fallback:', e);
-    // Fallback: Browser-Synthese
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      const utt = new SpeechSynthesisUtterance(text);
-      if (jarvisVoice) utt.voice = jarvisVoice;
-      utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1;
-      utt.onend = () => {
-        if (jarvisOrb) jarvisOrb.classList.remove('speaking');
-        setJarvisStatus('BEREIT');
-        jarvisSpeaking = false;
-      };
-      window.speechSynthesis.speak(utt);
-    } else {
-      setTimeout(() => {
-        if (jarvisOrb) jarvisOrb.classList.remove('speaking');
-        setJarvisStatus('BEREIT');
-        jarvisSpeaking = false;
-      }, text.length * 60);
-    }
-  }
+  if (jarvisOrb) jarvisOrb.classList.remove('speaking');
+  setJarvisStatus('BEREIT');
 }
 
 function setJarvisStatus(text) {
-  const s = document.getElementById('jarvis-status');
-  if (s) s.textContent = text;
+  const status = document.getElementById('jarvis-status');
+  if (status) status.textContent = text;
 }
 
 // ── SIGGI Media Panel ─────────────────────────────────────────────────────
@@ -1859,120 +1761,6 @@ function addJarvisMessage(text, type) {
   msg.textContent = text;
   t.appendChild(msg);
   t.scrollTop = t.scrollHeight;
-}
-
-// ── Spracheingabe (Web Speech API) ───────────────────────────────────────
-
-function toggleMic() {
-  // Immer laufendes Audio sofort stoppen wenn Mikro-Button gedrückt wird
-  if (_currentAudio) { try { _currentAudio.pause(); } catch(e){} _currentAudio = null; }
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
-  if (jarvisOrb) jarvisOrb.classList.remove('speaking');
-  jarvisSpeaking = false;
-
-  if (jarvisListening) {
-    // Zweiter Klick: aufnehmen stoppen und Text senden
-    if (jarvisRecognition) jarvisRecognition.stop();
-    setTimeout(() => {
-      const inp = document.getElementById('jarvis-input');
-      const text = (inp ? inp.value.trim() : '') || window._finalTranscriptGlobal || '';
-      if (text) {
-        if (inp) inp.value = '';
-        window._finalTranscriptGlobal = '';
-        addJarvisMessage(text, 'user');
-        sendJarvisMessageDirect(text);
-      }
-    }, 100);
-  } else {
-    startMic();
-  }
-}
-
-function startMic() {
-  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    jarvisSay('Leider unterstützt dieser Browser keine Spracheingabe. Bitte Chrome oder Edge nutzen.');
-    return;
-  }
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  jarvisRecognition = new SR();
-  jarvisRecognition.lang = 'de-DE';
-  jarvisRecognition.continuous = true;
-  jarvisRecognition.interimResults = true;
-
-  let _finalTranscript = '';
-
-  jarvisRecognition.onstart = () => {
-    jarvisListening = true;
-    _finalTranscript = '';
-    window._finalTranscriptGlobal = '';
-    document.getElementById('jarvis-mic')?.classList.add('active');
-    if (jarvisOrb) jarvisOrb.classList.add('listening');
-    setJarvisStatus('HÖRE ZU...');
-    const hint = document.getElementById('jarvis-mic-hint');
-    if (hint) hint.textContent = 'NOCHMAL KLICKEN ZUM SENDEN';
-    if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; }
-  };
-
-  jarvisRecognition.onresult = (e) => {
-    _finalTranscript = '';
-    let interim = '';
-    for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) _finalTranscript += e.results[i][0].transcript + ' ';
-      else interim += e.results[i][0].transcript;
-    }
-    window._finalTranscriptGlobal = _finalTranscript.trim();
-    const inp = document.getElementById('jarvis-input');
-    if (inp) inp.value = (_finalTranscript + interim).trim();
-  };
-
-  jarvisRecognition.onend = () => {
-    jarvisListening = false;
-    document.getElementById('jarvis-mic')?.classList.remove('active');
-    if (jarvisOrb) jarvisOrb.classList.remove('listening');
-    setJarvisStatus('BEREIT');
-    const hint = document.getElementById('jarvis-mic-hint');
-    if (hint) hint.textContent = 'TIPPEN ZUM SPRECHEN';
-  };
-
-  jarvisRecognition.onerror = (e) => {
-    jarvisListening = false;
-    document.getElementById('jarvis-mic')?.classList.remove('active');
-    if (jarvisOrb) { jarvisOrb.classList.remove('listening'); jarvisOrb.classList.remove('speaking'); }
-    const hint = document.getElementById('jarvis-mic-hint');
-    if (hint) hint.textContent = 'TIPPEN ZUM SPRECHEN';
-    console.log('[Mic] Fehler:', e.error);
-    if (e.error === 'not-allowed') {
-      setJarvisStatus('MIKROFON BLOCKIERT');
-      jarvisSay('Das Mikrofon ist blockiert. Oben links auf das Schloss-Symbol klicken.');
-    } else if (e.error === 'audio-capture') {
-      setJarvisStatus('KEIN MIKROFON');
-      jarvisSay('Kein Mikrofon gefunden.');
-    } else {
-      setJarvisStatus('BEREIT');
-    }
-  };
-
-  jarvisRecognition.start();
-}
-
-function stopMic() {
-  if (jarvisRecognition) jarvisRecognition.stop();
-}
-
-function switchJarvisVoice() {
-  const voices = window.speechSynthesis.getVoices();
-  const currentIdx = voices.indexOf(jarvisVoice);
-  const next = voices[(currentIdx + 1) % voices.length];
-  jarvisVoice = next;
-  addJarvisMessage(`Stimme gewechselt zu: ${next.name} (${next.lang})`, 'system');
-  // Test
-  const utt = new SpeechSynthesisUtterance('Test. Guten Tag, ich bin jetzt mit dieser Stimme online.');
-  utt.voice = next;
-  utt.rate = 0.85;
-  utt.pitch = 0.7;
-  utt.volume = 1;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utt);
 }
 
 async function sendJarvisMessageDirect(text) {
